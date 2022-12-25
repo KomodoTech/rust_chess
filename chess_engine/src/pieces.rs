@@ -8,6 +8,7 @@ pub enum Figure {
     King,
 }
 
+#[derive(Debug)]
 pub enum Color {
     White,
     Black,
