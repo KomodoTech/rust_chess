@@ -82,21 +82,25 @@ impl fmt::Display for Board<'_> {
                         output_string.push(' ');
                     },
                     c if c == '/' => {
-                        // TODO: this is absolutely not a good idea... what's better?
-                        unsafe {
-                        output_string.as_bytes_mut()[i - 1] = b'\n';
-                        }
+                        // TODO: how can I avoid popping and just use index to overwrite?
+                        output_string.pop();
+                        output_string.push('\n');
                     }
                     c if c.is_numeric() => {
                         // TODO: better error handling
                         let mut i = c.to_digit(10).unwrap();
                         while i > 0 {
                             output_string.push('.');
+                            output_string.push(' ');
                             i -= 1;
                         } 
                     },
                     // TODO: better error handling
-                    _ => break,
+                    _ => {
+                        // pop off last space
+                        output_string.pop();
+                        break;
+                    }
                 }
             }
             output_string
