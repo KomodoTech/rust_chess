@@ -13,6 +13,7 @@ pub struct Square(usize);
 
 impl Square {
     pub fn from_name(name: &str) -> Result<Self, Error> {
+        // Returns the index position of square name.
         match SQUARE_NAMES.iter().position(|&x| x == name) {
             Some(u) => Ok(Self(u)),
             None => Err(Error::SquareParsingError(name.to_string())),
@@ -20,11 +21,15 @@ impl Square {
     }
 
     pub fn to_name(&self) -> &str {
+        // Returns indexed square
         SQUARE_NAMES[self.0]
     }
 
-    fn from_file_and_rank_index(file_idx: u8, rank_idx: u8) -> Option<Self> {
-        let u = (rank_idx * 8 + file_idx) as usize;
+    pub fn from_file_and_rank(file_: u8, rank: u8) -> Option<Self> {
+        // Returns square with given file and rank
+        // file_: ranged from 0-7, where 0 == a_file, 7 == g_file, etc
+        // rank: ranged from 0-7, where 0 == 1st_rank, 7 == 8th_rank, etc
+        let u = ((rank << 3) + file_) as usize;
         if u < 64 {
             Some(Self(u))
         } else {
@@ -32,11 +37,13 @@ impl Square {
         }
     }
 
-    fn get_file_idx(&self) -> u8 {
+    pub fn get_file(&self) -> u8 {
+        // Get file_index (a_file == 0, g_file == 7, etc)
         self.0 as u8 & 7
     }
 
-    fn get_rank_idx(&self) -> u8 {
+    pub fn get_rank(&self) -> u8 {
+        // Get rank_index (1st_rank == 0, 8th_rank == 7, etc)
         self.0 as u8 >> 3
     }
 }
@@ -61,23 +68,23 @@ mod tests {
     }
 
     #[test]
-    fn test_from_file_and_rank_index() {
-        // file_idx is 1 (b file) and rank_idx is 2 (third rank)
-        let square = Square::from_file_and_rank_index(1, 2);
+    fn test_from_file_and_rank() {
+        // file_ is 1 (b file_) and rank is 2 (third rank)
+        let square = Square::from_file_and_rank(1, 2);
         assert_eq!(square, Some(Square(17)));
     }
 
     #[test]
-    fn test_to_file_index() {
-        // file_idx is 1 (b file) and rank_idx is 2 (third rank)
-        let square = Square::from_file_and_rank_index(1, 2).unwrap();
-        assert_eq!(square.get_file_idx(), 1);
+    fn test_to_file() {
+        // file_ is 1 (b file_) and rank is 2 (third rank)
+        let square = Square::from_file_and_rank(1, 2).unwrap();
+        assert_eq!(square.get_file(), 1);
     }
 
     #[test]
-    fn test_to_rank_index() {
-        // file_idx is 1 (b file) and rank_idx is 2 (third rank)
-        let square = Square::from_file_and_rank_index(1, 2).unwrap();
-        assert_eq!(square.get_rank_idx(), 2);
+    fn test_to_rank() {
+        // file_ is 1 (b file_) and rank is 2 (third rank)
+        let square = Square::from_file_and_rank(1, 2).unwrap();
+        assert_eq!(square.get_rank(), 2);
     }
 }

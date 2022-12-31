@@ -7,3 +7,5 @@ edition = "2021"
 
 [dependencies]
 chess_engine = { path = "../chess_engine" }
+macroquad = "0.3"
+# nakama-rs = "0.1"
