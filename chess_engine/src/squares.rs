@@ -1,4 +1,3 @@
-use crate::error::ChessError as Error;
 use std::fmt;
 
 const SQUARE_NAMES: [&str; 64] = [
@@ -12,29 +11,26 @@ const SQUARE_NAMES: [&str; 64] = [
 pub struct Square(usize);
 
 impl Square {
-    pub fn from_name(name: &str) -> Result<Self, Error> {
+    pub fn from_name(name: &str) -> Option<Self> {
         // Returns the index position of square name.
-        match SQUARE_NAMES.iter().position(|&x| x == name) {
-            Some(u) => Ok(Self(u)),
-            None => Err(Error::SquareParsingError(name.to_string())),
-        }
-    }
-
-    pub fn to_name(&self) -> &str {
-        // Returns indexed square
-        SQUARE_NAMES[self.0]
+        SQUARE_NAMES.iter().position(|&x| x == name).map(Self)
     }
 
     pub fn from_file_and_rank(file_: u8, rank: u8) -> Option<Self> {
         // Returns square with given file and rank
         // file_: ranged from 0-7, where 0 == a_file, 7 == g_file, etc
         // rank: ranged from 0-7, where 0 == 1st_rank, 7 == 8th_rank, etc
-        let u = ((rank << 3) + file_) as usize;
-        if u < 64 {
-            Some(Self(u))
+        if (rank & 7 == rank) && (file_ & 7 == file_) {
+            let u = (rank << 3) | file_;
+            Some(Self(u as usize))
         } else {
             None
         }
+    }
+
+    pub fn get_name(&self) -> &str {
+        // Returns indexed square
+        SQUARE_NAMES[self.0]
     }
 
     pub fn get_file(&self) -> u8 {
@@ -50,7 +46,7 @@ impl Square {
 
 impl fmt::Display for Square {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.to_name())
+        write!(f, "{}", self.get_name())
     }
 }
 
@@ -63,7 +59,7 @@ mod tests {
         let ref_string = "b3";
         let square: Square = Square::from_name(ref_string).unwrap();
         assert_eq!(square, Square(17));
-        let output_string = square.to_name();
+        let output_string = square.get_name();
         assert_eq!(ref_string, output_string);
     }
 
