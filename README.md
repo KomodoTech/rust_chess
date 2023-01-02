@@ -63,4 +63,4 @@ cd web
 devserver .
 ```
 
-And than open `localhost:8080`
+And then open `localhost:8080`

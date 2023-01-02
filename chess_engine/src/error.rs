@@ -5,4 +5,6 @@ use thiserror::Error;
 pub enum ChessError {
     #[error("illegal move attempted: {0}")]
     IllegalMoveError(Move),
+    #[error("Could not convert char {0} into a piece")]
+    ParsePieceError(char),
 }

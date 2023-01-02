@@ -1,7 +1,11 @@
-use crate::{error::ChessError, moves::Move, pieces::Piece, squares::Square};
+use crate::{
+    error::ChessError as Error,
+    pieces::{Color, Piece},
+    squares::Square,
+};
 use std::fmt;
 
-const DEFAULT_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+const DEFAULT_BASE_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
 
 #[derive(Debug)]
 pub struct Board {
@@ -9,24 +13,39 @@ pub struct Board {
 }
 
 impl Board {
-    pub fn from_fen(fen: &str) -> Board {
+    /// Returns empty board
+    pub fn new() -> Self {
         todo!()
     }
 
-    pub fn to_fen(&self) -> String {
+    /// Returns board from position FEN. Returns error if FEN is invalid
+    pub fn from_base_fen(fen: &str) -> Result<Self, Error> {
         todo!()
     }
 
-    /// Pushes a new move onto the board and updates the state of the board
-    /// Returns error if the move is illegal
-    pub fn push(&mut self, move_: &Move) -> Result<(), ChessError> {
+    /// Returns FEN based on board position
+    pub fn to_base_fen(&self) -> String {
+        todo!()
+    }
+
+    /// Returns piece occupying given square or None if square is empty
+    pub fn get_piece_at(&self, square: Square) -> Option<Piece> {
+        todo!()
+    }
+
+    /// Returns square occupied by the king of a given color or None if no king exists
+    pub fn get_king_square(&self, color: Color) -> Option<Square> {
         unimplemented!()
     }
 
-    /// Updates provided square to now hold a given piece.
-    /// If piece is None, sets the square to have no piece.
-    /// Returns the piece that was previously on the square (or None if there was no piece)
-    fn update_square(&mut self, square: Square, piece: Option<Piece>) -> Option<Piece> {
+    /// Clears a given square and returns the piece occupying square or None if square was empty
+    pub fn clear_square(&mut self, square: Square) -> Option<Piece> {
+        todo!()
+    }
+
+    /// Places new piece on given square.
+    /// Returns the piece previously occupying square or None if square was empty
+    pub fn add_piece(&mut self, square: Square, piece: Piece) -> Option<Piece> {
         todo!()
     }
 }
@@ -39,9 +58,10 @@ impl fmt::Display for Board {
     }
 }
 
+/// Returns a board with default initial position
 impl Default for Board {
     fn default() -> Self {
-        Board::from_fen(DEFAULT_FEN)
+        Self::from_base_fen(DEFAULT_BASE_FEN).unwrap()
     }
 }
 
@@ -50,38 +70,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_fen_parsing() {
-        let board: Board = Board::from_fen(DEFAULT_FEN);
-        let output_fen = board.to_fen();
-        assert_eq!(DEFAULT_FEN, output_fen);
-
-        let sicilian_fen = "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq c6 0 2";
-        let board: Board = Board::from_fen(sicilian_fen);
-        let output_fen = board.to_fen();
-        assert_eq!(sicilian_fen, output_fen)
-    }
-
-    #[test]
     fn test_board_to_string() {
-        let board: Board = Board::from_fen(DEFAULT_FEN);
+        let board = Board::default();
         let ref_string = "r n b q k b n r\np p p p p p p p\n. . . . . . . .\n. . . . . . . .\n. . . . . . . .\n. . . . . . . .\nP P P P P P P P\nR N B Q K B N R";
         let output_string = board.to_string(); // autoderived from impl Display
         assert_eq!(ref_string, output_string);
     }
 
-    #[ignore]
     #[test]
-    fn test_push_move() {
-        let mut board: Board = Board::from_fen(DEFAULT_FEN);
-        let e4: Move = Move::from_uci("e2e4");
-        board.push(&e4).expect("could not push e4 to new board");
+    fn test_fen_parsing() {
+        let empty_fen = "8/8/8/8/8/8/8/8";
+        let board = Board::new();
+        assert_eq!(empty_fen, board.to_base_fen());
 
-        let ref_fen = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1";
-        let output_fen = board.to_string();
-        assert_eq!(ref_fen, output_fen);
+        let board = Board::default();
+        assert_eq!(DEFAULT_BASE_FEN, board.to_base_fen());
 
-        let ref_board = "r n b q k b n r\np p p p p p p p\n. . . . . . . .\n. . . . . . . .\n. . . . P . . .\n. . . . . . . .\nP P P P . P P P\nR N B Q K B N R";
-        let output_board = board.to_string(); // autoderived from impl Display
-        assert_eq!(ref_board, output_board);
+        let sicilian_fen = "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR";
+        let board = Board::from_base_fen(sicilian_fen).unwrap();
+        assert_eq!(sicilian_fen, board.to_base_fen());
+    }
+
+    #[test]
+    fn test_add_piece() {
+        let mut board = Board::new();
+        let square = Square::from_name("e7").unwrap();
+        let pawn: Piece = 'p'.try_into().unwrap(); //black pawn
+
+        board.add_piece(square, pawn);
+
+        let new_fen = "8/4p3/8/8/8/8/8/8";
+        assert_eq!(new_fen, board.to_base_fen());
+        assert_eq!(board.get_piece_at(square), Some(pawn));
     }
 }
