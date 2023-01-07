@@ -1,13 +1,39 @@
 use chess_engine::board::Board;
 use macroquad::prelude::*;
 
+use macroquad::experimental::collections::storage;
+
+mod gui;
+use gui::Scene;
+
 const SQUARES: u8 = 8;
 const LIGHT_COLOR: Color = Color::new(234. / 255., 233. / 255., 212. / 255., 1.);
 const DARK_COLOR: Color = Color::new(84. / 255., 114. / 255., 150. / 255., 1.);
 
+
+
 #[macroquad::main("Chess")]
 async fn main() {
     let _ = Board {};
+
+    let gui_resources = gui::GuiResources::new();
+    storage::store(gui_resources);
+
+    let mut next_scene = Scene::MainMenu;
+    loop {
+        match next_scene {
+            Scene::MainMenu => {
+                next_scene = gui::main_menu().await;
+            }
+            Scene::QuickGame => {
+                next_scene = game_scene().await;
+            }
+            _ => todo!(),
+        }
+    }
+}
+
+async fn game_scene() -> Scene {
     loop {
         clear_background(LIGHTGRAY);
 
