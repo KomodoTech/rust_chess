@@ -5,6 +5,8 @@ use crate::{
 };
 use std::fmt;
 
+use super::bitboard::BB_RANK_1;
+
 const DEFAULT_BASE_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
 
 #[derive(Debug)]

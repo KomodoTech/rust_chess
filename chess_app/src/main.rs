@@ -1,4 +1,5 @@
 use chess_engine::board::Board;
+
 use macroquad::prelude::*;
 
 use macroquad::experimental::collections::storage;
@@ -9,8 +10,6 @@ use gui::Scene;
 const SQUARES: u8 = 8;
 const LIGHT_COLOR: Color = Color::new(234. / 255., 233. / 255., 212. / 255., 1.);
 const DARK_COLOR: Color = Color::new(84. / 255., 114. / 255., 150. / 255., 1.);
-
-
 
 #[macroquad::main("Chess")]
 async fn main() {
