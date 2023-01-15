@@ -6,7 +6,6 @@ pub use style::GuiResources;
 
 pub enum Scene {
     MainMenu,
-    Credits,
     Login,
     QuickGame,
 }

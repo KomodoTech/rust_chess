@@ -1,0 +1,26 @@
+[tasks.build]
+command = "cargo"
+args = ["build",
+    "--target",
+    "wasm32-unknown-unknown",
+    "--release"
+]
+
+[tasks.linux_copy]
+script = ["cp ../target/wasm32-unknown-unknown/release/chess_app.wasm web/chess_app.wasm"]
+dependencies = ["build"]
+
+[tasks.windows_copy]
+script = ["copy ../target/wasm32-unknown-unknown/release/chess_app.wasm web/chess_app.wasm"]
+dependencies = ["build"]
+
+[tasks.copy]
+linux_alias = "linux_copy"
+mac_alias = "linux_copy"
+windows_alias = "windows_copy"
+
+[tasks.update]
+dependencies = [
+    "build",
+    "copy"
+]

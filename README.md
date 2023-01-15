@@ -48,7 +48,14 @@ cargo run --release
 ```
 from this repo root.
 
-### Building HTML5 build:
+### Building HTML5 build in chess_app project:
+First, install cargo-make if you don't already have it:
+```
+cargo install cargo-make
+```
+
+Next, navigate to `chess_app` and run `cargo make update`. This will build the wasm file and move it into the `web` folder.
+Alternatively, you can manually build and copy it yourself with the commands:
 
 ```
 cargo build --target wasm32-unknown-unknown --release
