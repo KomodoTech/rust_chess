@@ -28,17 +28,17 @@ impl Square {
         }
     }
 
-    pub fn name(&self) -> &str {
+    pub const fn name(&self) -> &str {
         // Returns indexed square
         SQUARE_NAMES[self.0]
     }
 
-    pub fn file(&self) -> u8 {
+    pub const fn file(&self) -> u8 {
         // Get file_index (a_file == 0, h_file == 7, etc)
         self.0 as u8 & 7
     }
 
-    pub fn rank(&self) -> u8 {
+    pub const fn rank(&self) -> u8 {
         // Get rank_index (1st_rank == 0, 8th_rank == 7, etc)
         self.0 as u8 >> 3
     }
