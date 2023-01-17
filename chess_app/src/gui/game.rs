@@ -29,22 +29,36 @@ pub async fn game_scene() -> Scene {
                 ..Default::default()
             },
         );
-        draw_texture_ex(
-            piece_texture,
-            (width - game_size) / 2.,
-            (height - game_size) / 2.,
-            WHITE,
-            DrawTextureParams {
-                dest_size: Some(Vec2::splat(game_size / 8.)),
-                source: Some(Rect {
-                    x: 0.,
-                    y: 0.,
-                    w: 170.,
-                    h: 170.,
-                }),
-                ..Default::default()
-            },
-        );
+        for (i, pos) in [
+            (4, 1),
+            (3, 1),
+            (2, 1),
+            (1, 1),
+            (0, 1),
+            (2, 1),
+            (3, 1),
+            (4, 1),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            draw_texture_ex(
+                piece_texture,
+                (width - game_size) / 2. + game_size * i as f32 / 8.,
+                (height - game_size) / 2.,
+                WHITE,
+                DrawTextureParams {
+                    dest_size: Some(Vec2::splat(game_size / 8.)),
+                    source: Some(Rect {
+                        x: 170. * pos.0 as f32,
+                        y: 170. * pos.1 as f32,
+                        w: 170.,
+                        h: 170.,
+                    }),
+                    ..Default::default()
+                },
+            );
+        }
 
         draw_text("CLOCK", 20., 20., 20., DARKGRAY);
         draw_text("CLOCK", 20., height - 20., 20., DARKGRAY);
