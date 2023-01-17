@@ -31,7 +31,7 @@ pub async fn main_menu() -> Scene {
                 screen_width() / 2. - BUTTON_WIDTH - HALF_MARGIN,
                 label_pos.y + label_size.y + BUTTON_OFFSET,
             ))
-            .ui(&mut *root_ui())
+            .ui(&mut root_ui())
         {
             root_ui().pop_skin();
             return Scene::QuickGame;
@@ -43,7 +43,7 @@ pub async fn main_menu() -> Scene {
                 screen_width() / 2. + HALF_MARGIN,
                 label_pos.y + label_size.y + BUTTON_OFFSET,
             ))
-            .ui(&mut *root_ui())
+            .ui(&mut root_ui())
         {
             root_ui().pop_skin();
             return Scene::Login;
