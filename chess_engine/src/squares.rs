@@ -21,8 +21,8 @@ impl Square {
         // file_: ranged from 0-7, where 0 == a_file, 7 == h_file, etc
         // rank: ranged from 0-7, where 0 == 1st_rank, 7 == 8th_rank, etc
         if (rank | file_) >> 3 == 0 {
-            let u = (rank << 3) | file_;
-            Some(Self(u as usize))
+            let u = ((rank << 3) | file_) as usize;
+            Some(Self(u))
         } else {
             None
         }
