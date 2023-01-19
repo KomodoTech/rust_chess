@@ -1,23 +1,85 @@
 use crate::{
     error::ChessError as Error,
-    pieces::{Color, Piece},
+    pieces::Piece,
     squares::Square,
 };
 use std::fmt;
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 
 use super::bitboard::BB_RANK_1;
 
 const DEFAULT_BASE_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
+const NUM_BOARD_SQUARES: usize = 120;
+
+#[derive(EnumIter, Debug, Copy, Clone, PartialEq, Eq)]
+enum File {
+    FileA,
+    FileB,
+    FileC,
+    FileD,
+    FileE,
+    FileF,
+    FileG,
+    FileH
+}
+
+#[derive(EnumIter, Debug, Copy, Clone, PartialEq, Eq)]
+enum Rank {
+    Rank1,
+    Rank2,
+    Rank3,
+    Rank4,
+    Rank5,
+    Rank6,
+    Rank7,
+    Rank8
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Color {
+    White,
+    Black,
+}
 
 #[derive(Debug)]
 pub struct Board {
-    // add whatever fields you want here
+    pieces: [u32; NUM_BOARD_SQUARES],
+    pawns: [u64; 3],
+    kings_index: [u32; 2],
+    piece_count: [u32; 12],
+    big_piece_count: [u32; 3],
+    major_piece_count: [u32; 3], 
+    minor_piece_count: [u32; 3], 
+    files_board: [u32; NUM_BOARD_SQUARES],
+    ranks_board: [u32; NUM_BOARD_SQUARES],
 }
 
 impl Board {
     /// Returns empty board
     pub fn new() -> Self {
+        let files_and_ranks_boards = Self::init_files_ranks_board();
         todo!()
+    }
+
+    fn init_files_ranks_board() -> ([u32; NUM_BOARD_SQUARES], [u32; NUM_BOARD_SQUARES]) {
+        let mut index = 0;
+        let mut file = File::FileA;
+        let mut rank = Rank::Rank1;
+        let mut square = Square::A1; 
+        let mut square_64 = 0;
+
+        let mut files_board = [Square::OffBoard as u32; NUM_BOARD_SQUARES];
+        let mut ranks_board = [Square::OffBoard as u32; NUM_BOARD_SQUARES];
+
+        for rank in Rank::iter() {
+            for file in File::iter() {
+                square = Square::from_file_and_rank(file as u8, rank as u8).unwrap();
+                files_board[square as usize] = file as u32;
+                ranks_board[square as usize] = rank as u32;
+            }
+        }
+        (files_board, ranks_board)
     }
 
     /// Returns board from position FEN. Returns error if FEN is invalid
