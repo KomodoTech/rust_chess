@@ -8,5 +8,7 @@ pub enum ChessError {
     #[error("Could not convert char {0} into a piece")]
     ParsePieceError(char),
     #[error("Could not convert &str {0} into a square")]
-    ParseSquareError(String),
+    ParseSquareFromStrError(String),
+    #[error("Could not convert u8 {0} into a square")]
+    ParseSquareFromU8Error(u8),
 }

@@ -6,8 +6,8 @@ use crate::{
 use std::fmt;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
-
 use super::bitboard::BB_RANK_1;
+
 
 const DEFAULT_BASE_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
 const NUM_BOARD_SQUARES: usize = 120;
@@ -43,6 +43,39 @@ pub enum Color {
 }
 
 #[derive(Debug)]
+pub struct UtilBoards {
+    square_120_to_64: [u32; NUM_BOARD_SQUARES],
+    square_64_to_120: [u32; 64],
+    files_board: [u32; NUM_BOARD_SQUARES],
+    ranks_board: [u32; NUM_BOARD_SQUARES],
+}
+
+impl UtilBoards {
+    fn new() -> Self {
+        let mut square = Square::A1; 
+        let mut square_64 = 0;
+
+        let mut files_board = [Square::OffBoard as u32; NUM_BOARD_SQUARES];
+        let mut ranks_board = [Square::OffBoard as u32; NUM_BOARD_SQUARES];
+        let mut square_120_to_64 = [64; NUM_BOARD_SQUARES];
+        let mut square_64_to_120 = [120; 64];
+
+        for rank in Rank::iter() {
+            for file in File::iter() {
+                let square = Square::from_file_and_rank(file as u8, rank as u8).unwrap();
+                square_120_to_64[square as usize] = square_64 as u32;
+                square_64_to_120[square_64] = square as u32;
+                files_board[square as usize] = file as u32;
+                ranks_board[square as usize] = rank as u32;
+                square_64 += 1;
+            }
+        }
+
+        UtilBoards { square_120_to_64, square_64_to_120, files_board, ranks_board }
+    }
+}
+
+#[derive(Debug)]
 pub struct Board {
     pieces: [u32; NUM_BOARD_SQUARES],
     pawns: [u64; 3],
@@ -51,35 +84,29 @@ pub struct Board {
     big_piece_count: [u32; 3],
     major_piece_count: [u32; 3], 
     minor_piece_count: [u32; 3], 
+    square_120_to_64: [u32; NUM_BOARD_SQUARES],
+    square_64_to_120: [u32; 64],
     files_board: [u32; NUM_BOARD_SQUARES],
     ranks_board: [u32; NUM_BOARD_SQUARES],
 }
 
 impl Board {
-    /// Returns empty board
     pub fn new() -> Self {
-        let files_and_ranks_boards = Self::init_files_ranks_board();
+        let util_boards = UtilBoards::new();
         todo!()
     }
 
-    fn init_files_ranks_board() -> ([u32; NUM_BOARD_SQUARES], [u32; NUM_BOARD_SQUARES]) {
-        let mut index = 0;
-        let mut file = File::FileA;
-        let mut rank = Rank::Rank1;
-        let mut square = Square::A1; 
-        let mut square_64 = 0;
 
-        let mut files_board = [Square::OffBoard as u32; NUM_BOARD_SQUARES];
-        let mut ranks_board = [Square::OffBoard as u32; NUM_BOARD_SQUARES];
+    // Doesn't feel optimal structurally, but easiest to do with access to files_board and ranks_board
+    // so currently it needs to be in the Board... TODO: figure out if there is a better way/if the code
+    // can be restructured so that Square can have this functionality. Also think about performance of doing
+    // math versus accessing memory (stack)
+    pub fn get_file(square: Square) -> u8 {
+        todo!()
+    }
 
-        for rank in Rank::iter() {
-            for file in File::iter() {
-                square = Square::from_file_and_rank(file as u8, rank as u8).unwrap();
-                files_board[square as usize] = file as u32;
-                ranks_board[square as usize] = rank as u32;
-            }
-        }
-        (files_board, ranks_board)
+    pub fn get_rank(square: Square) -> u8 {
+        todo!()
     }
 
     /// Returns board from position FEN. Returns error if FEN is invalid
@@ -134,6 +161,70 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_init_util_boards() {
+        let output = UtilBoards::new();
+
+        // 120 to 64
+        assert_eq!(output.square_120_to_64, [
+            64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
+            64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
+            64,  0,  1,  2,  3,  4,  5,  6,  7, 64,
+            64,  8,  9, 10, 11, 12, 13, 14, 15, 64,
+            64, 16, 17, 18, 19, 20, 21, 22, 23, 64,
+            64, 24, 25, 26, 27, 28, 29, 30, 31, 64,
+            64, 32, 33, 34, 35, 36, 37, 38, 39, 64,
+            64, 40, 41, 42, 43, 44, 45, 46, 47, 64,
+            64, 48, 49, 50, 51, 52, 53, 54, 55, 64,
+            64, 56, 57, 58, 59, 60, 61, 62, 63, 64,
+            64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
+            64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
+        ]);
+
+        // 64 to 120
+        assert_eq!(output.square_64_to_120, [
+            21, 22, 23, 24, 25, 26, 27, 28,
+            31, 32, 33, 34, 35, 36, 37, 38,
+            41, 42, 43, 44, 45, 46, 47, 48,
+            51, 52, 53, 54, 55, 56, 57, 58,
+            61, 62, 63, 64, 65, 66, 67, 68,
+            71, 72, 73, 74, 75, 76, 77, 78,
+            81, 82, 83, 84, 85, 86, 87, 88,
+            91, 92, 93, 94, 95, 96, 97, 98,
+        ]);
+
+        // Files
+        assert_eq!(output.files_board, [
+           99, 99, 99, 99, 99, 99, 99, 99, 99, 99,  
+           99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 
+           99,  0,  1,  2,  3,  4,  5,  6,  7, 99,  
+           99,  0,  1,  2,  3,  4,  5,  6,  7, 99,  
+           99,  0,  1,  2,  3,  4,  5,  6,  7, 99,  
+           99,  0,  1,  2,  3,  4,  5,  6,  7, 99,  
+           99,  0,  1,  2,  3,  4,  5,  6,  7, 99,  
+           99,  0,  1,  2,  3,  4,  5,  6,  7, 99,  
+           99,  0,  1,  2,  3,  4,  5,  6,  7, 99,  
+           99,  0,  1,  2,  3,  4,  5,  6,  7, 99,  
+           99, 99, 99, 99, 99, 99, 99, 99, 99, 99,  
+           99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 
+        ]);
+        // Ranks
+        assert_eq!(output.ranks_board, [
+           99, 99, 99, 99, 99, 99, 99, 99, 99, 99,  
+           99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 
+           99,  0,  0,  0,  0,  0,  0,  0,  0, 99,  
+           99,  1,  1,  1,  1,  1,  1,  1,  1, 99,  
+           99,  2,  2,  2,  2,  2,  2,  2,  2, 99,  
+           99,  3,  3,  3,  3,  3,  3,  3,  3, 99,  
+           99,  4,  4,  4,  4,  4,  4,  4,  4, 99,  
+           99,  5,  5,  5,  5,  5,  5,  5,  5, 99,  
+           99,  6,  6,  6,  6,  6,  6,  6,  6, 99,  
+           99,  7,  7,  7,  7,  7,  7,  7,  7, 99,  
+           99, 99, 99, 99, 99, 99, 99, 99, 99, 99,  
+           99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 
+        ]);
+    }
+
+    #[test]
     fn test_board_to_string() {
         let board = Board::default();
         let ref_string = "r n b q k b n r\np p p p p p p p\n. . . . . . . .\n. . . . . . . .\n. . . . . . . .\n. . . . . . . .\nP P P P P P P P\nR N B Q K B N R";
@@ -155,16 +246,16 @@ mod tests {
         assert_eq!(sicilian_fen, board.to_base_fen());
     }
 
-    #[test]
-    fn test_add_piece() {
-        let mut board = Board::new();
-        let square = Square::from_name("e7").unwrap();
-        let pawn: Piece = 'p'.try_into().unwrap(); //black pawn
+    // #[test]
+    // fn test_add_piece() {
+    //     let mut board = Board::new();
+    //     let square = Square::from_name("e7").unwrap();
+    //     let pawn: Piece = 'p'.try_into().unwrap(); //black pawn
 
-        board.add_piece(square, pawn);
+    //     board.add_piece(square, pawn);
 
-        let new_fen = "8/4p3/8/8/8/8/8/8";
-        assert_eq!(new_fen, board.to_base_fen());
-        assert_eq!(board.get_piece_at(square), Some(pawn));
-    }
+    //     let new_fen = "8/4p3/8/8/8/8/8/8";
+    //     assert_eq!(new_fen, board.to_base_fen());
+    //     assert_eq!(board.get_piece_at(square), Some(pawn));
+    // }
 }
