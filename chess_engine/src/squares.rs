@@ -3,6 +3,174 @@ use std::str::FromStr;
 use crate::error::ChessError as Error;
 use strum_macros::Display;
 
+
+#[derive(Display, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Square64 {
+    A1, B1, C1, D1, E1, F1, G1, H1,
+    A2, B2, C2, D2, E2, F2, G2, H2,
+    A3, B3, C3, D3, E3, F3, G3, H3,
+    A4, B4, C4, D4, E4, F4, G4, H4,
+    A5, B5, C5, D5, E5, F5, G5, H5,
+    A6, B6, C6, D6, E6, F6, G6, H6,
+    A7, B7, C7, D7, E7, F7, G7, H7,
+    A8, B8, C8, D8, E8, F8, G8, H8
+}
+
+impl FromStr for Square64 {
+    type Err = Error;
+    
+    fn from_str(square_name: &str) -> Result<Self, Self::Err> {
+        match square_name {
+            "A1" => Ok(Square64::A1),
+            "B1" => Ok(Square64::B1),
+            "C1" => Ok(Square64::C1),
+            "D1" => Ok(Square64::D1),
+            "E1" => Ok(Square64::E1),
+            "F1" => Ok(Square64::F1),
+            "G1" => Ok(Square64::G1),
+            "A2" => Ok(Square64::A2),
+            "B2" => Ok(Square64::B2),
+            "C2" => Ok(Square64::C2),
+            "D2" => Ok(Square64::D2),
+            "E2" => Ok(Square64::E2),
+            "F2" => Ok(Square64::F2),
+            "G2" => Ok(Square64::G2),
+            "A3" => Ok(Square64::A3),
+            "B3" => Ok(Square64::B3),
+            "C3" => Ok(Square64::C3),
+            "D3" => Ok(Square64::D3),
+            "E3" => Ok(Square64::E3),
+            "F3" => Ok(Square64::F3),
+            "G3" => Ok(Square64::G3),
+            "A4" => Ok(Square64::A4),
+            "B4" => Ok(Square64::B4),
+            "C4" => Ok(Square64::C4),
+            "D4" => Ok(Square64::D4),
+            "E4" => Ok(Square64::E4),
+            "F4" => Ok(Square64::F4),
+            "G4" => Ok(Square64::G4),
+            "A5" => Ok(Square64::A5),
+            "B5" => Ok(Square64::B5),
+            "C5" => Ok(Square64::C5),
+            "D5" => Ok(Square64::D5),
+            "E5" => Ok(Square64::E5),
+            "F5" => Ok(Square64::F5),
+            "G5" => Ok(Square64::G5),
+            "A6" => Ok(Square64::A6),
+            "B6" => Ok(Square64::B6),
+            "C6" => Ok(Square64::C6),
+            "D6" => Ok(Square64::D6),
+            "E6" => Ok(Square64::E6),
+            "F6" => Ok(Square64::F6),
+            "G6" => Ok(Square64::G6),
+            "A7" => Ok(Square64::A7),
+            "B7" => Ok(Square64::B7),
+            "C7" => Ok(Square64::C7),
+            "D7" => Ok(Square64::D7),
+            "E7" => Ok(Square64::E7),
+            "F7" => Ok(Square64::F7),
+            "G7" => Ok(Square64::G7),
+            "A8" => Ok(Square64::A8),
+            "B8" => Ok(Square64::B8),
+            "C8" => Ok(Square64::C8),
+            "D8" => Ok(Square64::D8),
+            "E8" => Ok(Square64::E8),
+            "F8" => Ok(Square64::F8),
+            "G8" => Ok(Square64::G8),
+            _ => Err(Error::ParseSquare64FromStrError(square_name.to_string())),
+        }
+    }
+}
+
+impl TryFrom<u8> for Square64 {
+    type Error = Error;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            v if v == Square64::A1 as u8 => Ok(Square64::A1),
+            v if v == Square64::B1 as u8 => Ok(Square64::B1),
+            v if v == Square64::C1 as u8 => Ok(Square64::C1),
+            v if v == Square64::D1 as u8 => Ok(Square64::D1),
+            v if v == Square64::E1 as u8 => Ok(Square64::E1),
+            v if v == Square64::F1 as u8 => Ok(Square64::F1),
+            v if v == Square64::G1 as u8 => Ok(Square64::G1),
+            v if v == Square64::H1 as u8 => Ok(Square64::H1),
+            v if v == Square64::A2 as u8 => Ok(Square64::A2),
+            v if v == Square64::B2 as u8 => Ok(Square64::B2),
+            v if v == Square64::C2 as u8 => Ok(Square64::C2),
+            v if v == Square64::D2 as u8 => Ok(Square64::D2),
+            v if v == Square64::E2 as u8 => Ok(Square64::E2),
+            v if v == Square64::F2 as u8 => Ok(Square64::F2),
+            v if v == Square64::G2 as u8 => Ok(Square64::G2),
+            v if v == Square64::H2 as u8 => Ok(Square64::H2),
+            v if v == Square64::A3 as u8 => Ok(Square64::A3),
+            v if v == Square64::B3 as u8 => Ok(Square64::B3),
+            v if v == Square64::C3 as u8 => Ok(Square64::C3),
+            v if v == Square64::D3 as u8 => Ok(Square64::D3),
+            v if v == Square64::E3 as u8 => Ok(Square64::E3),
+            v if v == Square64::F3 as u8 => Ok(Square64::F3),
+            v if v == Square64::G3 as u8 => Ok(Square64::G3),
+            v if v == Square64::H3 as u8 => Ok(Square64::H3),
+            v if v == Square64::A4 as u8 => Ok(Square64::A4),
+            v if v == Square64::B4 as u8 => Ok(Square64::B4),
+            v if v == Square64::C4 as u8 => Ok(Square64::C4),
+            v if v == Square64::D4 as u8 => Ok(Square64::D4),
+            v if v == Square64::E4 as u8 => Ok(Square64::E4),
+            v if v == Square64::F4 as u8 => Ok(Square64::F4),
+            v if v == Square64::G4 as u8 => Ok(Square64::G4),
+            v if v == Square64::H4 as u8 => Ok(Square64::H4),
+            v if v == Square64::A5 as u8 => Ok(Square64::A5),
+            v if v == Square64::B5 as u8 => Ok(Square64::B5),
+            v if v == Square64::C5 as u8 => Ok(Square64::C5),
+            v if v == Square64::D5 as u8 => Ok(Square64::D5),
+            v if v == Square64::E5 as u8 => Ok(Square64::E5),
+            v if v == Square64::F5 as u8 => Ok(Square64::F5),
+            v if v == Square64::G5 as u8 => Ok(Square64::G5),
+            v if v == Square64::H5 as u8 => Ok(Square64::H5),
+            v if v == Square64::A6 as u8 => Ok(Square64::A6),
+            v if v == Square64::B6 as u8 => Ok(Square64::B6),
+            v if v == Square64::C6 as u8 => Ok(Square64::C6),
+            v if v == Square64::D6 as u8 => Ok(Square64::D6),
+            v if v == Square64::E6 as u8 => Ok(Square64::E6),
+            v if v == Square64::F6 as u8 => Ok(Square64::F6),
+            v if v == Square64::G6 as u8 => Ok(Square64::G6),
+            v if v == Square64::H6 as u8 => Ok(Square64::H6),
+            v if v == Square64::A7 as u8 => Ok(Square64::A7),
+            v if v == Square64::B7 as u8 => Ok(Square64::B7),
+            v if v == Square64::C7 as u8 => Ok(Square64::C7),
+            v if v == Square64::D7 as u8 => Ok(Square64::D7),
+            v if v == Square64::E7 as u8 => Ok(Square64::E7),
+            v if v == Square64::F7 as u8 => Ok(Square64::F7),
+            v if v == Square64::G7 as u8 => Ok(Square64::G7),
+            v if v == Square64::H7 as u8 => Ok(Square64::H7),
+            v if v == Square64::A8 as u8 => Ok(Square64::A8),
+            v if v == Square64::B8 as u8 => Ok(Square64::B8),
+            v if v == Square64::C8 as u8 => Ok(Square64::C8),
+            v if v == Square64::D8 as u8 => Ok(Square64::D8),
+            v if v == Square64::E8 as u8 => Ok(Square64::E8),
+            v if v == Square64::F8 as u8 => Ok(Square64::F8),
+            v if v == Square64::G8 as u8 => Ok(Square64::G8),
+            v if v == Square64::H8 as u8 => Ok(Square64::H8),
+            _ => Err(Error::ParseSquare64FromU8Error(value))
+        }
+    }
+}
+
+impl Square64 {
+    pub fn from_file_and_rank(file: u8, rank: u8) -> Option<Self> {
+        if (rank | file) >> 3 == 0 {
+            let index_64 = file + rank*8;
+            match index_64.try_into(){
+                Ok(square_64) => Some(square_64),
+                Err(_) => None,
+            }
+        } else {
+            None
+        }
+    }
+}
+
+
 #[derive(Display, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Square {
     A1 = 21, B1, C1, D1, E1, F1, G1, H1,
@@ -12,7 +180,7 @@ pub enum Square {
     A5 = 61, B5, C5, D5, E5, F5, G5, H5,
     A6 = 71, B6, C6, D6, E6, F6, G6, H6,
     A7 = 81, B7, C7, D7, E7, F7, G7, H7,
-    A8 = 91, B8, C8, D8, E8, F8, G8, H8, OffBoard,
+    A8 = 91, B8, C8, D8, E8, F8, G8, H8 
 }
 
 impl FromStr for Square {
@@ -76,7 +244,6 @@ impl FromStr for Square {
             "E8" => Ok(Square::E8),
             "F8" => Ok(Square::F8),
             "G8" => Ok(Square::G8),
-            "OffBoard" => Ok(Square::OffBoard),
             _ => Err(Error::ParseSquareFromStrError(square_name.to_string())),
         }
     }
