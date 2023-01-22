@@ -6,8 +6,6 @@ use crate::{
     squares::Square,
 };
 
-const DEFAULT_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-
 #[derive(Debug)]
 pub struct Gamestate {
     board: Board,
@@ -16,7 +14,7 @@ pub struct Gamestate {
     white_queen_castle: bool,
     black_king_castle: bool,
     black_queen_castle: bool,
-    en_passant: String,
+    en_passant: Option<String>,
     halfmove_clock: u32,
     fullmove_number: u32,
 }
@@ -59,11 +57,23 @@ impl Gamestate {
 /// Returns a board with default initial position
 impl Default for Gamestate {
     fn default() -> Self {
-        Self::from_fen(DEFAULT_FEN).unwrap()
+        Gamestate {
+            board: Board::default(),
+            active_color: Color::White,
+            white_king_castle: true,
+            white_queen_castle: true,
+            black_king_castle: true,
+            black_queen_castle: true,
+            en_passant: None,
+            halfmove_clock: 0,
+            fullmove_number: 1,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const DEFAULT_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 }

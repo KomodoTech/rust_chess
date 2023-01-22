@@ -7,12 +7,14 @@ use macroquad::{
     texture::{draw_texture_ex, load_texture, DrawTextureParams, Texture2D},
     window::{clear_background, next_frame, screen_height, screen_width},
 };
+
 pub async fn game_scene() -> Scene {
     let path = "assets/boards/board.png";
     let board_texture: Texture2D = load_texture(path).await.unwrap();
 
     let path = "assets/pieces/wiki_chess.png";
     let piece_texture: Texture2D = load_texture(path).await.unwrap();
+
     loop {
         clear_background(LIGHTGRAY);
         let height = screen_height();
