@@ -93,8 +93,17 @@ pub async fn game_scene() -> Scene {
             MouseState::Clicked { row, col, piece } => {
                 if is_mouse_button_down(MouseButton::Left) {
                     mouse_state
-                } else {
+                } else if mouse_x_pos < board_x_margin
+                    || board_x_margin + game_size <= mouse_x_pos
+                    || mouse_y_pos < board_y_margin
+                    || board_y_margin + game_size <= mouse_y_pos
+                {
                     piece_array[row][col] = piece;
+                    MouseState::Unclicked
+                } else {
+                    let new_col = ((mouse_x_pos - board_x_margin) / square_size).floor() as usize;
+                    let new_row = ((mouse_y_pos - board_y_margin) / square_size).floor() as usize;
+                    piece_array[new_row][new_col] = piece.or(piece_array[new_row][new_col]);
                     MouseState::Unclicked
                 }
             }
