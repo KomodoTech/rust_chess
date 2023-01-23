@@ -2,4 +2,4 @@ mod bitboard;
 mod board;
 
 pub use board::Board;
-pub use board::Color;
+pub use crate::util::Color;

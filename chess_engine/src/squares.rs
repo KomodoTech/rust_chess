@@ -1,7 +1,19 @@
 use std::fmt;
 use std::str::FromStr;
-use crate::error::ChessError as Error;
 use strum_macros::Display;
+
+use crate::{
+    error::ChessError as Error,
+    util::{
+        File,
+        Rank,
+        SQUARE_120_TO_64,
+        SQUARE_64_TO_120,
+        FILES_BOARD,
+        RANKS_BOARD,
+    },
+};
+
 
 
 #[derive(Display, Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,10 +94,11 @@ impl FromStr for Square64 {
     }
 }
 
+// TODO: confirm that there isn't a good way to do this for any generic integer type
 impl TryFrom<u8> for Square64 {
     type Error = Error;
 
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
+    fn try_from (value: u8) -> Result<Self, Self::Error> {
         match value {
             v if v == Square64::A1 as u8 => Ok(Square64::A1),
             v if v == Square64::B1 as u8 => Ok(Square64::B1),
@@ -156,8 +169,27 @@ impl TryFrom<u8> for Square64 {
     }
 }
 
+impl From<Square> for Square64 {
+    fn from(square_120: Square) -> Self {
+        SQUARE_120_TO_64[square_120 as usize].expect("Conversion from 10x12 Square to 8x8 Square failed")
+    }
+}
+
 impl Square64 {
-    pub fn from_file_and_rank(file: u8, rank: u8) -> Option<Self> {
+    // TODO: figure out if this can be made generic to accept Enum or u8
+    pub fn from_file_and_rank(file: File, rank: Rank) -> Option<Self> {
+        if (rank as u8 | file as u8) >> 3 == 0 {
+            let index_64 = (file as u8) + (rank as u8)*8;
+            match index_64.try_into(){
+                Ok(square_64) => Some(square_64),
+                Err(_) => None,
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn from_file_and_rank_u8(file: u8, rank: u8) -> Option<Self> {
         if (rank | file) >> 3 == 0 {
             let index_64 = file + rank*8;
             match index_64.try_into(){
@@ -166,6 +198,20 @@ impl Square64 {
             }
         } else {
             None
+        }
+    }
+
+    pub fn get_file(&self) -> Result<File, Error> {
+        match FILES_BOARD[*self as usize]  {
+            Some(file) => Ok(file),
+            None => Err(Error::Square64OnInvalidFile(*self)),
+        }
+    }
+
+    pub fn get_rank(&self) -> Result<Rank, Error> {
+        match RANKS_BOARD[*self as usize]  {
+            Some(rank) => Ok(rank),
+            None => Err(Error::Square64OnInvalidRank(*self)),
         }
     }
 }
@@ -323,8 +369,27 @@ impl TryFrom<u8> for Square {
     }
 }
 
+impl From<Square64> for Square {
+    fn from(square_64: Square64) -> Self {
+        SQUARE_64_TO_120[square_64 as usize].expect("Conversion from 8x8 Square to 10x12 Square failed")
+    }
+}
+
 impl Square {
-    pub fn from_file_and_rank(file: u8, rank: u8) -> Option<Self> {
+    pub fn from_file_and_rank(file: File, rank: Rank) -> Option<Self> {
+
+        if (rank as u8 | file as u8) >> 3 == 0 {
+            let index_120 = (21 + (file as u8) + (10 * (rank as u8)));
+            match index_120.try_into() {
+                Ok(square) => Some(square),
+                Err(_) => None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn from_file_and_rank_u8(file: u8, rank: u8) -> Option<Self> {
         if (rank | file) >> 3 == 0 {
             let index_120 = (21 + file + (10 * rank));
             match index_120.try_into() {
@@ -333,6 +398,20 @@ impl Square {
             }
         } else {
             None
+        }
+    }
+
+    pub fn get_file(&self) -> Result<File, Error> {
+        match FILES_BOARD[*self as usize]  {
+            Some(file) => Ok(file),
+            None => Err(Error::SquareOnInvalidFile(*self)),
+        }
+    }
+
+    pub fn get_rank(&self) -> Result<Rank, Error> {
+        match RANKS_BOARD[*self as usize]  {
+            Some(rank) => Ok(rank),
+            None => Err(Error::SquareOnInvalidRank(*self)),
         }
     }
 }
@@ -352,26 +431,49 @@ mod tests {
     }
 
     #[test]
-    fn test_from_file_and_rank_valid() {
-        let square = Square::from_file_and_rank(1, 2);
+    fn test_from_file_and_rank_u8_valid() {
+        let square = Square::from_file_and_rank_u8(1, 2);
         assert_eq!(square, Some(Square::B3));
 
-        let square = Square::from_file_and_rank(7, 7);
+        let square = Square::from_file_and_rank_u8(7, 7);
         assert_eq!(square, Some(Square::H8));
     }
 
     #[test]
-    fn test_from_file_and_rank_invalid() {
-        let square = Square::from_file_and_rank(0, 8);
+    fn test_from_file_and_rank_valid() {
+        let square = Square::from_file_and_rank(File::FileB, Rank::Rank3);
+        assert_eq!(square, Some(Square::B3));
+
+        let square = Square::from_file_and_rank(File::FileH, Rank::Rank8);
+        assert_eq!(square, Some(Square::H8));
+    }
+
+    #[test]
+    fn test_from_file_and_rank_u8_invalid() {
+        let square = Square::from_file_and_rank_u8(0, 8);
         assert_eq!(square, None);
 
-        let square = Square::from_file_and_rank(8, 0);
+        let square = Square::from_file_and_rank_u8(8, 0);
         assert_eq!(square, None);
     }
 
     #[test]
     fn test_square_display() {
-        let square = Square::from_file_and_rank(7, 2).unwrap();
+        let square = Square::from_file_and_rank_u8(7, 2).unwrap();
         assert_eq!(square.to_string(), "H3");
+    }
+
+    #[test]
+    fn test_get_file() {
+        let output = Square::H7.get_file().unwrap();
+        let expected = File::FileH;
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_get_rank() {
+        let output = Square::H7.get_rank().unwrap();
+        let expected = Rank::Rank7;
+        assert_eq!(output, expected);
     }
 }

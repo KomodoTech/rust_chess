@@ -7,3 +7,4 @@ pub mod gamestate;
 pub mod moves;
 pub mod pieces;
 pub mod squares;
+pub mod util;

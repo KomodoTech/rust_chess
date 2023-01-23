@@ -1,5 +1,5 @@
 use crate::moves::Move;
-use crate::squares::Square;
+use crate::squares::{Square, Square64};
 use thiserror::Error;
 
 
@@ -21,4 +21,8 @@ pub enum ChessError {
     SquareOnInvalidFile(Square),
     #[error("Square {0} is on invalid Rank")]
     SquareOnInvalidRank(Square),
+    #[error("Square64 {0} is on invalid File")]
+    Square64OnInvalidFile(Square64),
+    #[error("Square64 {0} is on invalid Rank")]
+    Square64OnInvalidRank(Square64),
 }
