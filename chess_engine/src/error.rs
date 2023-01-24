@@ -1,5 +1,8 @@
-use crate::moves::Move;
-use crate::squares::{Square, Square64};
+use crate::{
+    squares::{Square, Square64},
+    board::bitboard::BitBoard,
+    moves::Move,
+};
 use thiserror::Error;
 
 
@@ -17,6 +20,10 @@ pub enum ChessError {
     ParseSquareFromU8Error(u8),
     #[error("Could not convert u8 {0} into a Square64")]
     ParseSquare64FromU8Error(u8),
+    #[error("Could not convert BitBoard {0} into a Square")]
+    ParseSquareFromBitBoardError(BitBoard),
+    #[error("Could not convert BitBoard {0} into a Square64")]
+    ParseSquare64FromBitBoardError(BitBoard),
     #[error("Square {0} is on invalid File")]
     SquareOnInvalidFile(Square),
     #[error("Square {0} is on invalid Rank")]

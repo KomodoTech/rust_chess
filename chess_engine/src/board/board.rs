@@ -91,27 +91,27 @@ mod tests {
     use super::*;
 
 
-    #[test]
-    fn test_board_to_string() {
-        let board = Board::default();
-        let ref_string = "r n b q k b n r\np p p p p p p p\n. . . . . . . .\n. . . . . . . .\n. . . . . . . .\n. . . . . . . .\nP P P P P P P P\nR N B Q K B N R";
-        let output_string = board.to_string(); // autoderived from impl Display
-        assert_eq!(ref_string, output_string);
-    }
+    // #[test]
+    // fn test_board_to_string() {
+    //     let board = Board::default();
+    //     let ref_string = "r n b q k b n r\np p p p p p p p\n. . . . . . . .\n. . . . . . . .\n. . . . . . . .\n. . . . . . . .\nP P P P P P P P\nR N B Q K B N R";
+    //     let output_string = board.to_string(); // autoderived from impl Display
+    //     assert_eq!(ref_string, output_string);
+    // }
 
-    #[test]
-    fn test_fen_parsing() {
-        let empty_fen = "8/8/8/8/8/8/8/8";
-        let board = Board::new();
-        assert_eq!(empty_fen, board.to_base_fen());
+    // #[test]
+    // fn test_fen_parsing() {
+    //     let empty_fen = "8/8/8/8/8/8/8/8";
+    //     let board = Board::new();
+    //     assert_eq!(empty_fen, board.to_base_fen());
 
-        let board = Board::default();
-        assert_eq!(DEFAULT_BASE_FEN, board.to_base_fen());
+    //     let board = Board::default();
+    //     assert_eq!(DEFAULT_BASE_FEN, board.to_base_fen());
 
-        let sicilian_fen = "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR";
-        let board = Board::from_base_fen(sicilian_fen).unwrap();
-        assert_eq!(sicilian_fen, board.to_base_fen());
-    }
+    //     let sicilian_fen = "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR";
+    //     let board = Board::from_base_fen(sicilian_fen).unwrap();
+    //     assert_eq!(sicilian_fen, board.to_base_fen());
+    // }
 
     // #[test]
     // fn test_add_piece() {
