@@ -12,7 +12,7 @@ pub enum ChessError {
     IllegalMoveError(Move),
     #[error("Could not convert char {0} into a Piece")]
     ParsePieceError(char),
-    #[error("Could not convert &str {0} into a Square")]
+    #[error("Could not convert str {0} into a Piece")]
     ParseSquareFromStrError(String),
     #[error("Could not convert &str {0} into a Square64")]
     ParseSquare64FromStrError(String),

@@ -1,3 +1,4 @@
+use std::fmt::{self, write};
 use crate::error::ChessError as Error;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -34,6 +35,26 @@ impl TryFrom<char> for Piece {
             'q' => Ok(Piece::BlackQueen),
             'k' => Ok(Piece::BlackKing),
             _ => Err(Error::ParsePieceError(value)),
+        }
+    }
+}
+
+impl fmt::Display for Piece {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Piece::WhitePawn => write!(f, "♙"),
+            Piece::WhiteRook => write!(f, "♖"),
+            Piece::WhiteBishop => write!(f, "♗"),
+            Piece::WhiteKnight => write!(f, "♘"),
+            Piece::WhiteQueen => write!(f, "♕"),
+            Piece::WhiteKing => write!(f, "♔"),
+            Piece::BlackPawn => write!(f, "♟"),
+            Piece::BlackRook => write!(f, "♜"),
+            Piece::BlackBishop => write!(f, "♝"),
+            Piece::BlackKnight => write!(f, "♞"),
+            Piece::BlackQueen => write!(f, "♛"),
+            Piece::BlackKing => write!(f, "♚"),
+            _ => panic!()
         }
     }
 }

@@ -1,8 +1,9 @@
 use crate::{
     error::ChessError as Error,
     pieces::Piece,
-    squares::{Square, Square64},
-    util::Color,
+    squares::{ Square, Square64 },
+    util::{ File, Rank, Color },
+    board::bitboard::BitBoard,
 };
 use std::fmt;
 use strum::IntoEnumIterator;
@@ -15,26 +16,30 @@ const NUM_BOARD_SQUARES: usize = 120;
 #[derive(Debug)]
 pub struct Board {
     pieces: [Option<Piece>; NUM_BOARD_SQUARES],
-    // pawns: [u64; 3],
+    pawns: [BitBoard; 3],
     kings_index: [Option<Square>; 2],
-    // piece_count: [u32; 12],
-    // big_piece_count: [u32; 3],
-    // major_piece_count: [u32; 3], 
-    // minor_piece_count: [u32; 3], 
-
+    piece_count: [u32; 12],
+    big_piece_count: [u32; 3],
+    major_piece_count: [u32; 3], 
+    minor_piece_count: [u32; 3], 
     // NOTE: there can be a max of 10 pieces (not king obviously) for each type of
     // piece if all 8 pawns were to somehow promote to the same piece
-    // piece_list: [[Option<Square>; 13]; 10],   // stores position of each piece to avoid searching through all squares
+    piece_list: [[Option<Square>; 10]; 12],   // stores position of each piece to avoid searching through all squares
 }
 
 impl Board {
-
     // TODO: evaluate performance cost of wrapping everything in Option
     // and later unwrapping
     pub fn new() -> Self {
         Self {
             pieces: [None; NUM_BOARD_SQUARES],
+            pawns: [BitBoard(0), BitBoard(0), BitBoard(0)],
             kings_index: [None, None],
+            piece_count: [0; 12],
+            big_piece_count: [0; 3],
+            major_piece_count: [0; 3],
+            minor_piece_count: [0; 3],
+            piece_list: [[None; 10]; 12],
         }
     }
 
@@ -73,9 +78,18 @@ impl Board {
 
 impl fmt::Display for Board {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        todo!()
-        // generate some output_str
-        // write!(f, "{}", output_str)
+        for rank in Rank::iter() {
+            for file in File::iter() {
+                let square = Square::from_file_and_rank(file, rank).expect("Could not create Square from given file and rank.");
+                let piece = self.pieces[square as usize];
+                match piece {
+                    Some(p) => { write!(f, "{}", p); },
+                    _ => { write!(f, "_"); }
+                }
+            }
+            write!(f, "\n");
+        }
+        write!(f, "")
     }
 }
 
@@ -88,8 +102,66 @@ impl Default for Board {
 
 #[cfg(test)]
 mod tests {
+    use std::process::Output;
+
     use super::*;
 
+    #[test]
+    fn test_board_display() {
+        // TODO: move to util
+        let input = Board {
+            pieces: [
+                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+                None, Some(Piece::WhiteRook), Some(Piece::WhiteKnight), Some(Piece::WhiteBishop), Some(Piece::WhiteQueen), Some(Piece::WhiteKing), Some(Piece::WhiteBishop), Some(Piece::WhiteKnight), Some(Piece::WhiteRook), None,
+                None, Some(Piece::WhitePawn), Some(Piece::WhitePawn),   Some(Piece::WhitePawn),   Some(Piece::WhitePawn),  Some(Piece::WhitePawn), Some(Piece::WhitePawn),   Some(Piece::WhitePawn),   Some(Piece::WhitePawn), None,
+                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+                None, Some(Piece::BlackRook), Some(Piece::BlackKnight), Some(Piece::BlackBishop), Some(Piece::BlackQueen), Some(Piece::BlackKing), Some(Piece::BlackBishop), Some(Piece::BlackKnight), Some(Piece::BlackRook), None,
+                None, Some(Piece::BlackPawn), Some(Piece::BlackPawn),   Some(Piece::BlackPawn),   Some(Piece::BlackPawn),  Some(Piece::BlackPawn), Some(Piece::BlackPawn),   Some(Piece::BlackPawn),   Some(Piece::BlackPawn), None,
+                None, None,                None,                None,                None,                None,                None,                None,                None,               None,
+                None, None,                None,                None,                None,                None,                None,                None,                None,               None,
+            ],
+            pawns: [BitBoard(0x00FF000000000000), BitBoard(0x000000000000FF00), BitBoard(0x00FF00000000FF00)],
+            kings_index: [Some(Square::E1), Some(Square::E8)],
+            piece_count: [8, 2, 2, 2, 1, 1, 8, 2, 2, 2, 1, 1],
+            big_piece_count: [8, 8, 16],
+            major_piece_count: [3, 3, 6],
+            minor_piece_count: [4, 4, 8],
+            piece_list: [
+               // WhitePawns
+               [Some(Square::A2), Some(Square::B2), Some(Square::C2), Some(Square::D2), Some(Square::E2), Some(Square::F2), Some(Square::G2), Some(Square::H2), None, None],
+               // WhiteKnights
+               [Some(Square::B1), Some(Square::G1), None, None, None, None, None, None, None, None],
+               // WhiteBishops
+               [Some(Square::C1), Some(Square::F1), None, None, None, None, None, None, None, None],
+               // WhiteRooks
+               [Some(Square::A1), Some(Square::H1), None, None, None, None, None, None, None, None],
+               // WhiteQueens
+               [Some(Square::D1), None, None, None, None, None, None, None, None, None],
+               // WhiteKing
+               [Some(Square::E1), None, None, None, None, None, None, None, None, None],
+               // BlackPawns
+               [Some(Square::A7), Some(Square::B7), Some(Square::C7), Some(Square::D7), Some(Square::E7), Some(Square::F7), Some(Square::G7), Some(Square::H7), None, None],
+               // BlackKnights
+               [Some(Square::B8), Some(Square::G8), None, None, None, None, None, None, None, None],
+               // BlackBishops
+               [Some(Square::C8), Some(Square::F8), None, None, None, None, None, None, None, None],
+               // BlackRooks
+               [Some(Square::A8), Some(Square::H8), None, None, None, None, None, None, None, None],
+               // BlackQueens
+               [Some(Square::D8), None, None, None, None, None, None, None, None, None],
+               // BlackKing
+               [Some(Square::E8), None, None, None, None, None, None, None, None, None],
+            ]
+        };
+
+        let output = input.to_string();
+        let expected = "♖♘♗♕♔♗♘♖\n♙♙♙♙♙♙♙♙\n________\n________\n________\n________\n♟♟♟♟♟♟♟♟\n♜♞♝♛♚♝♞♜\n".to_string();
+        assert_eq!(output, expected);
+    }
 
     // #[test]
     // fn test_board_to_string() {

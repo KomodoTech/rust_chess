@@ -46,7 +46,7 @@ impl fmt::Display for BitBoard {
 
         for rank in Rank::iter() {
             for file in File::iter() {
-                let square_64 = Square64::from_file_and_rank(file, rank).expect("Could not create Square from given file and rank.");
+                let square_64 = Square64::from_file_and_rank(file, rank).expect("Could not create Square64 from given file and rank.");
                 // TODO: explore converting squares to bitboards and implementing bit operations
                 match shifter << (square_64 as u8) & self.0 {
                     0 => { write!(f, "0"); },
