@@ -25,6 +25,12 @@ pub enum ChessError {
     #[error("Could not convert u8 {0} into a Square64")]
     ParseSquare64FromU8Error(u8),
 
+    #[error("Could not convert u32 {0} into a Square")]
+    ParseSquareFromU32Error(u32),
+
+    #[error("Could not convert u32 {0} into a Square64")]
+    ParseSquare64FromU32Error(u32),
+
     #[error("Could not convert BitBoard {0} into a Square")]
     ParseSquareFromBitBoardError(BitBoard),
 
