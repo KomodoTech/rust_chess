@@ -10,14 +10,70 @@ use crate::{
 
 #[derive(Display, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Square64 {
-    A1, B1, C1, D1, E1, F1, G1, H1,
-    A2, B2, C2, D2, E2, F2, G2, H2,
-    A3, B3, C3, D3, E3, F3, G3, H3,
-    A4, B4, C4, D4, E4, F4, G4, H4,
-    A5, B5, C5, D5, E5, F5, G5, H5,
-    A6, B6, C6, D6, E6, F6, G6, H6,
-    A7, B7, C7, D7, E7, F7, G7, H7,
-    A8, B8, C8, D8, E8, F8, G8, H8,
+    A1,
+    B1,
+    C1,
+    D1,
+    E1,
+    F1,
+    G1,
+    H1,
+    A2,
+    B2,
+    C2,
+    D2,
+    E2,
+    F2,
+    G2,
+    H2,
+    A3,
+    B3,
+    C3,
+    D3,
+    E3,
+    F3,
+    G3,
+    H3,
+    A4,
+    B4,
+    C4,
+    D4,
+    E4,
+    F4,
+    G4,
+    H4,
+    A5,
+    B5,
+    C5,
+    D5,
+    E5,
+    F5,
+    G5,
+    H5,
+    A6,
+    B6,
+    C6,
+    D6,
+    E6,
+    F6,
+    G6,
+    H6,
+    A7,
+    B7,
+    C7,
+    D7,
+    E7,
+    F7,
+    G7,
+    H7,
+    A8,
+    B8,
+    C8,
+    D8,
+    E8,
+    F8,
+    G8,
+    H8,
 }
 
 impl From<Square> for Square64 {
@@ -30,6 +86,7 @@ impl From<Square> for Square64 {
 // TODO: This can end up being helpful in practice for certain calculations but
 // conceptually it seems a bit strange since they really represent different
 // concepts
+// TODO: Get rid of this for now, a square is a bit in a bitboard and not a bitboard
 impl TryFrom<BitBoard> for Square64 {
     type Error = Error;
 
@@ -255,8 +312,9 @@ impl TryFrom<u8> for Square64 {
 }
 
 impl Square64 {
-    // TODO: figure out if this can be made generic to accept Enum or u8
+    // TODO: get rid of optional return
     pub fn from_file_and_rank(file: File, rank: Rank) -> Option<Self> {
+        // TODO: Get rid of check given that we're using Enum
         if (rank as u8 | file as u8) >> 3 == 0 {
             let index_64 = (file as u8) + (rank as u8) * 8;
             match index_64.try_into() {
@@ -268,18 +326,7 @@ impl Square64 {
         }
     }
 
-    pub fn from_file_and_rank_u8(file: u8, rank: u8) -> Option<Self> {
-        if (rank | file) >> 3 == 0 {
-            let index_64 = file + rank * 8;
-            match index_64.try_into() {
-                Ok(square_64) => Some(square_64),
-                Err(_) => None,
-            }
-        } else {
-            None
-        }
-    }
-
+    // TODO: can't fail don't return result
     pub fn get_file(&self) -> Result<File, Error> {
         match FILES_BOARD[*self as usize] {
             Some(file) => Ok(file),
@@ -287,6 +334,7 @@ impl Square64 {
         }
     }
 
+    // TODO: can't fail don't return result
     pub fn get_rank(&self) -> Result<Rank, Error> {
         match RANKS_BOARD[*self as usize] {
             Some(rank) => Ok(rank),
@@ -297,14 +345,70 @@ impl Square64 {
 
 #[derive(Display, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Square {
-    A1 = 21, B1, C1, D1, E1, F1, G1, H1,
-    A2 = 31, B2, C2, D2, E2, F2, G2, H2,
-    A3 = 41, B3, C3, D3, E3, F3, G3, H3,
-    A4 = 51, B4, C4, D4, E4, F4, G4, H4,
-    A5 = 61, B5, C5, D5, E5, F5, G5, H5,
-    A6 = 71, B6, C6, D6, E6, F6, G6, H6,
-    A7 = 81, B7, C7, D7, E7, F7, G7, H7,
-    A8 = 91, B8, C8, D8, E8, F8, G8, H8,
+    A1 = 21,
+    B1,
+    C1,
+    D1,
+    E1,
+    F1,
+    G1,
+    H1,
+    A2 = 31,
+    B2,
+    C2,
+    D2,
+    E2,
+    F2,
+    G2,
+    H2,
+    A3 = 41,
+    B3,
+    C3,
+    D3,
+    E3,
+    F3,
+    G3,
+    H3,
+    A4 = 51,
+    B4,
+    C4,
+    D4,
+    E4,
+    F4,
+    G4,
+    H4,
+    A5 = 61,
+    B5,
+    C5,
+    D5,
+    E5,
+    F5,
+    G5,
+    H5,
+    A6 = 71,
+    B6,
+    C6,
+    D6,
+    E6,
+    F6,
+    G6,
+    H6,
+    A7 = 81,
+    B7,
+    C7,
+    D7,
+    E7,
+    F7,
+    G7,
+    H7,
+    A8 = 91,
+    B8,
+    C8,
+    D8,
+    E8,
+    F8,
+    G8,
+    H8,
 }
 
 impl From<Square64> for Square {
@@ -766,17 +870,7 @@ mod tests {
         let output: Square64 = input.try_into().unwrap();
     }
 
-
     // Other methods
-
-    #[test]
-    fn test_from_file_and_rank_u8_valid() {
-        let square = Square::from_file_and_rank_u8(1, 2);
-        assert_eq!(square, Some(Square::B3));
-
-        let square = Square::from_file_and_rank_u8(7, 7);
-        assert_eq!(square, Some(Square::H8));
-    }
 
     #[test]
     fn test_from_file_and_rank_valid() {
@@ -785,15 +879,6 @@ mod tests {
 
         let square = Square::from_file_and_rank(File::FileH, Rank::Rank8);
         assert_eq!(square, Some(Square::H8));
-    }
-
-    #[test]
-    fn test_from_file_and_rank_u8_invalid() {
-        let square = Square::from_file_and_rank_u8(0, 8);
-        assert_eq!(square, None);
-
-        let square = Square::from_file_and_rank_u8(8, 0);
-        assert_eq!(square, None);
     }
 
     #[test]

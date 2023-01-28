@@ -1,4 +1,5 @@
-use crate::{board::{Board, Color}};
+use crate::board::Board;
+use crate::util::Color;
 
 const DEFAULT_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const MAX_GAME_MOVES: usize = 2048;

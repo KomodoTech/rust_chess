@@ -1,5 +1,5 @@
-use std::fmt::{self, write};
 use crate::error::ChessError as Error;
+use std::fmt::{self, write};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Piece {
@@ -54,7 +54,7 @@ impl fmt::Display for Piece {
             Piece::BlackKnight => write!(f, "♞"),
             Piece::BlackQueen => write!(f, "♛"),
             Piece::BlackKing => write!(f, "♚"),
-            _ => panic!()
+            _ => panic!(),
         }
     }
 }

@@ -1,18 +1,12 @@
-use std::{fmt, ops::BitAnd};
 use crate::{
-    squares::{Square, Square64},
-    util::{
-        Rank,
-        File,
-        SQUARE_120_TO_64,
-        SQUARE_64_TO_120,
-    },
     error::ChessError as Error,
+    squares::{Square, Square64},
+    util::{File, Rank, SQUARE_120_TO_64, SQUARE_64_TO_120},
 };
+use std::{fmt, ops::BitAnd};
 
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
-
 
 // TODO: figure out if this is optimal for x86 or should be flipped
 // LSB is A1, MSB H8
@@ -39,7 +33,7 @@ impl BitBoard {
         let mut b = self.0;
         while b > 0 {
             count += 1;
-            // converts the current least significant 1 into 0111... with the -1 
+            // converts the current least significant 1 into 0111... with the -1
             // then removes trailing 1s into 0s with the & (1000 & 0111 = 0000)
             b &= b - 1;
         }
@@ -53,7 +47,7 @@ impl BitBoard {
         let lsb_index: u8 = self.0.trailing_zeros() as u8;
         match lsb_index {
             // all zeros
-            64 => { None },
+            64 => None,
             _ => {
                 let mask: u64 = 1 << lsb_index;
                 self.0 ^= mask;
@@ -74,22 +68,27 @@ impl BitBoard {
     /// Check if bit at index is set
     fn check_bit(&self, index: u8) -> Result<bool, Error> {
         match index > 63 {
-            false => { Ok(self.0 & (1 << index) != 0) },
-            _ => { Err(Error::BitBoardCheckBitInvalidIndex(index)) }
+            false => Ok(self.0 & (1 << index) != 0),
+            _ => Err(Error::BitBoardCheckBitInvalidIndex(index)),
         }
     }
 
     /// Sets bit at index
+    // TODO: Indices should be Square64's in order to avoid failure of u8
+    // TODO: don't return u64 or anything after calling these functions
     fn set_bit(&mut self, index: u8) -> Result<&u64, Error> {
         match index > 63 {
             false => {
+                // TODO: return error if bit is already set
                 self.0 |= 1 << index;
                 Ok(&self.0)
-            },
-            _ => { Err(Error::BitBoardSetBitInvalidIndex(index)) }
+            }
+            _ => Err(Error::BitBoardSetBitInvalidIndex(index)),
         }
     }
 
+    // TODO: Don't consider it an error if bit is already not set
+    // TODO: get rid of corresponding errors and change tests
     /// Sets bit at index to 0
     fn unset_bit(&mut self, index: u8) -> Result<&u64, Error> {
         match index > 63 {
@@ -102,12 +101,11 @@ impl BitBoard {
                 } else {
                     Err(Error::BitBoardUnsetNonSetBit(index))
                 }
-            },
-            _ => { Err(Error::BitBoardUnsetBitInvalidIndex(index)) }
+            }
+            _ => Err(Error::BitBoardUnsetBitInvalidIndex(index)),
         }
     }
 }
-
 
 impl From<u64> for BitBoard {
     fn from(value: u64) -> Self {
@@ -115,30 +113,37 @@ impl From<u64> for BitBoard {
     }
 }
 
-// TODO: had to explicitly do this despite implementing From for some reason
-impl Into<u64> for BitBoard {
-    fn into(self) -> u64 {
-        self.0
+impl From<BitBoard> for u64 {
+    fn from(value: BitBoard) -> Self {
+        value.0
     }
 }
 
-impl BitAnd for BitBoard {
-    type Output = Self;
+// impl BitAnd for BitBoard {
+//     type Output = Self;
 
-    fn bitand(self, rhs: Self) -> Self::Output {
-        Self(self.0 & rhs.0)
-    }
-}
+//     fn bitand(self, rhs: Self) -> Self::Output {
+//         Self(self.0 & rhs.0)
+//     }
+// }
 
 impl fmt::Display for BitBoard {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for rank in Rank::iter() {
             for file in File::iter() {
-                let square_64 = Square64::from_file_and_rank(file, rank).expect("file and rank should be in range of 0..=7");
+                let square_64 = Square64::from_file_and_rank(file, rank)
+                    .expect("file and rank should be in range of 0..=7");
                 // TODO: explore converting squares to bitboards and implementing bit operations
-                match self.check_bit(square_64 as u8).expect("index should be less than or equal to 63") {
-                    true => { write!(f, "1"); },
-                    _ => { write!(f, "0"); },
+                match self
+                    .check_bit(square_64 as u8)
+                    .expect("index should be less than or equal to 63")
+                {
+                    true => {
+                        write!(f, "1");
+                    }
+                    _ => {
+                        write!(f, "0");
+                    }
                 }
             }
             write!(f, "\n");
@@ -155,7 +160,7 @@ mod tests {
     fn test_bitboard_display() {
         let input = BitBoard(0xFF00);
         let output = input.to_string();
-        let expected = 
+        let expected =
             "00000000\n11111111\n00000000\n00000000\n00000000\n00000000\n00000000\n00000000\n";
         assert_eq!(output, expected);
     }
@@ -207,7 +212,8 @@ mod tests {
         let index = 8;
         let mut input = BitBoard(0);
         let output = *input.set_bit(index).unwrap();
-        let expected = 0b0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0001_0000_0000;
+        let expected =
+            0b0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0001_0000_0000;
         assert_eq!(output, expected);
     }
 

@@ -1,10 +1,9 @@
 use crate::{
-    squares::{Square, Square64},
     board::bitboard::BitBoard,
     moves::Move,
+    squares::{Square, Square64},
 };
 use thiserror::Error;
-
 
 #[derive(Error, Debug)]
 pub enum ChessError {
@@ -43,7 +42,7 @@ pub enum ChessError {
 
     #[error("Square64 {0} is on invalid Rank")]
     Square64OnInvalidRank(Square64),
-    
+
     #[error("Cannot check bit at index {0}, which is greater than 63")]
     BitBoardCheckBitInvalidIndex(u8),
 

@@ -1,17 +1,18 @@
+// TODO: when bitboard errors are removed, remove pub keyword
+pub mod bitboard;
 use crate::{
     error::ChessError as Error,
     pieces::Piece,
-    squares::{ Square, Square64 },
-    util::{ File, Rank, Color },
-    board::bitboard::BitBoard,
+    squares::{Square, Square64},
+    util::{Color, File, Rank},
 };
+use bitboard::BitBoard;
 use std::fmt;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
 const DEFAULT_BASE_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
 const NUM_BOARD_SQUARES: usize = 120;
-
 
 #[derive(Debug)]
 pub struct Board {
@@ -20,11 +21,11 @@ pub struct Board {
     kings_index: [Option<Square>; 2],
     piece_count: [u32; 12],
     big_piece_count: [u32; 3],
-    major_piece_count: [u32; 3], 
-    minor_piece_count: [u32; 3], 
+    major_piece_count: [u32; 3],
+    minor_piece_count: [u32; 3],
     // NOTE: there can be a max of 10 pieces (not king obviously) for each type of
     // piece if all 8 pawns were to somehow promote to the same piece
-    piece_list: [[Option<Square>; 10]; 12],   // stores position of each piece to avoid searching through all squares
+    piece_list: [[Option<Square>; 10]; 12], // stores position of each piece to avoid searching through all squares
 }
 
 impl Board {
@@ -43,10 +44,8 @@ impl Board {
         }
     }
 
-
     /// Returns board from position FEN. Returns error if FEN is invalid
     pub fn from_base_fen(fen: &str) -> Result<Self, Error> {
-
         todo!()
     }
 
@@ -81,26 +80,26 @@ impl fmt::Display for Board {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for rank in Rank::iter() {
             for file in File::iter() {
-                let square = Square::from_file_and_rank(file, rank).expect("file and rank should be in range of 0..=7");
+                let square = Square::from_file_and_rank(file, rank)
+                    .expect("file and rank should be in range of 0..=7");
                 let piece = self.pieces[square as usize];
                 match file {
-                    File::FileH => {
-                        match piece {
-                            Some(p) => { 
-                                write!(f, "{}", p); 
-                            },
-                            _ => { write!(f, "_"); }
+                    File::FileH => match piece {
+                        Some(p) => {
+                            write!(f, "{}", p);
+                        }
+                        _ => {
+                            write!(f, "_");
                         }
                     },
-                    _ => {
-                        match piece {
-                            Some(p) => { 
-                                write!(f, "{}\t", p); 
-                            },
-                            _ => { write!(f, "_\t"); }
+                    _ => match piece {
+                        Some(p) => {
+                            write!(f, "{}\t", p);
                         }
-
-                    }
+                        _ => {
+                            write!(f, "_\t");
+                        }
+                    },
                 }
             }
             write!(f, "\n");
@@ -117,6 +116,7 @@ impl Default for Board {
 }
 
 #[cfg(test)]
+#[rustfmt::skip]
 mod tests {
     use std::process::Output;
 

@@ -3,7 +3,6 @@ use crate::squares::{Square, Square64};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-
 #[derive(EnumIter, Debug, Copy, Clone, PartialEq, Eq)]
 pub enum File {
     FileA,
@@ -13,7 +12,7 @@ pub enum File {
     FileE,
     FileF,
     FileG,
-    FileH
+    FileH,
 }
 
 #[derive(EnumIter, Debug, Copy, Clone, PartialEq, Eq)]
@@ -25,7 +24,7 @@ pub enum Rank {
     Rank5,
     Rank6,
     Rank7,
-    Rank8
+    Rank8,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -33,7 +32,6 @@ pub enum Color {
     White,
     Black,
 }
-
 
 pub const NUM_BOARD_SQUARES: usize = 120;
 
@@ -52,6 +50,7 @@ pub const NUM_BOARD_SQUARES: usize = 120;
 //     64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
 //     64, 64, 64, 64, 64, 64, 64, 64, 64, 64
 // ];
+#[rustfmt::skip]
 pub const SQUARE_120_TO_64: [Option<Square64>; NUM_BOARD_SQUARES] = [
     None, None,                None,                None,                None,                None,                None,                None,                None,               None,
     None, None,                None,                None,                None,                None,                None,                None,                None,               None,
@@ -88,6 +87,7 @@ pub const SQUARE_120_TO_64: [Option<Square64>; NUM_BOARD_SQUARES] = [
 //     Square::A7, Square::B7, Square::C7, Square::D7, Square::E7, Square::F7, Square::G7, Square::H7,
 //     Square::A8, Square::B8, Square::C8, Square::D8, Square::E8, Square::F8, Square::G8, Square::H8
 // ];
+#[rustfmt::skip]
 pub const SQUARE_64_TO_120: [Option<Square>; 64] = [
     Some(Square::A1), Some(Square::B1), Some(Square::C1), Some(Square::D1), Some(Square::E1), Some(Square::F1), Some(Square::G1), Some(Square::H1),
     Some(Square::A2), Some(Square::B2), Some(Square::C2), Some(Square::D2), Some(Square::E2), Some(Square::F2), Some(Square::G2), Some(Square::H2),
@@ -101,19 +101,20 @@ pub const SQUARE_64_TO_120: [Option<Square>; 64] = [
 
 // Files
 // [
-//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99,  
-//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 
-//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,  
-//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,  
-//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,  
-//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,  
-//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,  
-//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,  
-//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,  
-//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,  
-//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99,  
-//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99 
+//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
+//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
+//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,
+//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,
+//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,
+//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,
+//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,
+//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,
+//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,
+//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,
+//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
+//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99
 // ];
+#[rustfmt::skip]
 pub const FILES_BOARD: [Option<File>; NUM_BOARD_SQUARES] = [
     None,  None,               None,               None,               None,               None,               None,               None,               None,              None,
     None,  None,               None,               None,               None,               None,               None,               None,               None,              None,
@@ -130,19 +131,20 @@ pub const FILES_BOARD: [Option<File>; NUM_BOARD_SQUARES] = [
 ];
 // Ranks
 // [
-//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99,  
-//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 
-//    99,  0,  0,  0,  0,  0,  0,  0,  0, 99,  
-//    99,  1,  1,  1,  1,  1,  1,  1,  1, 99,  
-//    99,  2,  2,  2,  2,  2,  2,  2,  2, 99,  
-//    99,  3,  3,  3,  3,  3,  3,  3,  3, 99,  
-//    99,  4,  4,  4,  4,  4,  4,  4,  4, 99,  
-//    99,  5,  5,  5,  5,  5,  5,  5,  5, 99,  
-//    99,  6,  6,  6,  6,  6,  6,  6,  6, 99,  
-//    99,  7,  7,  7,  7,  7,  7,  7,  7, 99,  
-//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99,  
-//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99 
+//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
+//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
+//    99,  0,  0,  0,  0,  0,  0,  0,  0, 99,
+//    99,  1,  1,  1,  1,  1,  1,  1,  1, 99,
+//    99,  2,  2,  2,  2,  2,  2,  2,  2, 99,
+//    99,  3,  3,  3,  3,  3,  3,  3,  3, 99,
+//    99,  4,  4,  4,  4,  4,  4,  4,  4, 99,
+//    99,  5,  5,  5,  5,  5,  5,  5,  5, 99,
+//    99,  6,  6,  6,  6,  6,  6,  6,  6, 99,
+//    99,  7,  7,  7,  7,  7,  7,  7,  7, 99,
+//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
+//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99
 // ];
+#[rustfmt::skip]
 pub const RANKS_BOARD: [Option<Rank>; NUM_BOARD_SQUARES] = [
     None,  None,               None,               None,               None,               None,               None,               None,               None,              None,
     None,  None,               None,               None,               None,               None,               None,               None,               None,              None,
@@ -158,13 +160,11 @@ pub const RANKS_BOARD: [Option<Rank>; NUM_BOARD_SQUARES] = [
     None,  None,               None,               None,               None,               None,               None,               None,               None,              None,
 ];
 
-
-
 // TODO: potentially convert this code into a macro to generate the hardcoded
 // arrays above
 
 // Init square_120_to_64, square_64_to_120, files_board, ranks_board
-// let mut square = Square::A1; 
+// let mut square = Square::A1;
 // let mut square_64 = Square64::A1;
 
 // let mut files_board = [None; NUM_BOARD_SQUARES];
