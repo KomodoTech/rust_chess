@@ -200,7 +200,7 @@ mod tests {
         let mut input = BitBoard(0x00_0F_00_00_00_00_00_00);
     input.unset_bit(index);
         let output = input.0;
-        let expected = 0x00_F0_00_00_00_00_00_00;
+        let expected = 0x00_0F_00_00_00_00_00_00;
         assert_eq!(output, expected);
     }
 
