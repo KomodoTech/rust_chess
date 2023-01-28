@@ -66,44 +66,20 @@ impl BitBoard {
     // }
 
     /// Check if bit at index is set
-    fn check_bit(&self, index: u8) -> Result<bool, Error> {
-        match index > 63 {
-            false => Ok(self.0 & (1 << index) != 0),
-            _ => Err(Error::BitBoardCheckBitInvalidIndex(index)),
-        }
+    fn check_bit(&self, index: Square64) -> bool {
+            self.0 & (1 << (index as u8)) != 0
     }
 
     /// Sets bit at index
-    // TODO: Indices should be Square64's in order to avoid failure of u8
-    // TODO: don't return u64 or anything after calling these functions
-    fn set_bit(&mut self, index: u8) -> Result<&u64, Error> {
-        match index > 63 {
-            false => {
-                // TODO: return error if bit is already set
-                self.0 |= 1 << index;
-                Ok(&self.0)
-            }
-            _ => Err(Error::BitBoardSetBitInvalidIndex(index)),
-        }
+    fn set_bit(&mut self, index: Square64) {
+                self.0 |= 1 << (index as u8);
     }
-
-    // TODO: Don't consider it an error if bit is already not set
-    // TODO: get rid of corresponding errors and change tests
+    
     /// Sets bit at index to 0
-    fn unset_bit(&mut self, index: u8) -> Result<&u64, Error> {
-        match index > 63 {
-            false => {
-                // XOR will toggle value at index so we should only call it
-                // if the bit at index was already set
-                if let Ok(true) = self.check_bit(index) {
-                    self.0 ^= 1 << index;
-                    Ok(&self.0)
-                } else {
-                    Err(Error::BitBoardUnsetNonSetBit(index))
-                }
-            }
-            _ => Err(Error::BitBoardUnsetBitInvalidIndex(index)),
-        }
+    fn unset_bit(&mut self, index: Square64) {
+        // XOR will toggle value at index so we should only call it
+        // if the bit at index was already set
+        if self.check_bit(index) { self.0 ^= 1 << (index as u8); }    
     }
 }
 
@@ -131,12 +107,10 @@ impl fmt::Display for BitBoard {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for rank in Rank::iter() {
             for file in File::iter() {
-                let square_64 = Square64::from_file_and_rank(file, rank)
-                    .expect("file and rank should be in range of 0..=7");
+                let square_64 = Square64::from_file_and_rank(file, rank);
                 // TODO: explore converting squares to bitboards and implementing bit operations
                 match self
-                    .check_bit(square_64 as u8)
-                    .expect("index should be less than or equal to 63")
+                    .check_bit(square_64)
                 {
                     true => {
                         write!(f, "1");
@@ -182,72 +156,52 @@ mod tests {
     }
 
     #[test]
-    fn test_check_set_bit_valid_index() {
-        let index = 8;
+    fn test_check_set_bit() {
+        let index = Square64::A2;
         let input = BitBoard(0x00_00_00_00_00_00_01_00);
-        let output = input.check_bit(index).unwrap();
+        let output = input.check_bit(index);
         let expected = true;
         assert_eq!(output, expected);
     }
 
     #[test]
-    fn test_check_non_set_bit_valid_index() {
-        let index = 8;
+    fn test_check_non_set_bit() {
+        let index = Square64::A2;
         let input = BitBoard(0x00_0F_00_00_00_00_00_00);
-        let output = input.check_bit(index).unwrap();
+        let output = input.check_bit(index);
         let expected = false;
         assert_eq!(output, expected);
     }
 
-    #[should_panic]
     #[test]
-    fn test_check_bit_invalid_index() {
-        let index = 64;
-        let input = BitBoard(0x00_00_00_00_00_00_01_00);
-        let output = input.check_bit(index).unwrap();
-    }
-
-    #[test]
-    fn test_set_bit_valid_index() {
-        let index = 8;
+    fn test_set_bit() {
+        let index = Square64::A2;
         let mut input = BitBoard(0);
-        let output = *input.set_bit(index).unwrap();
+        input.set_bit(index);
+        let output = input.0;
         let expected =
             0b0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0001_0000_0000;
         assert_eq!(output, expected);
     }
 
-    #[should_panic]
     #[test]
-    fn test_set_bit_invalid_index() {
-        let index = 64;
-        let mut input = BitBoard(0);
-        let output = *input.set_bit(index).unwrap();
-    }
-
-    #[test]
-    fn test_unset_set_bit_valid_index() {
-        let index = 8;
+    fn test_unset_set_bit() {
+        let index = Square64::A2;
         let mut input = BitBoard(0x00_00_00_00_00_00_01_00);
-        let output = *input.unset_bit(index).unwrap();
+        input.unset_bit(index);
+        let output = input.0;
         let expected = 0;
         assert_eq!(output, expected);
     }
 
-    #[should_panic]
     #[test]
-    fn test_unset_non_set_bit_valid_index() {
-        let index = 8;
-        let mut input = BitBoard(0x00_F0_00_00_00_00_00_00);
-        let output = *input.unset_bit(index).unwrap();
-    }
-
-    #[should_panic]
-    #[test]
-    fn test_unset_bit_invalid_index() {
-        let index = 64;
-        let mut input = BitBoard(0);
-        let output = *input.unset_bit(index).unwrap();
+    fn test_unset_non_set_bit() {
+        let index = Square64::A2;
+        let mut input = BitBoard(0x00_0F_00_00_00_00_00_00);
+    input.unset_bit(index);
+        let output = input.0;
+        let expected = 0x00_F0_00_00_00_00_00_00;
+        assert_eq!(output, expected);
     }
 
     #[test]

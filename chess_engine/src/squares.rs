@@ -30,22 +30,7 @@ impl From<Square> for Square64 {
     }
 }
 
-// TODO: This can end up being helpful in practice for certain calculations but
-// conceptually it seems a bit strange since they really represent different
-// concepts
-// TODO: Get rid of this for now, a square is a bit in a bitboard and not a bitboard
-impl TryFrom<BitBoard> for Square64 {
-    type Error = Error;
 
-    fn try_from(value: BitBoard) -> Result<Self, Self::Error> {
-        let v: u64 = value.into();
-        Self::iter()
-            .find(|s| *s as u64 == v)
-            .ok_or(Error::ParseSquare64FromBitBoardError(value))
-    }
-}
-
-// TODO: confirm that there isn't a good way to do this for any generic integer type
 impl TryFrom<u8> for Square64 {
     type Error = Error;
 
@@ -57,31 +42,17 @@ impl TryFrom<u8> for Square64 {
 }
 
 impl Square64 {
-    // TODO: get rid of optional return
-    pub fn from_file_and_rank(file: File, rank: Rank) -> Option<Self> {
-        // TODO: Get rid of check given that we're using Enum
-        if (rank as u8 | file as u8) >> 3 == 0 {
-            let index_64 = (file as u8) + (rank as u8) * 8;
-            index_64.try_into().ok()
-        } else {
-            None
-        }
+    pub fn from_file_and_rank(file: File, rank: Rank) -> Self {
+        let index_64 = (file as u8) + (rank as u8) * 8;
+        index_64.try_into().expect("index_64 should map to valid Square64 since rank and file must be in range 0..=7")
     }
 
-    // TODO: can't fail don't return result
-    pub fn get_file(&self) -> Result<File, Error> {
-        match FILES_BOARD[*self as usize] {
-            Some(file) => Ok(file),
-            None => Err(Error::Square64OnInvalidFile(*self)),
-        }
+    pub fn get_file(&self) -> File {
+        FILES_BOARD[*self as usize].expect("should return valid File since every Square64 has one")
     }
 
-    // TODO: can't fail don't return result
-    pub fn get_rank(&self) -> Result<Rank, Error> {
-        match RANKS_BOARD[*self as usize] {
-            Some(rank) => Ok(rank),
-            None => Err(Error::Square64OnInvalidRank(*self)),
-        }
+    pub fn get_rank(&self) -> Rank {
+        RANKS_BOARD[*self as usize].expect("should return valid File since every Square64 has one") 
     }
 }
 
@@ -106,16 +77,6 @@ impl From<Square64> for Square {
     }
 }
 
-impl TryFrom<BitBoard> for Square {
-    type Error = Error;
-
-    fn try_from(value: BitBoard) -> Result<Self, Self::Error> {
-        let v: u64 = value.into();
-        Self::iter()
-            .find(|s| *s as u64 == v)
-            .ok_or(Error::ParseSquareFromBitBoardError(value))
-    }
-}
 
 impl TryFrom<u8> for Square {
     type Error = Error;
@@ -128,42 +89,17 @@ impl TryFrom<u8> for Square {
 }
 
 impl Square {
-    pub fn from_file_and_rank(file: File, rank: Rank) -> Option<Self> {
-        if (rank as u8 | file as u8) >> 3 == 0 {
+    pub fn from_file_and_rank(file: File, rank: Rank) -> Self {
             let index_120 = (21 + (file as u8) + (10 * (rank as u8)));
-            match index_120.try_into() {
-                Ok(square) => Some(square),
-                Err(_) => None,
-            }
-        } else {
-            None
-        }
+            index_120.try_into().expect("index_64 should map to valid Square since rank and file must be in range 0..=7")
     }
 
-    pub fn from_file_and_rank_u8(file: u8, rank: u8) -> Option<Self> {
-        if (rank | file) >> 3 == 0 {
-            let index_120 = (21 + file + (10 * rank));
-            match index_120.try_into() {
-                Ok(square) => Some(square),
-                Err(_) => None,
-            }
-        } else {
-            None
-        }
+    pub fn get_file(&self) -> File {
+        FILES_BOARD[*self as usize].expect("should return valid File since every Square has one")
     }
 
-    pub fn get_file(&self) -> Result<File, Error> {
-        match FILES_BOARD[*self as usize] {
-            Some(file) => Ok(file),
-            None => Err(Error::SquareOnInvalidFile(*self)),
-        }
-    }
-
-    pub fn get_rank(&self) -> Result<Rank, Error> {
-        match RANKS_BOARD[*self as usize] {
-            Some(rank) => Ok(rank),
-            None => Err(Error::SquareOnInvalidRank(*self)),
-        }
+    pub fn get_rank(&self) -> Rank {
+        RANKS_BOARD[*self as usize].expect("should return valid Rank since every Square has one")
     }
 }
 
@@ -192,46 +128,6 @@ mod tests {
         let expected = Square::A6;
         assert_eq!(output, expected);
         let output: Square = Square::from(input);
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_square_120_try_from_bitboard_valid() {
-        let input = BitBoard(34);
-        let output = Square::try_from(input);
-        let expected = Ok(Square::D2);
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_square_120_try_into_bitboard_valid() {
-        let input = BitBoard(34);
-        let output = input.try_into();
-        let expected = Ok(Square::D2);
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_square_120_try_from_bitboard_invalid() {
-        let input = BitBoard(11);
-        let output = Square::try_from(input);
-        let expected = Err(Error::ParseSquareFromBitBoardError(BitBoard(11)));
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_square_64_try_from_bitboard_valid() {
-        let input = BitBoard(34);
-        let output = Square64::try_from(input);
-        let expected = Ok(Square64::C5);
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_square_64_try_from_bitboard_invalid() {
-        let input = BitBoard(64);
-        let output = Square64::try_from(input);
-        let expected = Err(Error::ParseSquare64FromBitBoardError(BitBoard(64)));
         assert_eq!(output, expected);
     }
 
@@ -348,23 +244,23 @@ mod tests {
     #[test]
     fn test_from_file_and_rank_valid() {
         let square = Square::from_file_and_rank(File::FileB, Rank::Rank3);
-        assert_eq!(square, Some(Square::B3));
+        assert_eq!(square, Square::B3);
 
         let square = Square::from_file_and_rank(File::FileH, Rank::Rank8);
-        assert_eq!(square, Some(Square::H8));
+        assert_eq!(square, Square::H8);
     }
 
     #[test]
     fn test_get_file() {
         let output = Square::H7.get_file();
-        let expected = Ok(File::FileH);
+        let expected = File::FileH;
         assert_eq!(output, expected);
     }
 
     #[test]
     fn test_get_rank() {
         let output = Square::H7.get_rank();
-        let expected = Ok(Rank::Rank7);
+        let expected = Rank::Rank7;
         assert_eq!(output, expected);
     }
 }
