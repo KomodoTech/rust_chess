@@ -23,10 +23,13 @@ pub enum Square64 {
 impl From<Square> for Square64 {
     fn from(square_120: Square) -> Self {
         SQUARE_120_TO_64[square_120 as usize]
-            .expect("Conversion from 10x12 Square to 8x8 Square failed")
+            .expect("10x12 Square should have a corresponding 8x8 Square64")
     }
 }
 
+// TODO: This can end up being helpful in practice for certain calculations but
+// conceptually it seems a bit strange since they really represent different
+// concepts
 impl TryFrom<BitBoard> for Square64 {
     type Error = Error;
 
@@ -307,7 +310,7 @@ pub enum Square {
 impl From<Square64> for Square {
     fn from(square_64: Square64) -> Self {
         SQUARE_64_TO_120[square_64 as usize]
-            .expect("Conversion from 8x8 Square to 10x12 Square failed")
+            .expect("8x8 Square64 should have a corresponding 10x12 Square")
     }
 }
 

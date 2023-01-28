@@ -46,6 +46,7 @@ impl Board {
 
     /// Returns board from position FEN. Returns error if FEN is invalid
     pub fn from_base_fen(fen: &str) -> Result<Self, Error> {
+
         todo!()
     }
 
@@ -80,11 +81,26 @@ impl fmt::Display for Board {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for rank in Rank::iter() {
             for file in File::iter() {
-                let square = Square::from_file_and_rank(file, rank).expect("Could not create Square from given file and rank.");
+                let square = Square::from_file_and_rank(file, rank).expect("file and rank should be in range of 0..=7");
                 let piece = self.pieces[square as usize];
-                match piece {
-                    Some(p) => { write!(f, "{}", p); },
-                    _ => { write!(f, "_"); }
+                match file {
+                    File::FileH => {
+                        match piece {
+                            Some(p) => { 
+                                write!(f, "{}", p); 
+                            },
+                            _ => { write!(f, "_"); }
+                        }
+                    },
+                    _ => {
+                        match piece {
+                            Some(p) => { 
+                                write!(f, "{}\t", p); 
+                            },
+                            _ => { write!(f, "_\t"); }
+                        }
+
+                    }
                 }
             }
             write!(f, "\n");
@@ -108,7 +124,6 @@ mod tests {
 
     #[test]
     fn test_board_display() {
-        // TODO: move to util
         let input = Board {
             pieces: [
                 None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
@@ -159,7 +174,8 @@ mod tests {
         };
 
         let output = input.to_string();
-        let expected = "♖♘♗♕♔♗♘♖\n♙♙♙♙♙♙♙♙\n________\n________\n________\n________\n♟♟♟♟♟♟♟♟\n♜♞♝♛♚♝♞♜\n".to_string();
+        let expected = "♖\t♘\t♗\t♕\t♔\t♗\t♘\t♖\n♙\t♙\t♙\t♙\t♙\t♙\t♙\t♙\n_\t_\t_\t_\t_\t_\t_\t_\n_\t_\t_\t_\t_\t_\t_\t_\n_\t_\t_\t_\t_\t_\t_\t_\n_\t_\t_\t_\t_\t_\t_\t_\n♟\t♟\t♟\t♟\t♟\t♟\t♟\t♟\n♜\t♞\t♝\t♛\t♚\t♝\t♞\t♜\n".to_string();
+        println!("Base Board:\n{}", output);
         assert_eq!(output, expected);
     }
 
