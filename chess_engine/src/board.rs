@@ -29,8 +29,6 @@ pub struct Board {
 }
 
 impl Board {
-    // TODO: evaluate performance cost of wrapping everything in Option
-    // and later unwrapping
     pub fn new() -> Self {
         Self {
             pieces: [None; NUM_BOARD_SQUARES],
@@ -80,8 +78,7 @@ impl fmt::Display for Board {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for rank in Rank::iter() {
             for file in File::iter() {
-                let square = Square::from_file_and_rank(file, rank)
-                    .expect("file and rank should be in range of 0..=7");
+                let square = Square::from_file_and_rank(file, rank);
                 let piece = self.pieces[square as usize];
                 match file {
                     File::FileH => match piece {
