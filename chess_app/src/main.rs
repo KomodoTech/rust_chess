@@ -1,6 +1,6 @@
 use chess_engine::board::Board;
 use macroquad::experimental::collections::storage;
-use web_sys::WebSocket;
+//use web_sys::WebSocket;
 
 mod gui;
 use gui::Scene;
