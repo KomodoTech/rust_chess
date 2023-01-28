@@ -43,15 +43,15 @@ impl BitBoard {
     /// Sets the first set LSB to 0 and returns the index corresponding to it
     // NOTE: this is slow in comparison to magic bitboard implementation which
     // has a very real effect on performance of move generation and thus on bot ability
-    fn pop_bit(&mut self) -> Option<u8> {
-        let lsb_index: u8 = self.0.trailing_zeros() as u8;
+    fn pop_bit(&mut self) -> Option<Square64> {
+        let lsb_index = self.0.trailing_zeros();
         match lsb_index {
             // all zeros
             64 => None,
             _ => {
                 let mask: u64 = 1 << lsb_index;
                 self.0 ^= mask;
-                Some(lsb_index)
+                Some(lsb_index.try_into().expect("lsb_index should be in range 0..=63"))
             }
         }
     }
@@ -67,19 +67,21 @@ impl BitBoard {
 
     /// Check if bit at index is set
     fn check_bit(&self, index: Square64) -> bool {
-            self.0 & (1 << (index as u8)) != 0
+        self.0 & (1 << (index as u8)) != 0
     }
 
     /// Sets bit at index
     fn set_bit(&mut self, index: Square64) {
-                self.0 |= 1 << (index as u8);
+        self.0 |= 1 << (index as u8);
     }
-    
+
     /// Sets bit at index to 0
     fn unset_bit(&mut self, index: Square64) {
         // XOR will toggle value at index so we should only call it
         // if the bit at index was already set
-        if self.check_bit(index) { self.0 ^= 1 << (index as u8); }    
+        if self.check_bit(index) {
+            self.0 ^= 1 << (index as u8);
+        }
     }
 }
 
@@ -109,9 +111,7 @@ impl fmt::Display for BitBoard {
             for file in File::iter() {
                 let square_64 = Square64::from_file_and_rank(file, rank);
                 // TODO: explore converting squares to bitboards and implementing bit operations
-                match self
-                    .check_bit(square_64)
-                {
+                match self.check_bit(square_64) {
                     true => {
                         write!(f, "1");
                     }
@@ -198,7 +198,7 @@ mod tests {
     fn test_unset_non_set_bit() {
         let index = Square64::A2;
         let mut input = BitBoard(0x00_0F_00_00_00_00_00_00);
-    input.unset_bit(index);
+        input.unset_bit(index);
         let output = input.0;
         let expected = 0x00_0F_00_00_00_00_00_00;
         assert_eq!(output, expected);
@@ -208,7 +208,7 @@ mod tests {
     fn test_pop_bit_single_set_bit() {
         let mut input = BitBoard(0x80_00_00_00_00_00_00_00);
         let output = input.pop_bit().unwrap();
-        let expected_index: u8 = 63;
+        let expected_index = Square64::H8;
         let expected_board = BitBoard(0);
         assert_eq!(output, expected_index);
         assert_eq!(input, expected_board);
@@ -218,7 +218,7 @@ mod tests {
     fn test_pop_bit_multiple_set_bit() {
         let mut input = BitBoard(0x0C_0F_00_D0_00_00_01_00);
         let output = input.pop_bit().unwrap();
-        let expected_index: u8 = 8;
+        let expected_index = Square64::A2;
         let expected_board = BitBoard(0x0C_0F_00_D0_00_00_00_00);
         assert_eq!(output, expected_index);
         assert_eq!(input, expected_board);
