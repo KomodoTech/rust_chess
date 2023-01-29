@@ -3,9 +3,10 @@ use crate::{
     moves::Move,
     squares::{Square, Square64},
 };
+use strum::ParseError as StrumParseError;
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq)]
 pub enum ChessError {
     #[error("illegal move attempted: {0}")]
     IllegalMoveError(Move),
@@ -13,11 +14,8 @@ pub enum ChessError {
     #[error("Could not convert char {0} into a Piece")]
     ParsePieceError(char),
 
-    #[error("Could not convert str {0} into a Piece")]
-    ParseSquareFromStrError(String),
-
-    #[error("Could not convert &str {0} into a Square64")]
-    ParseSquare64FromStrError(String),
+    #[error("Could not convert &str {0} into a Square")]
+    ParseSquareFromStrError(#[from] StrumParseError),
 
     #[error("Could not convert u8 {0} into a Square")]
     ParseSquareFromU8Error(u8),
