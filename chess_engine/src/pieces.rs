@@ -54,7 +54,6 @@ impl fmt::Display for Piece {
             Piece::BlackKnight => write!(f, "♞"),
             Piece::BlackQueen => write!(f, "♛"),
             Piece::BlackKing => write!(f, "♚"),
-            _ => panic!(),
         }
     }
 }
