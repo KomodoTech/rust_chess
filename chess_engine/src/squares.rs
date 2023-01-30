@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn test_square_120_try_from_u8_invalid() {
-        let input = 11;
+        let input: u8 = 11;
         let output = Square::try_from(input);
         let expected = Err(Error::ParseSquareFromU8Error(11));
         assert_eq!(output, expected);
@@ -369,7 +369,7 @@ mod tests {
 
     #[test]
     fn test_square_64_try_from_u8_invalid() {
-        let input = 64;
+        let input: u8 = 64;
         let output = Square64::try_from(input);
         let expected = Err(Error::ParseSquare64FromU8Error(64));
         assert_eq!(output, expected);
