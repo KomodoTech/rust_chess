@@ -2,7 +2,6 @@ use std::fmt;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
 use strum_macros::{Display, EnumIter, EnumString};
-
 use crate::{
     board::bitboard::BitBoard,
     error::ChessError as Error,
