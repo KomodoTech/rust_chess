@@ -207,8 +207,8 @@ mod tests {
     #[test]
     fn test_pop_bit_single_set_bit() {
         let mut input = BitBoard(0x80_00_00_00_00_00_00_00);
-        let output = input.pop_bit().unwrap();
-        let expected_index = Square64::H8;
+        let output = input.pop_bit();
+        let expected_index = Some(Square64::H8);
         let expected_board = BitBoard(0);
         assert_eq!(output, expected_index);
         assert_eq!(input, expected_board);
@@ -217,17 +217,18 @@ mod tests {
     #[test]
     fn test_pop_bit_multiple_set_bit() {
         let mut input = BitBoard(0x0C_0F_00_D0_00_00_01_00);
-        let output = input.pop_bit().unwrap();
-        let expected_index = Square64::A2;
+        let output = input.pop_bit();
+        let expected_index = Some(Square64::A2);
         let expected_board = BitBoard(0x0C_0F_00_D0_00_00_00_00);
         assert_eq!(output, expected_index);
         assert_eq!(input, expected_board);
     }
 
-    #[should_panic]
     #[test]
     fn test_pop_bit_empty_board() {
         let mut input = BitBoard(0);
-        let output = input.pop_bit().unwrap();
+        let output = input.pop_bit();
+        let expected = None;
+        assert_eq!(output, expected);
     }
 }
