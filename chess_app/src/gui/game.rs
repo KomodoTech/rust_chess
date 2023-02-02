@@ -1,13 +1,14 @@
 use super::Scene;
 use chess_engine::pieces::Piece;
 use macroquad::{
-    color::{DARKGRAY, LIGHTGRAY, WHITE},
+    color::{BLACK, LIGHTGRAY, WHITE},
     input::{is_mouse_button_down, is_mouse_button_pressed, mouse_position, MouseButton},
-    math::{Rect, Vec2},
+    math::{vec2, Rect, Vec2},
     text::draw_text,
     texture::{draw_texture_ex, load_texture, DrawTextureParams, Texture2D},
     window::{clear_background, next_frame, screen_height, screen_width},
 };
+use quad_net::quad_socket::client::QuadSocket;
 
 enum MouseState {
     Unclicked,
@@ -49,11 +50,20 @@ pub async fn game_scene() -> Scene {
     let mut mouse_y_pos;
 
     let mut mouse_state = MouseState::Unclicked;
+
+    let mut socket = QuadSocket::connect("ws://localhost:8091").unwrap();
+    let mut clock = vec2(0.0, 0.0);
+    let mut last_edit_id = 0;
     loop {
+        while let Some((mouse_x, mouse_y, id)) = socket.try_recv_bin() {
+            clock.x = mouse_x;
+            clock.y = mouse_y;
+            last_edit_id = id;
+        }
         clear_background(LIGHTGRAY);
 
         height = screen_height();
-        width = screen_width();
+        width = screen_width().max(1100.0);
         game_size = width.min(height);
         square_size = game_size / 8.0;
 
@@ -118,11 +128,12 @@ pub async fn game_scene() -> Scene {
             }
         }
         if let MouseState::Clicked {
-            row: _,
-            col: _,
+            row: _row,
+            col: _col,
             piece: Some(piece),
         } = mouse_state
         {
+            socket.send_bin(&(mouse_x_pos, mouse_y_pos));
             draw_piece(
                 piece_texture,
                 piece,
@@ -131,9 +142,13 @@ pub async fn game_scene() -> Scene {
                 mouse_x_pos - square_size / 2.0,
             );
         }
-        draw_text("CLOCK", 20.0, 20.0, 20.0, DARKGRAY);
-        draw_text("CLOCK", 20.0, height - 20.0, 20.0, DARKGRAY);
-
+        draw_text(
+            format!("{}, {}", clock.x, clock.y).as_str(),
+            10.0,
+            50.0,
+            50.0,
+            BLACK,
+        );
         next_frame().await
     }
 }
