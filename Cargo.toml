@@ -2,5 +2,6 @@
 
 members = [
     "chess_app",
+    "chess_server",
     "chess_engine",
 ]

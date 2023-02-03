@@ -1,14 +1,10 @@
-use chess_engine::board::Board;
 use macroquad::experimental::collections::storage;
-//use web_sys::WebSocket;
 
 mod gui;
 use gui::Scene;
 
 #[macroquad::main("Chess")]
 async fn main() {
-    let _b = Board::new();
-
     let gui_resources = gui::GuiResources::new();
     storage::store(gui_resources);
 

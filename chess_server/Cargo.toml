@@ -1,0 +1,12 @@
+[package]
+name = "chess_server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chess_engine = { path = "../chess_engine" }
+tokio = { version = "1.25.0", features = ["full"] }
+tokio-tungstenite = "0.18.0"
+futures-util = "0.3.26"
+log = "0.4.17"
+env_logger = "0.10.0"
