@@ -53,12 +53,10 @@ pub async fn game_scene() -> Scene {
 
     let mut socket = QuadSocket::connect("ws://localhost:8091").unwrap();
     let mut clock = vec2(0.0, 0.0);
-    let mut last_edit_id = 0;
     loop {
-        while let Some((mouse_x, mouse_y, id)) = socket.try_recv_bin() {
+        while let Some((mouse_x, mouse_y)) = socket.try_recv_bin() {
             clock.x = mouse_x;
             clock.y = mouse_y;
-            last_edit_id = id;
         }
         clear_background(LIGHTGRAY);
 

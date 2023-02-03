@@ -37,5 +37,6 @@ async fn accept_connection(stream: TcpStream) {
     while let Some(msg) = read.next().await {
         let msg = msg.unwrap();
         info!("message recieved: {:#?}", msg);
+        write.send(msg).await;
     }
 }
