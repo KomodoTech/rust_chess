@@ -1,12 +1,12 @@
-use std::fmt;
-use std::str::FromStr;
-use strum::IntoEnumIterator;
-use strum_macros::{Display, EnumIter, EnumString};
 use crate::{
     board::bitboard::BitBoard,
     error::ChessError as Error,
     util::{File, Rank, FILES_BOARD, RANKS_BOARD, SQUARE_120_TO_64, SQUARE_64_TO_120},
 };
+use std::fmt;
+use std::str::FromStr;
+use strum::IntoEnumIterator;
+use strum_macros::{Display, EnumIter, EnumString};
 
 #[derive(Display, Debug, Clone, Copy, PartialEq, Eq, EnumIter, EnumString)]
 #[rustfmt::skip]
@@ -28,7 +28,6 @@ impl From<Square> for Square64 {
             .expect("10x12 Square should have a corresponding 8x8 Square64")
     }
 }
-
 
 impl TryFrom<u8> for Square64 {
     type Error = Error;

@@ -51,7 +51,11 @@ impl BitBoard {
             _ => {
                 let mask: u64 = 1 << lsb_index;
                 self.0 ^= mask;
-                Some(lsb_index.try_into().expect("lsb_index should be in range 0..=63"))
+                Some(
+                    lsb_index
+                        .try_into()
+                        .expect("lsb_index should be in range 0..=63"),
+                )
             }
         }
     }

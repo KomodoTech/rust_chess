@@ -1,7 +1,11 @@
 use crate::error::ChessError as Error;
-use std::fmt::{self, write};
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+use std::fmt::{self, write};
+use strum::EnumCount;
+use strum_macros::EnumCount;
+use strum_macros::EnumCount as EnumCountMacro;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, EnumCountMacro)]
 pub enum Piece {
     WhitePawn,
     WhiteKnight,

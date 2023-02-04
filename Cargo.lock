@@ -85,6 +85,7 @@ dependencies = [
 name = "chess_engine"
 version = "0.1.0"
 dependencies = [
+ "rand",
  "strum",
  "strum_macros",
  "thiserror",

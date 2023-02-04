@@ -1,7 +1,7 @@
 use crate::squares::{Square, Square64};
 
 use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
+use strum_macros::{Display, EnumIter, EnumString};
 
 #[derive(EnumIter, Debug, Copy, Clone, PartialEq, Eq)]
 pub enum File {
@@ -27,13 +27,16 @@ pub enum Rank {
     Rank8,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, EnumString, Display)]
 pub enum Color {
     White,
     Black,
 }
 
+/// Number of squares for the internal board (10x12)
 pub const NUM_BOARD_SQUARES: usize = 120;
+/// Number of permutations for castle permissions 
+pub const NUM_CASTLE_PERM: usize = 16;
 
 // 120 to 64
 // [

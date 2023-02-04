@@ -16,7 +16,8 @@ const NUM_BOARD_SQUARES: usize = 120;
 
 #[derive(Debug)]
 pub struct Board {
-    pieces: [Option<Piece>; NUM_BOARD_SQUARES],
+    // TODO: evaluate whether exposing pieces for Zobrist hashing is acceptable
+    pub pieces: [Option<Piece>; NUM_BOARD_SQUARES],
     pawns: [BitBoard; 3],
     kings_index: [Option<Square>; 2],
     piece_count: [u32; 12],

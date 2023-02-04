@@ -14,6 +14,12 @@ pub enum ChessError {
     #[error("Could not convert char {0} into a Piece")]
     ParsePieceError(char),
 
+    #[error("Could not convert u8 {0} into a CastlePerm because {0} is greater than 0x0F")]
+    ParseCastlePermFromU8ErrorValueTooLarge(u8),
+
+    #[error("Could not convert u8 {0} into a CastlePerm due to a Castle having an invalid String representation")]
+    ParseCastlePermFromU8ErrorInvalidCastleString(u8, String),
+
     #[error("Could not convert &str {0} into a Square")]
     ParseSquareFromStrError(#[from] StrumParseError),
 
