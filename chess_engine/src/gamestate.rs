@@ -24,40 +24,25 @@ enum Castle {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct CastlePerm {
-    white_king: Option<Castle>,
-    white_queen: Option<Castle>,
-    black_king: Option<Castle>,
-    black_queen: Option<Castle>,
-}
-
+struct CastlePerm([Option<Castle>; 4]);
 impl Default for CastlePerm {
     fn default() -> Self {
-        Self {
-            white_king: Some(Castle::WhiteKing),
-            white_queen: Some(Castle::WhiteQueen),
-            black_king: Some(Castle::BlackKing),
-            black_queen: Some(Castle::BlackQueen),
-        }
+        Self([
+            Some(Castle::WhiteKing),
+            Some(Castle::WhiteQueen),
+            Some(Castle::BlackKing),
+            Some(Castle::BlackQueen),
+        ])
     }
 }
 
-impl CastlePerm {
-    fn as_u8(&self) -> u8 {
-        let mut value = 0;
-        if let Some(white_king) = self.white_king {
-            value += white_king as u8
+impl From<CastlePerm> for u8 {
+    fn from(value: CastlePerm) -> Self {
+        let mut result: u8 = 0;
+        for perm in value.0.into_iter().flatten() {
+            result += perm as u8;
         }
-        if let Some(white_queen) = self.white_queen {
-            value += white_queen as u8
-        }
-        if let Some(black_king) = self.black_king {
-            value += black_king as u8
-        }
-        if let Some(black_queen) = self.black_queen {
-            value += black_queen as u8
-        }
-        value
+        result
     }
 }
 
@@ -65,33 +50,14 @@ impl TryFrom<u8> for CastlePerm {
     type Error = Error;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
+            // only 16 different possible castle permissions
             v if v <= 0x0F => {
                 // NOTE: default castle_perm are all some/set
                 let mut castle_perm = Self::default();
-                for castle in Castle::iter() {
+                for (i, castle) in Castle::iter().enumerate() {
                     // check if bit corresponding to Castle permission is not set ("turn off")
                     if ((v & (castle as u8)) == 0) {
-                        let castle_variant = castle.to_string();
-                        match castle_variant.as_str() {
-                            "WhiteKing" => {
-                                castle_perm.white_king = None;
-                            }
-                            "WhiteQueen" => {
-                                castle_perm.white_queen = None;
-                            }
-                            "BlackKing" => {
-                                castle_perm.black_king = None;
-                            }
-                            "BlackQueen" => {
-                                castle_perm.black_queen = None;
-                            }
-                            _ => {
-                                return Err(Error::ParseCastlePermFromU8ErrorInvalidCastleString(
-                                    value,
-                                    castle_variant,
-                                ));
-                            }
-                        }
+                        castle_perm.0[i] = None;
                     }
                 }
                 Ok(castle_perm)
@@ -204,7 +170,7 @@ impl Gamestate {
             position_key ^= self.zobrist.en_passant_keys[square as usize];
         }
         // Castle Permissions component
-        let castle_permissions = self.castle_permissions.as_u8();
+        let castle_permissions: u8 = self.castle_permissions.into();
         position_key ^= self.zobrist.castle_keys[castle_permissions as usize];
 
         position_key
@@ -220,23 +186,31 @@ mod tests {
     const DEFAULT_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
     #[test]
-    fn test_castle_perm_as_u8() {
+    fn test_u8_from_castle_perm() {
         let input = CastlePerm::default();
-        let output = input.as_u8();
+        let output: u8 = u8::from(input);
         let expected: u8 = 0x0F;
         assert_eq!(output, expected);
     }
 
     #[test]
-    fn test_castle_perm_try_from() {
+    fn test_castle_perm_try_from_valid_input() {
         let input: u8 = 0b0000_0101;
         let output = CastlePerm::try_from(input);
-        let expected = Ok(CastlePerm {
-            white_king: Some(Castle::WhiteKing),
-            white_queen: None,
-            black_king: Some(Castle::BlackKing),
-            black_queen: None,
-        });
+        let expected = Ok(CastlePerm([
+            Some(Castle::WhiteKing),
+            None,
+            Some(Castle::BlackKing),
+            None,
+        ]));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_castle_perm_try_from_invalid_input() {
+        let input: u8 = 0b0100_0101;
+        let output = CastlePerm::try_from(input);
+        let expected = Err(Error::ParseCastlePermFromU8ErrorValueTooLarge(input));
         assert_eq!(output, expected);
     }
 
