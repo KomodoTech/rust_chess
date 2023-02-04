@@ -35,7 +35,7 @@ pub enum Color {
 
 /// Number of squares for the internal board (10x12)
 pub const NUM_BOARD_SQUARES: usize = 120;
-/// Number of permutations for castle permissions 
+/// Number of permutations for castle permissions
 pub const NUM_CASTLE_PERM: usize = 16;
 
 // 120 to 64

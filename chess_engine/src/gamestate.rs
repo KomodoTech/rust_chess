@@ -23,7 +23,7 @@ enum Castle {
     BlackQueen = 8,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct CastlePerm {
     white_king: Option<Castle>,
     white_queen: Option<Castle>,
@@ -42,7 +42,25 @@ impl Default for CastlePerm {
     }
 }
 
-// TODO: test and test that try_into works as expected
+impl CastlePerm {
+    fn as_u8(&self) -> u8 {
+        let mut value = 0;
+        if let Some(white_king) = self.white_king {
+            value += white_king as u8
+        }
+        if let Some(white_queen) = self.white_queen {
+            value += white_queen as u8
+        }
+        if let Some(black_king) = self.black_king {
+            value += black_king as u8
+        }
+        if let Some(black_queen) = self.black_queen {
+            value += black_queen as u8
+        }
+        value
+    }
+}
+
 impl TryFrom<u8> for CastlePerm {
     type Error = Error;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
@@ -51,8 +69,8 @@ impl TryFrom<u8> for CastlePerm {
                 // NOTE: default castle_perm are all some/set
                 let mut castle_perm = Self::default();
                 for castle in Castle::iter() {
-                    // check if bit corresponding to Castle permission is not set
-                    if ((v & (castle as u8)) != v) {
+                    // check if bit corresponding to Castle permission is not set ("turn off")
+                    if ((v & (castle as u8)) == 0) {
                         let castle_variant = castle.to_string();
                         match castle_variant.as_str() {
                             "WhiteKing" => {
@@ -76,7 +94,7 @@ impl TryFrom<u8> for CastlePerm {
                         }
                     }
                 }
-                todo!()
+                Ok(castle_perm)
             }
             _ => Err(Error::ParseCastlePermFromU8ErrorValueTooLarge(value)),
         }
@@ -129,7 +147,7 @@ impl Zobrist {
 pub struct Gamestate {
     board: Board,
     active_color: Color,
-    castle_permissions: u32,
+    castle_permissions: CastlePerm,
     en_passant: Option<Square>,
     halfmove_clock: u32,
     fullmove_number: u32,
@@ -148,7 +166,7 @@ impl Gamestate {
         let board = Board::new();
         // TODO: call init on board with starting FEN
         let active_color = Color::White;
-        let castle_permissions: u32 = 0b0000_0000_0000_0000_0000_0000_0000_1111;
+        let castle_permissions = CastlePerm::default();
         // TODO: figure out what this should really be initially
         let en_passant: Option<Square> = None;
         let halfmove_clock: u32 = 0;
@@ -186,7 +204,7 @@ impl Gamestate {
             position_key ^= self.zobrist.en_passant_keys[square as usize];
         }
         // Castle Permissions component
-        let castle_permissions: u8 = self.castle_permissions.try_into().expect("castle_permissions should be in the range 0..=15");
+        let castle_permissions = self.castle_permissions.as_u8();
         position_key ^= self.zobrist.castle_keys[castle_permissions as usize];
 
         position_key
@@ -195,15 +213,39 @@ impl Gamestate {
 
 #[cfg(test)]
 mod tests {
+    use std::process::Output;
+
     use super::*;
 
     const DEFAULT_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-    // #[test]
-    // fn test_gen_position_key() {
-    //     let gamestate = Gamestate::default();
-    //     let output = gamestate.gen_position_key();
-    //     let expected = 0;
-    //     assert_eq!(output, expected);
-    // }
+    #[test]
+    fn test_castle_perm_as_u8() {
+        let input = CastlePerm::default();
+        let output = input.as_u8();
+        let expected: u8 = 0x0F;
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_castle_perm_try_from() {
+        let input: u8 = 0b0000_0101;
+        let output = CastlePerm::try_from(input);
+        let expected = Ok(CastlePerm {
+            white_king: Some(Castle::WhiteKing),
+            white_queen: None,
+            black_king: Some(Castle::BlackKing),
+            black_queen: None,
+        });
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gen_position_key_deterministic() {
+        let gamestate = Gamestate::default();
+        let output = gamestate.gen_position_key();
+        let expected = gamestate.gen_position_key();
+        println!("output: {}, expected: {}", output, expected);
+        assert_eq!(output, expected);
+    }
 }

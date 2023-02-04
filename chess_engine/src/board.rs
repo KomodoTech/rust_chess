@@ -29,6 +29,13 @@ pub struct Board {
     piece_list: [[Option<Square>; 10]; 12], // stores position of each piece to avoid searching through all squares
 }
 
+/// Returns a board with default initial position
+impl Default for Board {
+    fn default() -> Self {
+        Self::from_base_fen(DEFAULT_BASE_FEN).unwrap()
+    }
+}
+
 impl Board {
     pub fn new() -> Self {
         Self {
@@ -100,16 +107,11 @@ impl fmt::Display for Board {
                     },
                 }
             }
-            write!(f, "\n");
+            if rank != Rank::Rank8 {
+                writeln!(f);
+            }
         }
-        write!(f, "")
-    }
-}
-
-/// Returns a board with default initial position
-impl Default for Board {
-    fn default() -> Self {
-        Self::from_base_fen(DEFAULT_BASE_FEN).unwrap()
+        writeln!(f)
     }
 }
 

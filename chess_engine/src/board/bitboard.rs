@@ -124,9 +124,11 @@ impl fmt::Display for BitBoard {
                     }
                 }
             }
-            write!(f, "\n");
+            if rank != Rank::Rank8 {
+                writeln!(f);
+            }
         }
-        write!(f, "")
+        writeln!(f)
     }
 }
 
