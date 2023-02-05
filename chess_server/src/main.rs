@@ -1,42 +1,71 @@
+use config::Config;
+use env_logger::Builder;
+use log::{debug, info};
+use rand::Rng;
 use std::io::Error;
 
-use futures_util::{future, SinkExt, StreamExt, TryStreamExt};
-use log::info;
+use futures::join;
+use futures_util::{future, SinkExt, StreamExt, TryFutureExt, TryStreamExt};
 use tokio::net::{TcpListener, TcpStream};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    env_logger::init();
-    let addr = "127.0.0.1:8091".to_string();
-    let try_socket = TcpListener::bind(&addr).await;
-    let listener = try_socket.expect("Failed to bind");
-    info!("Listening on {}", addr);
+    let settings = Config::builder()
+        .add_source(config::File::with_name("configs/default"))
+        .build()
+        .unwrap();
+    let ws_url: String = settings
+        .get("ws_url")
+        .expect("Could not get url from config");
+    let debug_level: String = settings
+        .get("debug_level")
+        .expect("Could not get debug_level from confifg");
 
-    while let Ok((stream, _)) = listener.accept().await {
-        tokio::spawn(accept_connection(stream));
+    let mut builder = Builder::new();
+    builder.parse_filters(&debug_level).init();
+
+    let try_socket = TcpListener::bind(&ws_url).await;
+    let listener = try_socket.expect("Failed to bind");
+
+    info!("Listening on {}", ws_url);
+
+    let mut game_queue: Option<TcpStream> = None;
+    let mut rng = rand::thread_rng();
+    while let Ok((stream, addr)) = listener.accept().await {
+        debug!("received new stream from {:#?}", addr);
+        match game_queue {
+            Some(_) => {
+                debug!("starting game");
+                let (white_stream, black_stream) = if rng.gen_range(0..2) == 0 {
+                    (game_queue.take().unwrap(), stream)
+                } else {
+                    (stream, game_queue.take().unwrap())
+                };
+                tokio::spawn(start_game(white_stream, black_stream));
+            }
+            None => {
+                debug!("setting game_queue");
+                game_queue = Some(stream);
+            }
+        }
     }
 
     Ok(())
 }
 
-async fn accept_connection(stream: TcpStream) {
-    let addr = stream
-        .peer_addr()
-        .expect("connected streams should have a peer address");
-    info!("Peer address: {}", addr);
-
-    let mut ws_stream = tokio_tungstenite::accept_async(stream)
+async fn start_game(white_stream: TcpStream, black_stream: TcpStream) {
+    let white_stream = tokio_tungstenite::accept_async(white_stream)
+        .await
+        .expect("Error during the websocket handshake occurred");
+    let black_stream = tokio_tungstenite::accept_async(black_stream)
         .await
         .expect("Error during the websocket handshake occurred");
 
-    info!("New WebSocket connection: {}", addr);
+    let (white_write, white_read) = white_stream.split();
+    let (black_write, black_read) = black_stream.split();
 
-    let (mut write, mut read) = ws_stream.split();
-    // We should not forward messages other than text or binary.
-
-    while let Some(msg) = read.next().await {
-        let msg = msg.unwrap();
-        info!("message recieved: {:#?}", msg);
-        write.send(msg).await;
-    }
+    join!(
+        white_read.forward(black_write),
+        black_read.forward(white_write)
+    );
 }
