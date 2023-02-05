@@ -4,35 +4,34 @@ use crate::{
     error::ChessError as Error,
     pieces::Piece,
     squares::{Square, Square64},
-    util::{Color, File, Rank},
+    util::{Color, File, Rank, NUM_BOARD_SQUARES},
 };
 use bitboard::BitBoard;
 use std::fmt;
-use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
+use strum::{EnumCount, IntoEnumIterator};
+use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 
-const DEFAULT_BASE_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
-const NUM_BOARD_SQUARES: usize = 120;
+/// There can be a max of 10 pieces (not king obviously) for each type of
+/// piece if all 8 pawns were to somehow promote to the same piece
+const MAX_NUM_PIECE_TYPE_INSTANCES: usize = 10;
 
 #[derive(Debug)]
 pub struct Board {
     // TODO: evaluate whether exposing pieces for Zobrist hashing is acceptable
     pub pieces: [Option<Piece>; NUM_BOARD_SQUARES],
-    pawns: [BitBoard; 3],
-    kings_index: [Option<Square>; 2],
-    piece_count: [u32; 12],
-    big_piece_count: [u32; 3],
-    major_piece_count: [u32; 3],
-    minor_piece_count: [u32; 3],
-    // NOTE: there can be a max of 10 pieces (not king obviously) for each type of
-    // piece if all 8 pawns were to somehow promote to the same piece
-    piece_list: [[Option<Square>; 10]; 12], // stores position of each piece to avoid searching through all squares
+    pawns: [BitBoard; Color::COUNT],
+    kings_index: [Option<Square>; Color::COUNT],
+    piece_count: [u32; Piece::COUNT],
+    big_piece_count: [u32; Color::COUNT],
+    major_piece_count: [u32; Color::COUNT],
+    minor_piece_count: [u32; Color::COUNT],
+    piece_list: [[Option<Square>; MAX_NUM_PIECE_TYPE_INSTANCES]; Piece::COUNT], // stores position of each piece to avoid searching through all squares
 }
 
-/// Returns a board with default initial position
+/// Returns an empty board
 impl Default for Board {
     fn default() -> Self {
-        Self::from_base_fen(DEFAULT_BASE_FEN).unwrap()
+        Self::new()
     }
 }
 
@@ -40,13 +39,13 @@ impl Board {
     pub fn new() -> Self {
         Self {
             pieces: [None; NUM_BOARD_SQUARES],
-            pawns: [BitBoard(0), BitBoard(0), BitBoard(0)],
+            pawns: [BitBoard(0), BitBoard(0)],
             kings_index: [None, None],
-            piece_count: [0; 12],
-            big_piece_count: [0; 3],
-            major_piece_count: [0; 3],
-            minor_piece_count: [0; 3],
-            piece_list: [[None; 10]; 12],
+            piece_count: [0; Piece::COUNT],
+            big_piece_count: [0; Color::COUNT],
+            major_piece_count: [0; Color::COUNT],
+            minor_piece_count: [0; Color::COUNT],
+            piece_list: [[None; MAX_NUM_PIECE_TYPE_INSTANCES]; Piece::COUNT],
         }
     }
 
@@ -79,6 +78,17 @@ impl Board {
     /// Returns the piece previously occupying square or None if square was empty
     pub fn add_piece(&mut self, square: Square, piece: Piece) -> Option<Piece> {
         todo!()
+    }
+
+    /// Clears board
+    pub fn clear_board(&mut self) {
+        self.pieces = [None; NUM_BOARD_SQUARES];
+        self.pawns = [BitBoard(0); Color::COUNT];
+        self.big_piece_count = [0; Color::COUNT];
+        self.major_piece_count = [0; Color::COUNT];
+        self.minor_piece_count = [0; Color::COUNT];
+        self.piece_count = [0; Piece::COUNT];
+        // TODO: clear piece_list
     }
 }
 
@@ -118,8 +128,6 @@ impl fmt::Display for Board {
 #[cfg(test)]
 #[rustfmt::skip]
 mod tests {
-    use std::process::Output;
-
     use super::*;
 
     #[test]
@@ -139,12 +147,12 @@ mod tests {
                 None, None,                None,                None,                None,                None,                None,                None,                None,               None,
                 None, None,                None,                None,                None,                None,                None,                None,                None,               None,
             ],
-            pawns: [BitBoard(0x00FF000000000000), BitBoard(0x000000000000FF00), BitBoard(0x00FF00000000FF00)],
+            pawns: [BitBoard(0x00FF000000000000), BitBoard(0x000000000000FF00)],
             kings_index: [Some(Square::E1), Some(Square::E8)],
             piece_count: [8, 2, 2, 2, 1, 1, 8, 2, 2, 2, 1, 1],
-            big_piece_count: [8, 8, 16],
-            major_piece_count: [3, 3, 6],
-            minor_piece_count: [4, 4, 8],
+            big_piece_count: [8, 8],
+            major_piece_count: [3, 3],
+            minor_piece_count: [4, 4],
             piece_list: [
                // WhitePawns
                [Some(Square::A2), Some(Square::B2), Some(Square::C2), Some(Square::D2), Some(Square::E2), Some(Square::F2), Some(Square::G2), Some(Square::H2), None, None],

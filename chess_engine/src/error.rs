@@ -12,7 +12,7 @@ pub enum ChessError {
     IllegalMoveError(Move),
 
     #[error("Could not convert char {0} into a Piece")]
-    ParsePieceError(char),
+    ParsePieceFromCharError(char),
 
     #[error("Could not convert u8 {0} into a CastlePerm because {0} is greater than 0x0F")]
     ParseCastlePermFromU8ErrorValueTooLarge(u8),

@@ -5,10 +5,10 @@ use crate::{
 };
 use std::fmt;
 use std::str::FromStr;
-use strum::IntoEnumIterator;
-use strum_macros::{Display, EnumIter, EnumString};
+use strum::{EnumCount, IntoEnumIterator};
+use strum_macros::{Display, EnumCount as EnumCountMacro, EnumIter, EnumString};
 
-#[derive(Display, Debug, Clone, Copy, PartialEq, Eq, EnumIter, EnumString)]
+#[derive(Display, Debug, Clone, Copy, PartialEq, Eq, EnumIter, EnumString, EnumCountMacro)]
 #[rustfmt::skip]
 #[strum(use_phf)]
 pub enum Square64 {
@@ -66,7 +66,7 @@ impl Square64 {
     }
 }
 
-#[derive(Display, Debug, Clone, Copy, PartialEq, Eq, EnumIter, EnumString)]
+#[derive(Display, Debug, Clone, Copy, PartialEq, Eq, EnumIter, EnumString, EnumCountMacro)]
 #[rustfmt::skip]
 #[strum(use_phf)]
 pub enum Square {
@@ -127,8 +127,6 @@ impl Square {
 #[cfg(test)]
 mod tests {
     use crate::util::NUM_BOARD_SQUARES;
-    use std::convert::Into;
-
     use super::*;
 
     // Conversions

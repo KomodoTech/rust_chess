@@ -9,11 +9,15 @@ use crate::{
     error::ChessError as Error,
     pieces::Piece,
     squares::Square,
-    util::{Color, NUM_BOARD_SQUARES, NUM_CASTLE_PERM},
+    util::{Color, NUM_BOARD_SQUARES},
 };
 
-const DEFAULT_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+// CONSTANTS:
+
 const MAX_GAME_MOVES: usize = 2048;
+const DEFAULT_BASE_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
+/// Number of permutations for castle permissions
+const NUM_CASTLE_PERM: usize = 16;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, EnumIter, EnumString, Display)]
 enum Castle {
@@ -179,8 +183,6 @@ impl Gamestate {
 
 #[cfg(test)]
 mod tests {
-    use std::process::Output;
-
     use super::*;
 
     const DEFAULT_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
@@ -222,4 +224,6 @@ mod tests {
         println!("output: {}, expected: {}", output, expected);
         assert_eq!(output, expected);
     }
+
+    // TODO: properly seed and test Zobrist key gen to check for collision rate in norm
 }
