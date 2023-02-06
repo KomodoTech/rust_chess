@@ -14,10 +14,12 @@ async fn main() {
             Scene::MainMenu => {
                 next_scene = gui::main_menu().await;
             }
-            Scene::QuickGame => {
-                next_scene = gui::game_scene().await;
+            Scene::Connect => {
+                next_scene = gui::connect().await;
             }
-            _ => todo!(),
+            Scene::QuickGame(socket) => {
+                next_scene = gui::game_scene(socket).await;
+            }
         }
     }
 }

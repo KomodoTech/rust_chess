@@ -5,8 +5,10 @@ use rand::Rng;
 use std::io::Error;
 
 use futures::join;
-use futures_util::{future, SinkExt, StreamExt, TryFutureExt, TryStreamExt};
+use futures_util::StreamExt;
 use tokio::net::{TcpListener, TcpStream};
+
+use chess_engine::gamestate::Gamestate;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -36,7 +38,7 @@ async fn main() -> Result<(), Error> {
         match game_queue {
             Some(_) => {
                 debug!("starting game");
-                let (white_stream, black_stream) = if rng.gen_range(0..2) == 0 {
+                let (white_stream, black_stream) = if rng.gen_bool(0.5) {
                     (game_queue.take().unwrap(), stream)
                 } else {
                     (stream, game_queue.take().unwrap())
