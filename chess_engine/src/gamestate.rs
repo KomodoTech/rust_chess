@@ -1,75 +1,21 @@
-use std::{char::MAX, default};
-
 use rand::{random, thread_rng, Rng};
-use strum::{EnumCount, IntoEnumIterator};
-use strum_macros::{Display, EnumCount as EnumCountMacro, EnumIter, EnumString};
+use std::{char::MAX, default, fmt};
+use strum::EnumCount;
+use strum_macros::{Display as EnumDisplay, EnumCount as EnumCountMacro};
 
 use crate::{
     board::Board,
-    error::ChessError as Error,
+    castle_perms::{CastlePerm, NUM_CASTLE_PERM},
+    error::{ConversionError, FENParseError},
     pieces::Piece,
     squares::Square,
-    util::{Color, NUM_BOARD_SQUARES},
+    util::{Color, NUM_BOARD_SQUARES, NUM_FEN_SECTIONS},
 };
 
 // CONSTANTS:
 
 const MAX_GAME_MOVES: usize = 2048;
-const DEFAULT_BASE_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
-/// Number of permutations for castle permissions
-const NUM_CASTLE_PERM: usize = 16;
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, EnumIter, EnumString, Display)]
-enum Castle {
-    WhiteKing = 1,
-    WhiteQueen = 2,
-    BlackKing = 4,
-    BlackQueen = 8,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct CastlePerm([Option<Castle>; 4]);
-impl Default for CastlePerm {
-    fn default() -> Self {
-        Self([
-            Some(Castle::WhiteKing),
-            Some(Castle::WhiteQueen),
-            Some(Castle::BlackKing),
-            Some(Castle::BlackQueen),
-        ])
-    }
-}
-
-impl From<CastlePerm> for u8 {
-    fn from(value: CastlePerm) -> Self {
-        let mut result: u8 = 0;
-        for perm in value.0.into_iter().flatten() {
-            result += perm as u8;
-        }
-        result
-    }
-}
-
-impl TryFrom<u8> for CastlePerm {
-    type Error = Error;
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            // only 16 different possible castle permissions
-            v if v <= 0x0F => {
-                // NOTE: default castle_perm are all some/set
-                let mut castle_perm = Self::default();
-                for (i, castle) in Castle::iter().enumerate() {
-                    // check if bit corresponding to Castle permission is not set ("turn off")
-                    if ((v & (castle as u8)) == 0) {
-                        castle_perm.0[i] = None;
-                    }
-                }
-                Ok(castle_perm)
-            }
-            _ => Err(Error::ParseCastlePermFromU8ErrorValueTooLarge(value)),
-        }
-    }
-}
+const DEFAULT_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 #[derive(Debug, Clone, Copy)]
 struct Undo {
@@ -156,6 +102,57 @@ impl Gamestate {
         }
     }
 
+    // Check each side has exactly a king
+    // each piece type is valid
+    // each row has 8 squares
+    // no check for max amount of piece type leq 10
+    // optionally at the end check if active color can win in one move and disallow
+    // checking castle rights actually match the board
+    pub fn new_from_fen(fen: &str) -> Result<Self, FENParseError> {
+        let fen_sections: Vec<&str> = fen.trim().split(' ').collect();
+
+        match fen_sections.len() {
+            len if len == NUM_FEN_SECTIONS => {
+                let mut active_color: Color = Color::White;
+                match fen_sections[1] {
+                    white if white == Color::White.to_string().as_str() => {}
+                    black if black == Color::Black.to_string().as_str() => {
+                        active_color = Color::Black;
+                    }
+                    _ => {
+                        return Err(FENParseError::ActiveColorInvalid(
+                            fen_sections[1].to_string(),
+                        ));
+                    }
+                }
+
+                // TODO: look into X-FEN and Shredder-FEN for Chess960
+                // add values given lookup in array at that sum index
+                // let castle_perm = CastlePerm::try_from(fen_sections[2]);
+                // match castle_perm {
+                //     Ok(cp) => {todo!()},
+                //     Err(_) => {todo!()}
+                // }
+                todo!()
+                // en passant
+                // halfmove clock
+                // fullmove number
+
+                // board
+            }
+            _ => {
+                return Err(FENParseError::WrongNumFENSections(fen_sections.len()));
+            }
+        }
+
+        // send the first substring to the board to validate passing in the board as well
+        // if the board succeeds in parsing the base FEN, then it will pass back the reference to the board in an Ok
+        // you can then commit the local values for the color, en passant, castling rights, moves, etc
+        // to the gamestate
+        // otherwise deal with errors
+        todo!()
+    }
+
     fn gen_position_key(&self) -> u64 {
         let mut position_key: u64 = 0;
 
@@ -184,37 +181,6 @@ impl Gamestate {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const DEFAULT_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-
-    #[test]
-    fn test_u8_from_castle_perm() {
-        let input = CastlePerm::default();
-        let output: u8 = u8::from(input);
-        let expected: u8 = 0x0F;
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_castle_perm_try_from_valid_input() {
-        let input: u8 = 0b0000_0101;
-        let output = CastlePerm::try_from(input);
-        let expected = Ok(CastlePerm([
-            Some(Castle::WhiteKing),
-            None,
-            Some(Castle::BlackKing),
-            None,
-        ]));
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_castle_perm_try_from_invalid_input() {
-        let input: u8 = 0b0100_0101;
-        let output = CastlePerm::try_from(input);
-        let expected = Err(Error::ParseCastlePermFromU8ErrorValueTooLarge(input));
-        assert_eq!(output, expected);
-    }
 
     #[test]
     fn test_gen_position_key_deterministic() {

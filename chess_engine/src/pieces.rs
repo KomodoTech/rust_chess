@@ -1,4 +1,4 @@
-use crate::{error::ChessError as Error, util::Color};
+use crate::{error::ConversionError as Error, util::Color};
 
 use std::fmt::{self, write};
 use strum::EnumCount;
@@ -121,7 +121,7 @@ mod test {
         let output = input.is_big();
         let expected = true;
         assert_eq!(output, expected);
-    }    
+    }
 
     #[test]
     fn test_piece_is_big_false() {
@@ -129,7 +129,7 @@ mod test {
         let output = input.is_major();
         let expected = false;
         assert_eq!(output, expected);
-    }    
+    }
 
     #[test]
     fn test_piece_is_major_true() {
@@ -137,7 +137,7 @@ mod test {
         let output = input.is_major();
         let expected = true;
         assert_eq!(output, expected);
-    }    
+    }
 
     #[test]
     fn test_piece_is_major_false() {
@@ -145,7 +145,7 @@ mod test {
         let output = input.is_major();
         let expected = false;
         assert_eq!(output, expected);
-    }    
+    }
 
     #[test]
     fn test_piece_is_minor_true() {
@@ -153,7 +153,7 @@ mod test {
         let output = input.is_minor();
         let expected = true;
         assert_eq!(output, expected);
-    }    
+    }
 
     #[test]
     fn test_piece_is_minor_false() {
@@ -161,7 +161,7 @@ mod test {
         let output = input.is_minor();
         let expected = false;
         assert_eq!(output, expected);
-    }    
+    }
 
     #[test]
     fn test_piece_get_value() {

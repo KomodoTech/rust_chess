@@ -1,6 +1,11 @@
+use std::{
+    ops::Add,
+    collections::HashMap
+};
+
 use crate::{
     pieces::Piece,
-    squares::{Square, Square64},
+    squares::{Square, Square64}, error::ConversionError,
 };
 use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::{Display, EnumCount as EnumCountMacro, EnumIter, EnumString};
@@ -9,6 +14,7 @@ use strum_macros::{Display, EnumCount as EnumCountMacro, EnumIter, EnumString};
 
 /// Number of squares for the internal board (10x12)
 pub const NUM_BOARD_SQUARES: usize = 120;
+pub const NUM_FEN_SECTIONS: usize = 6;
 
 #[derive(EnumIter, Debug, Copy, Clone, PartialEq, Eq)]
 pub enum File {
@@ -22,7 +28,7 @@ pub enum File {
     FileH,
 }
 
-#[derive(EnumIter, Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(EnumIter, Debug, Copy, Clone, PartialEq, Eq, Display, EnumCountMacro)]
 pub enum Rank {
     Rank1,
     Rank2,
@@ -33,6 +39,26 @@ pub enum Rank {
     Rank7,
     Rank8,
 }
+
+// TODO: evaluate how much unecessary complexity this adds to codebase and
+// if it's worth it then make tests for this
+// impl TryFrom<usize> for Rank {
+//     type Error = ConversionError;
+//     fn try_from(value: usize) -> Result<Self, Self::Error> {
+//         Self::iter()
+//             .find(|r| *r as usize == value)
+//             .ok_or(ConversionError::ParseRankFromUsizeError(value))
+//     }
+// }
+
+// impl Add<usize> for Rank {
+//     type Output = Result<Self, ConversionError>;
+//     fn add(self, rhs: usize) -> Self::Output {
+//         let result: Result<Self, ConversionError> = (self as usize + rhs).try_into();
+//         result
+//     }
+// }
+
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, EnumString, EnumCountMacro, Display)]
 pub enum Color {

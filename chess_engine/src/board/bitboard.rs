@@ -75,7 +75,7 @@ impl BitBoard {
     }
 
     /// Sets bit at index
-    fn set_bit(&mut self, index: Square64) {
+    pub fn set_bit(&mut self, index: Square64) {
         self.0 |= 1 << (index as u8);
     }
 

@@ -2,6 +2,7 @@
 #![allow(clippy::module_inception)]
 #![allow(unused)]
 pub mod board;
+pub mod castle_perms;
 pub mod error;
 pub mod gamestate;
 pub mod moves;
