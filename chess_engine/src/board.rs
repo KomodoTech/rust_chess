@@ -1,15 +1,16 @@
 // TODO: when bitboard errors are removed, remove pub keyword
 pub mod bitboard;
 use crate::{
-    error::ConversionError,
+    error::{ConversionError, FENParseError},
+    gamestate::NUM_BOARD_SQUARES,
     pieces::Piece,
     squares::{Square, Square64},
-    util::{Color, File, Rank, NUM_BOARD_SQUARES},
+    util::{Color, File, Rank},
 };
 use bitboard::BitBoard;
 use rand::seq::index;
 use regex::{CaptureMatches, Regex};
-use std::fmt;
+use std::{collections::HashMap, fmt};
 use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 
@@ -37,6 +38,109 @@ impl Default for Board {
     }
 }
 
+impl TryFrom<&str> for Board {
+    type Error = FENParseError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let mut board = Board::new();
+        let mut freq_counter: HashMap<char, usize> = HashMap::with_capacity(Piece::COUNT);
+
+        let ranks: Vec<&str> = value.split('/').collect();
+        // Check that we have the right number of ranks and for each valid rank update board accordingly
+        match ranks.len() {
+            Rank::COUNT => {
+                for (rank, rank_str) in ranks.iter().enumerate() {
+                    // do rank validation in separate function that will return Some(Piece)s or Nones in an array if valid
+                    let rank_pieces: Result<[Option<Piece>; File::COUNT], FENParseError> =
+                        Self::gen_rank_from_fen(rank_str, &mut freq_counter);
+                    match rank_pieces {
+                        Ok(rp) => {
+                            // if the rank is valid update the board
+                            for (file, &piece) in rp.iter().enumerate() {
+                                // get square from file and rank and use it to update board's pieces array
+                                let square = Square::from_file_and_rank(
+                                    File::try_from(file).expect("file should be in range 0..=7"),
+                                    Rank::try_from(rank).expect("rank should be in range 0..=7"),
+                                );
+                                board.pieces[square as usize] = piece;
+
+                                // for each piece in rank we got back do other updates that can be done for any
+                                // piece type (piece_count, piece_list, big/major/minor_piece_count)
+                                if let Some(p) = piece {
+                                    let color = p.get_color();
+                                    let is_big = p.is_big();
+                                    let is_major = p.is_major();
+                                    let is_minor = p.is_minor();
+
+                                    // update board piece_list
+                                    let piece_type_index = p as usize; // outer (i) index for piece_list
+                                                                       // go to freq_counter and look for piece char as key. our rank validation
+                                                                       // has updated freq_counter so it will at least be 1. We subtract 1 for 0-indexing
+                                    let piece_index: usize = *freq_counter.get(&(p.into()))
+                                                                                .expect("white pawn should already be in freq_counter from rank level parsing") - 1; // inner (j) index for piece_list
+                                    board.piece_list[piece_type_index][piece_index] = Some(square);
+
+                                    // update piece counts
+                                    board.piece_count[color as usize] += 1;
+                                    if is_big {
+                                        board.big_piece_count[color as usize] += 1;
+                                    }
+                                    if is_major {
+                                        board.major_piece_count[color as usize] += 1;
+                                    }
+                                    if is_minor {
+                                        board.minor_piece_count[color as usize] += 1;
+                                    }
+
+                                    // update fields of board that are dependent on the piece type
+                                    // (pawns, kings_index)
+                                    match p {
+                                        Piece::WhitePawn => board.pawns[p.get_color() as usize]
+                                            .set_bit(Square64::from(square)),
+                                        Piece::BlackPawn => board.pawns[p.get_color() as usize]
+                                            .set_bit(Square64::from(square)),
+                                        Piece::WhiteKing => {
+                                            board.kings_index[p.get_color() as usize] = Some(square)
+                                        }
+                                        Piece::BlackKing => {
+                                            board.kings_index[p.get_color() as usize] = Some(square)
+                                        }
+                                        _ => (),
+                                    }
+                                };
+                            }
+                        }
+                        // rank validation failed. pass along error
+                        Err(e) => return Err(e),
+                    }
+                }
+            }
+            _ => {
+                return Err(FENParseError::BaseFENWrongNumRanks(
+                    value.to_string(),
+                    ranks.len(),
+                ))
+            }
+        }
+        // TODO:
+        // check freq counter for kings (optionally for max num of pieces per type)
+        if freq_counter.get(&'k') != Some(&1) || freq_counter.get(&'K') != Some(&1) {
+            return Err(FENParseError::InvalidKingNum(value.to_string()));
+        }
+        // check for max amount of piece type leq 9-10 (can disable later)
+        for (&key, &val) in freq_counter.iter() {
+            let piece = Piece::try_from(key).expect("key should always represent a valid piece");
+            if piece.get_max_num_allowed() as usize > val {
+                return Err(FENParseError::InvalidNumOfPiece(
+                    value.to_string(),
+                    piece.to_string(),
+                ));
+            }
+        }
+        Ok(board)
+    }
+}
+
 impl Board {
     pub fn new() -> Self {
         Self {
@@ -51,143 +155,75 @@ impl Board {
         }
     }
 
-    // iterate left to right
-    // check each char corresponds to valid piece or empty
-    // build frequency counter
-    // counter var to track sum adding up to 8
-    // check freq counter for kings (optionally for max num of pieces per type)
-    //
+    // TODO: TEST!
+    fn gen_rank_from_fen(
+        fen_rank: &str,
+        freq_counter: &mut HashMap<char, usize>,
+    ) -> Result<[Option<Piece>; File::COUNT], FENParseError> {
+        let mut rank: [Option<Piece>; File::COUNT] = [None; File::COUNT];
+        let mut square_counter: u8 = 0;
+        for char in fen_rank.chars() {
+            match char.to_digit(10) {
+                Some(digit) => {
+                    // if the char is a digit in the range (1..=8) we need to check
+                    // that it's not pushing us past our 8 square limit
+                    match digit {
+                        d if (1..=File::COUNT).contains(&(digit as usize)) => {
+                            // push Nones if there is space in rank array
+                            match (square_counter + (d as u8) - 1 < File::COUNT as u8) {
+                                true => {
+                                    for i in square_counter..(square_counter + (d as u8)) {
+                                        rank[i as usize] = None;
+                                    }
+                                }
+                                false => {
+                                    return Err(FENParseError::RankInvalidNumSquares(
+                                        fen_rank.to_string(),
+                                    ))
+                                }
+                            }
+                            square_counter += d as u8;
+                        }
+                        _ => {
+                            return Err(FENParseError::RankInvalidDigit(
+                                fen_rank.to_string(),
+                                digit as usize,
+                            ))
+                        }
+                    }
+                }
+                // Not a digit so we need to check if char represents a valid piece
+                None => {
+                    match Piece::try_from(char) {
+                        Ok(piece) => {
+                            // push Some(piece) onto rank if space
+                            match square_counter {
+                                sq_count if sq_count < File::COUNT as u8 => {
+                                    rank[sq_count as usize] = Some(piece)
+                                }
+                                _ => {
+                                    return Err(FENParseError::RankInvalidNumSquares(
+                                        fen_rank.to_string(),
+                                    ))
+                                }
+                            }
 
-    // /// Given a substring of a base FEN that represents a rank, count the number of squares
-    // /// that are represented
-    // fn count_squares_in_FEN_rank(fen_rank: &str) -> usize {
-    //     fen_rank.chars().fold(0, |acc, c| {
-    //                     let num_empty = c.to_digit(10);
-    //                     match num_empty {
-    //                          Some(d) => {acc + d as usize},
-    //                          None => {acc + 1}
-    //                     }
-    //                 })
-    // }
-
-    // ///
-    // fn validate_base_fen(fen: &str) -> Result<Vec<&str>, FENParseError> {
-    //     #[rustfmt::skip]
-    //     const fen_regex_str: &str =
-    //                                         r"(?x)^
-    //                                         (?P<Rank1>[pnbrqkPNBRQK1-8]{1,8}/)
-    //                                         (?P<Rank2>[pnbrqkPNBRQK1-8]{1,8}/)
-    //                                         (?P<Rank3>[pnbrqkPNBRQK1-8]{1,8}/)
-    //                                         (?P<Rank4>[pnbrqkPNBRQK1-8]{1,8}/)
-    //                                         (?P<Rank5>[pnbrqkPNBRQK1-8]{1,8}/)
-    //                                         (?P<Rank6>[pnbrqkPNBRQK1-8]{1,8}/)
-    //                                         (?P<Rank7>[pnbrqkPNBRQK1-8]{1,8}/)
-    //                                         (?P<Rank8>[pnbrqkPNBRQK1-8]{1,8}$)";
-
-    //     let fen_regex = Regex::new(fen_regex_str).expect("regex string to be valid regex");
-
-    //     let mut ranks: Vec<&str> = Vec::with_capacity(Rank::COUNT);
-    //     let mut rank_num: usize = 1;
-    //     for caps in fen_regex.captures_iter(fen) {
-    //         // make sure you have exactly 8 FEN ranks
-    //         match rank_num {
-    //             r if r <= Rank::COUNT => {
-    //                 // Make sure that each FEN rank represents exactly 8 squares
-    //                 let num_squares = Self::count_squares_in_FEN_rank(&caps[r]);
-    //                 match num_squares {
-    //                     n if n == 8 => {
-    //                         // TODO: check that there aren't more than 10 of any piece
-    //                         todo!()
-    //                     },
-    //                     _ => {return Err(FENParseError::GenerateBoardFromBaseFENRankDoesNotContain8SquaresError(caps[r].to_string()))}
-    //                 }
-    //                 rank_num += 1;
-    //             },
-    //             _ => {return Err(FENParseError::GenerateBoardFromBaseFENTooManyRanksError(rank_num));}
-    //         }
-    //     }
-    //     todo!()
-    // }
-
-    // /// Returns board from position FEN. Returns error if FEN is invalid
-    // pub fn from_base_fen(fen: &str) -> Result<Self, FENParseError> {
-    //     // each element of rows will contain a &str that represents all the
-    //     // pieces (or lack thereof) for that row (e.g. 4P3)
-    //     let rows: Vec<&str> = fen.split('/').collect();
-    //     match rows.len() {
-    //         num_rows if num_rows == 8 => {
-
-    //             let mut board = Board::new();
-    //             let mut square_64: Square64 = Square64::A1;
-
-    //             for row in rows {
-    //             // TODO: write test passing in graphemes that aren't pure ascii
-    //                 for char in row.chars() {
-    //                     let piece: Result<Piece, ConversionError> = char.try_into();
-
-    //                     match piece {
-    //                         Ok(p) => {
-    //                             match p {
-    //                                 Piece::WhitePawn => {
-    //                                     // update pawn bitboard
-    //                                     board.pawns[0].set_bit(square_64);
-    //                                     // update piece count
-    //                                     board.piece_count[0] += 1;
-    //                                     // update pieces
-    //                                     board.pieces[square_64 as usize] = Some(p);
-    //                                     let next_square_64 = square_64 + 1;
-    //                                     match next_square_64 {
-    //                                         Ok(s_64) => { square_64 = next_square_64.unwrap() },
-    //                                         Err(_) => { return Err(FENParseError::GenerateBoardFromBaseFEN)}
-    //                                     }
-    //                                 },
-    //                                 Piece::WhiteKnight => {todo!()},
-    //                                 Piece::WhiteBishop => {todo!()},
-    //                                 Piece::WhiteRook => {todo!()},
-    //                                 Piece::WhiteQueen => {todo!()},
-    //                                 Piece::WhiteKing => {todo!()},
-    //                                 Piece::BlackPawn => {todo!()},
-    //                                 Piece::BlackKnight => {todo!()},
-    //                                 Piece::BlackBishop => {todo!()},
-    //                                 Piece::BlackRook => {todo!()},
-    //                                 Piece::BlackQueen => {todo!()},
-    //                                 Piece::BlackKing => {todo!()}
-    //                             }
-    //                             todo!()
-    //                         },
-    //                         Err(_) => {
-    //                             match char.to_digit(10) {
-    //                                 Some(digit) => {
-    //                                     match digit {
-    //                                         // if character represents a digit leq than 8, increment index_64
-    //                                         // to not put a piece in that square
-    //                                         d if d <= 8 => {
-    //                                             // NOTE: can't use or implement AddAssign because adding can fail here
-    //                                             let next_square_64 = (square_64 + d as usize);
-    //                                             match next_square_64 {
-    //                                                 Ok(s_64) => { square_64 = next_square_64.unwrap() },
-    //                                                 Err(_) => { return Err(FENParseError::GenerateBoardFromBaseFENInvalidSquare64Index(digit))}
-    //                                             }
-
-    //                                         },
-    //                                         _ => { return Err(FENParseError::GenerateBoardFromBaseFENInvalidDigit(digit));}
-    //                                     }
-    //                                 },
-    //                                 None => { return Err(FENParseError::GenerateBoardFromBaseFENInvalidChar(char)); }
-    //                             }
-    //                         }
-    //                     }
-    //                 }
-    //             }
-    //             Ok(board)
-    //         },
-    //         _ => {Err(FENParseError::GenerateBoardFromBaseFENNumberOfRowsError(fen.to_string()))}
-    //     }
-    //     // create index counter
-    //     // iterate through array and for each &str aka row parse and increment index counter
-    //     // appropriately
-    //     // use index counter to convert to Square and add pieces as needed
-    // }
+                            square_counter += 1;
+                            // update freq_counter
+                            freq_counter
+                                .entry(char)
+                                .and_modify(|count| *count += 1)
+                                .or_insert(1);
+                        }
+                        Err(_) => {
+                            return Err(FENParseError::RankInvalidChar(fen_rank.to_string(), char))
+                        }
+                    }
+                }
+            }
+        }
+        Ok(rank)
+    }
 
     /// Returns FEN based on board position
     pub fn to_base_fen(&self) -> String {

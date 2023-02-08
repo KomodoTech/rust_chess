@@ -5,16 +5,19 @@ use strum_macros::{Display as EnumDisplay, EnumCount as EnumCountMacro};
 
 use crate::{
     board::Board,
-    castle_perms::{CastlePerm, NUM_CASTLE_PERM},
+    castle_perms::{self, CastlePerm, NUM_CASTLE_PERM},
     error::{ConversionError, FENParseError},
     pieces::Piece,
     squares::Square,
-    util::{Color, NUM_BOARD_SQUARES, NUM_FEN_SECTIONS},
+    util::Color,
 };
 
 // CONSTANTS:
-
-const MAX_GAME_MOVES: usize = 2048;
+/// Maximum number of half moves we expect
+pub const MAX_GAME_MOVES: usize = 2048;
+pub const NUM_FEN_SECTIONS: usize = 6;
+/// Number of squares for the internal board (10x12)
+pub const NUM_BOARD_SQUARES: usize = 120;
 const DEFAULT_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 #[derive(Debug, Clone, Copy)]
@@ -55,6 +58,12 @@ impl Zobrist {
             en_passant_keys,
             castle_keys,
         }
+    }
+}
+
+impl Default for Zobrist {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -102,55 +111,104 @@ impl Gamestate {
         }
     }
 
-    // Check each side has exactly a king
-    // each piece type is valid
-    // each row has 8 squares
-    // no check for max amount of piece type leq 10
-    // optionally at the end check if active color can win in one move and disallow
-    // checking castle rights actually match the board
+    // TODO: TEST!
+    /// Generates a new Gamestate from a FEN &str. Base FEN gets converted to board via TryFrom<&str>
     pub fn new_from_fen(fen: &str) -> Result<Self, FENParseError> {
         let fen_sections: Vec<&str> = fen.trim().split(' ').collect();
 
         match fen_sections.len() {
             len if len == NUM_FEN_SECTIONS => {
-                let mut active_color: Color = Color::White;
-                match fen_sections[1] {
-                    white if white == Color::White.to_string().as_str() => {}
-                    black if black == Color::Black.to_string().as_str() => {
-                        active_color = Color::Black;
-                    }
+                let active_color_str = fen_sections[1];
+                let active_color = match active_color_str {
+                    white if white == Color::White.to_string().as_str() => Color::White,
+                    black if black == Color::Black.to_string().as_str() => Color::Black,
                     _ => {
                         return Err(FENParseError::ActiveColorInvalid(
-                            fen_sections[1].to_string(),
-                        ));
+                            active_color_str.to_string(),
+                        ))
                     }
-                }
+                };
 
                 // TODO: look into X-FEN and Shredder-FEN for Chess960
-                // add values given lookup in array at that sum index
-                // let castle_perm = CastlePerm::try_from(fen_sections[2]);
-                // match castle_perm {
-                //     Ok(cp) => {todo!()},
-                //     Err(_) => {todo!()}
-                // }
-                todo!()
-                // en passant
-                // halfmove clock
-                // fullmove number
+                let castle_permissions_str = fen_sections[2];
+                let castle_permissions_try = CastlePerm::try_from(castle_permissions_str);
+                let castle_permissions = match castle_permissions_try {
+                    Ok(cp) => cp,
+                    Err(_) => {
+                        return Err(FENParseError::CastlePermInvalid(
+                            castle_permissions_str.to_string(),
+                        ))
+                    }
+                };
 
-                // board
+                let en_passant_str = fen_sections[3];
+                let en_passant_try = Square::try_from(en_passant_str.to_uppercase().as_str());
+                let en_passant = match en_passant_try {
+                    Ok(ep) => Some(ep),
+                    Err(_) => match en_passant_str {
+                        "-" => None,
+                        _ => {
+                            return Err(FENParseError::EnPassantInvalid(en_passant_str.to_string()))
+                        }
+                    },
+                };
+
+                let halfmove_clock_str = fen_sections[4];
+                let halfmove_clock_try = halfmove_clock_str.parse::<u32>();
+                let halfmove_clock = match halfmove_clock_try {
+                    Ok(num) => match num {
+                        n if (0..=MAX_GAME_MOVES).contains(&(n as usize)) => n,
+                        _ => return Err(FENParseError::HalfmoveClockExceedsMaxGameMoves(num)),
+                    },
+                    Err(_) => {
+                        return Err(FENParseError::HalfmoveClockInvalid(
+                            halfmove_clock_str.to_string(),
+                        ))
+                    }
+                };
+
+                let fullmove_number_str = fen_sections[5];
+                let fullmove_number_try = fullmove_number_str.parse::<u32>();
+                let fullmove_number = match fullmove_number_try {
+                    Ok(num) => match num {
+                        n if (0..=MAX_GAME_MOVES / 2).contains(&(n as usize)) => n,
+                        _ => return Err(FENParseError::FullmoveClockExceedsMaxGameMoves(num)),
+                    },
+                    Err(_) => {
+                        return Err(FENParseError::FullmoveClockInvalid(
+                            fullmove_number_str.to_string(),
+                        ));
+                    }
+                };
+
+                let board_str = fen_sections[0];
+                let board_try = Board::try_from(board_str);
+                let board = match board_try {
+                    Ok(b) => b,
+                    Err(_) => {
+                        return Err(FENParseError::BoardInvalid(board_str.to_string()));
+                    }
+                };
+
+                let history: [Option<Undo>; MAX_GAME_MOVES] = [None; MAX_GAME_MOVES];
+                let zobrist = Zobrist::default();
+
+                // TODO: check that the castle permissions actually match the board
+                // TODO: optionally at the end check if active color can win in one move and disallow
+
+                Ok(Gamestate {
+                    board,
+                    active_color,
+                    castle_permissions,
+                    en_passant,
+                    halfmove_clock,
+                    fullmove_number,
+                    history,
+                    zobrist,
+                })
             }
-            _ => {
-                return Err(FENParseError::WrongNumFENSections(fen_sections.len()));
-            }
+            _ => Err(FENParseError::WrongNumFENSections(fen_sections.len())),
         }
-
-        // send the first substring to the board to validate passing in the board as well
-        // if the board succeeds in parsing the base FEN, then it will pass back the reference to the board in an Ok
-        // you can then commit the local values for the color, en passant, castling rights, moves, etc
-        // to the gamestate
-        // otherwise deal with errors
-        todo!()
     }
 
     fn gen_position_key(&self) -> u64 {

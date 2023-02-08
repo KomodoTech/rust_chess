@@ -1,10 +1,12 @@
 use crate::{
     board::bitboard::BitBoard,
+    gamestate::{MAX_GAME_MOVES, NUM_FEN_SECTIONS},
     moves::Move,
     squares::{Square, Square64},
-    util::NUM_FEN_SECTIONS,
+    util::{File, Rank},
 };
-use strum::ParseError as StrumParseError;
+use strum::{EnumCount, ParseError as StrumParseError};
+
 use thiserror::Error;
 
 // TODO: Clean up names and explore thiserror #from to see if you can convert
@@ -13,7 +15,7 @@ use thiserror::Error;
 #[derive(Error, Debug, PartialEq)]
 pub enum ChessError {
     #[error("illegal move attempted: {0}")]
-    IllegalMoveError(Move),
+    IllegalMove(Move),
 }
 
 #[derive(Error, Debug, PartialEq)]
@@ -27,73 +29,111 @@ pub enum FENParseError {
     #[error("active color section of substring {0} is an invalid Color")]
     ActiveColorInvalid(String),
 
-    #[error("base FEN {0} did not have 8 rows separated by / delimiter")]
-    GenerateBoardFromBaseFENNumberOfRowsError(String),
+    #[error("castle permissions {0} are invalid")]
+    CastlePermInvalid(String),
 
-    #[error("could not parse invalid char {0} while parsing base FEN")]
-    GenerateBoardFromBaseFENInvalidCharError(char),
+    #[error("en passant square {0} is invalid")]
+    EnPassantInvalid(String),
 
-    #[error("could not parse invalid digit {0} while parsing base FEN. digit needs to be smaller or equal to 8")]
-    GenerateBoardFromBaseFENInvalidDigitError(u32),
+    #[error("half moves {0} is not a valid unsigned integer")]
+    HalfmoveClockInvalid(String),
 
-    #[error("number of ranks {0} parsed from fen exceeds 8")]
-    GenerateBoardFromBaseFENTooManyRanksError(usize),
+    #[error(
+        "half moves {0} exceeds maximum number of half moves expected {}",
+        MAX_GAME_MOVES
+    )]
+    HalfmoveClockExceedsMaxGameMoves(u32),
 
-    #[error("FEN rank {0} does not represent 8 squares")]
-    GenerateBoardFromBaseFENRankDoesNotContain8SquaresError(String),
+    #[error("full moves {0} is not a valid unsigned integer")]
+    FullmoveClockInvalid(String),
+
+    #[error("half moves {0} exceeds maximum number of full moves expected {}",
+        MAX_GAME_MOVES/2
+    )]
+    FullmoveClockExceedsMaxGameMoves(u32),
+
+    #[error("base FEN for Board {0} is invalid")]
+    BoardInvalid(String),
+
+    #[error(
+        "base FEN {0} has {1} ranks separated by / delimiter instead of {}",
+        Rank::COUNT
+    )]
+    BaseFENWrongNumRanks(String, usize),
+
+    #[error("Rank FEN {0} should represent {} squares but does not", File::COUNT)]
+    RankInvalidNumSquares(String),
+
+    #[error(
+        "Rank FEN {0} has character {1} which represents invalid digit (needs to be in 1..=8)"
+    )]
+    RankInvalidDigit(String, usize),
+
+    #[error("Rank FEN {0} includes invalid char {1}")]
+    RankInvalidChar(String, char),
+
+    #[error("FEN {0} must have exactly one white king and exactly one black king")]
+    InvalidKingNum(String),
+
+    //TODO: Currently going to be a bit difficult to read with glyph
+    #[error("FEN {0} includes too many {1}s")]
+    InvalidNumOfPiece(String, String),
 }
 
 #[derive(Error, Debug, PartialEq)]
 pub enum BitBoardError {
     #[error("cannot check bit at index {0}, which is greater than 63")]
-    BitBoardCheckBitInvalidIndexError(u8),
+    BitBoardCheckBitInvalidIndex(u8),
 
     #[error("cannot set bit at index {0}, which is greater than 63")]
-    BitBoardSetBitInvalidIndexError(u8),
+    BitBoardSetBitInvalidIndex(u8),
 
     #[error("cannot unset bit at index {0}, which is greater than 63")]
-    BitBoardUnsetBitInvalidIndexError(u8),
+    BitBoardUnsetBitInvalidIndex(u8),
 }
 
 #[derive(Error, Debug, PartialEq)]
 pub enum ConversionError {
     #[error("could not convert char {0} into a Piece")]
-    ParsePieceFromCharError(char),
+    ParsePieceFromChar(char),
 
     #[error("could not convert u8 {0} into a CastlePerm because {0} is greater than 0x0F")]
-    ParseCastlePermFromU8ErrorValueTooLargeError(u8),
+    ParseCastlePermFromU8ErrorValueTooLarge(u8),
 
     #[error("could not convert {0} into a CastlePerm because char {0} is invalid")]
-    ParseCastlePermFromStrInvalidCharError(String, char),
+    ParseCastlePermFromStrInvalidChar(String, char),
 
     // Won't catch - duplicates
     #[error("could not convert {0} into a CastlePerm encountered duplicates")]
-    ParseCastlePermFromStrDuplicatesError(String),
+    ParseCastlePermFromStrDuplicates(String),
 
     #[error("could not convert {0} into a CastlePerm")]
-    ParseCastlePermFromStrError(String),
+    ParseCastlePermFromStr(String),
 
     #[error("could not convert &str {0} into a Square")]
-    ParseSquareFromStrError(#[from] StrumParseError),
+    ParseSquareFromStr(#[from] StrumParseError),
 
     #[error("could not convert u8 {0} into a Square")]
-    ParseSquareFromU8Error(u8),
+    ParseSquareFromU8(u8),
 
     #[error("could not convert u8 {0} into a Square64")]
-    ParseSquare64FromU8Error(u8),
+    ParseSquare64FromU8(u8),
 
     #[error("could not convert u32 {0} into a Square")]
-    ParseSquareFromU32Error(u32),
+    ParseSquareFromU32(u32),
 
     #[error("could not convert u32 {0} into a Square64")]
-    ParseSquare64FromU32Error(u32),
+    ParseSquare64FromU32(u32),
 
     #[error("could not convert usize {0} into a Square")]
-    ParseSquareFromUsizeError(usize),
+    ParseSquareFromUsize(usize),
 
     #[error("could not convert usize {0} into a Square64")]
-    ParseSquare64FromUsizeError(usize),
+    ParseSquare64FromUsize(usize),
 
     #[error("could not convert usize {0} into a Rank")]
-    ParseRankFromUsizeError(usize),
+    ParseRankFromUsize(usize),
+
+    #[error("could not convert usize {0} into a File")]
+    ParseFileFromUsize(usize),
 }

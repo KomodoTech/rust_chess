@@ -1,22 +1,15 @@
-use std::{
-    ops::Add,
-    collections::HashMap
-};
-
 use crate::{
+    error::ConversionError,
+    gamestate::NUM_BOARD_SQUARES,
     pieces::Piece,
-    squares::{Square, Square64}, error::ConversionError,
+    squares::{Square, Square64},
 };
 use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::{Display, EnumCount as EnumCountMacro, EnumIter, EnumString};
 
 // CONSTANTS:
 
-/// Number of squares for the internal board (10x12)
-pub const NUM_BOARD_SQUARES: usize = 120;
-pub const NUM_FEN_SECTIONS: usize = 6;
-
-#[derive(EnumIter, Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(EnumIter, Debug, Copy, Clone, PartialEq, Eq, Display, EnumCountMacro)]
 pub enum File {
     FileA,
     FileB,
@@ -26,6 +19,15 @@ pub enum File {
     FileF,
     FileG,
     FileH,
+}
+// TODO: test tryfroms for file and rank
+impl TryFrom<usize> for File {
+    type Error = ConversionError;
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        Self::iter()
+            .find(|r| *r as usize == value)
+            .ok_or(ConversionError::ParseFileFromUsize(value))
+    }
 }
 
 #[derive(EnumIter, Debug, Copy, Clone, PartialEq, Eq, Display, EnumCountMacro)]
@@ -40,16 +42,14 @@ pub enum Rank {
     Rank8,
 }
 
-// TODO: evaluate how much unecessary complexity this adds to codebase and
-// if it's worth it then make tests for this
-// impl TryFrom<usize> for Rank {
-//     type Error = ConversionError;
-//     fn try_from(value: usize) -> Result<Self, Self::Error> {
-//         Self::iter()
-//             .find(|r| *r as usize == value)
-//             .ok_or(ConversionError::ParseRankFromUsizeError(value))
-//     }
-// }
+impl TryFrom<usize> for Rank {
+    type Error = ConversionError;
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        Self::iter()
+            .find(|r| *r as usize == value)
+            .ok_or(ConversionError::ParseRankFromUsize(value))
+    }
+}
 
 // impl Add<usize> for Rank {
 //     type Output = Result<Self, ConversionError>;
@@ -58,7 +58,6 @@ pub enum Rank {
 //         result
 //     }
 // }
-
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, EnumString, EnumCountMacro, Display)]
 pub enum Color {
