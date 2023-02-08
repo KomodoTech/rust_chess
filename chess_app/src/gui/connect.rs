@@ -1,4 +1,5 @@
 use super::Scene;
+use chess_app::types::{WebSocketResponse, WebsocketMessage};
 use macroquad::{
     color::{BLACK, WHITE},
     prelude::{get_time, info},
@@ -8,24 +9,34 @@ use macroquad::{
 use quad_net::quad_socket::client::QuadSocket;
 
 pub async fn connect() -> Scene {
-    let socket = QuadSocket::connect("ws://localhost:8091").unwrap();
-    info!("connected to socket");
+    let mut socket = QuadSocket::connect("ws://localhost:8091").unwrap();
     #[cfg(target_arch = "wasm32")]
     {
-        while socket.is_wasm_websocket_connected() == false {
-            clear_background(BLACK);
-            draw_text(
-                &format!(
-                    "Looking for opponent{}",
-                    ".".repeat(((get_time() * 2.0) as usize) % 4)
-                ),
-                screen_width() / 2.0 - 160.0,
-                screen_height() / 2.0,
-                40.,
-                WHITE,
-            );
+        while !socket.is_wasm_websocket_connected() {
+            draw_loading_screen("Connecting");
             next_frame().await;
         }
     }
-    Scene::QuickGame(socket)
+    info!("socket connection accepted");
+    socket.send_bin(&WebsocketMessage::GameVsHuman);
+
+    loop {
+        if let Some(WebSocketResponse::GameStarted(color)) = socket.try_recv_bin() {
+            return Scene::QuickGame(color, socket);
+        } else {
+            draw_loading_screen("Searching for opponent");
+            next_frame().await;
+        }
+    }
+}
+
+fn draw_loading_screen(msg: &str) {
+    clear_background(BLACK);
+    draw_text(
+        &format!("{}{}", msg, ".".repeat(((get_time() * 2.0) as usize) % 4)),
+        screen_width() / 2.0 - 160.0,
+        screen_height() / 2.0,
+        40.,
+        WHITE,
+    );
 }

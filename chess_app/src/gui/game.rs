@@ -1,9 +1,11 @@
 use super::Scene;
+use chess_app::types::PlayerColor;
 use chess_engine::pieces::Piece;
 use macroquad::{
     color::{BLACK, LIGHTGRAY, WHITE},
     input::{is_mouse_button_down, is_mouse_button_pressed, mouse_position, MouseButton},
     math::{vec2, Rect, Vec2},
+    prelude::info,
     text::draw_text,
     texture::{draw_texture_ex, load_texture, DrawTextureParams, Texture2D},
     window::{clear_background, next_frame, screen_height, screen_width},
@@ -21,7 +23,8 @@ enum MouseState {
 
 type Board = [[Option<Piece>; 8]; 8];
 
-pub async fn game_scene(mut socket: QuadSocket) -> Scene {
+pub async fn game_scene(color: PlayerColor, mut socket: QuadSocket) -> Scene {
+    info!("new game started as color {:#?}", color);
     let path = "assets/boards/board.png";
     let board_texture: Texture2D = load_texture(path).await.unwrap();
 

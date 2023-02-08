@@ -144,6 +144,7 @@ dependencies = [
  "console_log",
  "log",
  "macroquad",
+ "nanoserde",
  "quad-net",
 ]
 
@@ -160,12 +161,14 @@ dependencies = [
 name = "chess_server"
 version = "0.1.0"
 dependencies = [
+ "chess_app",
  "chess_engine",
  "config",
  "env_logger",
  "futures",
  "futures-util",
  "log",
+ "nanoserde",
  "rand 0.8.5",
  "tokio",
  "tokio-tungstenite",

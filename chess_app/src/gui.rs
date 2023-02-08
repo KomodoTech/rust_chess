@@ -1,3 +1,4 @@
+use chess_app::types::PlayerColor;
 use quad_net::quad_socket::client::QuadSocket;
 
 mod connect;
@@ -13,5 +14,5 @@ pub use style::GuiResources;
 pub enum Scene {
     MainMenu,
     Connect,
-    QuickGame(QuadSocket),
+    QuickGame(PlayerColor, QuadSocket),
 }

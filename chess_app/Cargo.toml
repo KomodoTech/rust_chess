@@ -11,3 +11,4 @@ console_log = { version = "0.2", features = ["color"] }
 log = "0.4"
 macroquad = "0.3"
 quad-net = { git = "https://github.com/escobar-west/quad-net.git" }
+nanoserde = "0.1"

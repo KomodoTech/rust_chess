@@ -17,8 +17,8 @@ async fn main() {
             Scene::Connect => {
                 next_scene = gui::connect().await;
             }
-            Scene::QuickGame(socket) => {
-                next_scene = gui::game_scene(socket).await;
+            Scene::QuickGame(color, socket) => {
+                next_scene = gui::game_scene(color, socket).await;
             }
         }
     }

@@ -1,13 +1,19 @@
 use config::Config;
-use env_logger::Builder;
 use log::{debug, info};
-use rand::Rng;
+use nanoserde::{DeBin, SerBin};
+use rand::{thread_rng, Rng};
 use std::io::Error;
+use std::sync::Arc;
 
 use futures::join;
-use futures_util::StreamExt;
-use tokio::net::{TcpListener, TcpStream};
+use futures_util::{SinkExt, StreamExt};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
+};
+use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
 
+use chess_app::types::{PlayerColor, WebSocketResponse, WebsocketMessage};
 use chess_engine::gamestate::Gamestate;
 
 #[tokio::main]
@@ -16,58 +22,101 @@ async fn main() -> Result<(), Error> {
         .add_source(config::File::with_name("configs/default"))
         .build()
         .unwrap();
-    let ws_url: String = settings
+    let websocket_url: String = settings
         .get("ws_url")
         .expect("Could not get url from config");
     let debug_level: String = settings
         .get("debug_level")
         .expect("Could not get debug_level from confifg");
 
-    let mut builder = Builder::new();
+    let mut builder = env_logger::Builder::new();
     builder.parse_filters(&debug_level).init();
 
-    let try_socket = TcpListener::bind(&ws_url).await;
-    let listener = try_socket.expect("Failed to bind");
+    run_server(&websocket_url).await
+}
 
-    info!("Listening on {}", ws_url);
+async fn run_server(url: &str) -> Result<(), Error> {
+    let (queue_tx, queue_rx) = mpsc::unbounded_channel::<WebSocketStream<TcpStream>>();
+    let queue_tx = Arc::new(queue_tx);
 
-    let mut game_queue: Option<TcpStream> = None;
-    let mut rng = rand::thread_rng();
+    tokio::spawn(run_match_making(queue_rx));
+
+    let listener = TcpListener::bind(url).await.expect("Failed to bind");
+    info!("Listening on {}", url);
+
     while let Ok((stream, addr)) = listener.accept().await {
         debug!("received new stream from {:#?}", addr);
-        match game_queue {
-            Some(_) => {
-                debug!("starting game");
-                let (white_stream, black_stream) = if rng.gen_bool(0.5) {
-                    (game_queue.take().unwrap(), stream)
-                } else {
-                    (stream, game_queue.take().unwrap())
-                };
-                tokio::spawn(start_game(white_stream, black_stream));
-            }
-            None => {
-                debug!("setting game_queue");
-                game_queue = Some(stream);
-            }
-        }
+        let socket = tokio_tungstenite::accept_async(stream)
+            .await
+            .expect("Error during the websocket handshake occurred");
+        tokio::spawn(process_socket(socket, Arc::clone(&queue_tx)));
     }
-
     Ok(())
 }
 
-async fn start_game(white_stream: TcpStream, black_stream: TcpStream) {
-    let white_stream = tokio_tungstenite::accept_async(white_stream)
-        .await
-        .expect("Error during the websocket handshake occurred");
-    let black_stream = tokio_tungstenite::accept_async(black_stream)
-        .await
-        .expect("Error during the websocket handshake occurred");
+async fn run_match_making(mut queue_rx: UnboundedReceiver<WebSocketStream<TcpStream>>) {
+    info!("running match making");
+    let mut waiting_room: Option<WebSocketStream<TcpStream>> = None;
+    while let Some(socket) = queue_rx.recv().await {
+        match waiting_room {
+            Some(queue_socket) => {
+                debug!("starting game");
+                tokio::spawn(start_game_with_human(socket, queue_socket));
+                waiting_room = None;
+            }
+            None => {
+                debug!("setting waiting_room");
+                waiting_room = Some(socket);
+            }
+        }
+    }
+}
 
-    let (white_write, white_read) = white_stream.split();
-    let (black_write, black_read) = black_stream.split();
+async fn process_socket(
+    mut socket: WebSocketStream<TcpStream>,
+    queue_tx: Arc<UnboundedSender<WebSocketStream<TcpStream>>>,
+) {
+    let msg = socket.next().await.unwrap();
+    let msg: WebsocketMessage = DeBin::deserialize_bin(&msg.unwrap().into_data()).unwrap();
+    match msg {
+        WebsocketMessage::GameVsComputer => {
+            start_game_with_computer(socket).await;
+        }
+        WebsocketMessage::GameVsHuman => {
+            queue_tx.send(socket).unwrap();
+        }
+    }
+}
 
-    join!(
+async fn start_game_with_computer(mut socket: WebSocketStream<TcpStream>) {
+    socket.close(None).await.unwrap();
+}
+
+async fn start_game_with_human(
+    left_stream: WebSocketStream<TcpStream>,
+    right_stream: WebSocketStream<TcpStream>,
+) {
+    let (white_stream, black_stream) = {
+        let mut rng = thread_rng();
+        if rng.gen_bool(0.5) {
+            (left_stream, right_stream)
+        } else {
+            (right_stream, left_stream)
+        }
+    };
+    let (mut white_write, white_read) = white_stream.split();
+    let (mut black_write, black_read) = black_stream.split();
+
+    let msg = Message::Binary(WebSocketResponse::GameStarted(PlayerColor::White).serialize_bin());
+    white_write.send(msg).await.unwrap();
+
+    let msg = Message::Binary(WebSocketResponse::GameStarted(PlayerColor::Black).serialize_bin());
+    black_write.send(msg).await.unwrap();
+
+    let (x, y) = join!(
         white_read.forward(black_write),
         black_read.forward(white_write)
     );
+    x.unwrap();
+    y.unwrap();
 }
