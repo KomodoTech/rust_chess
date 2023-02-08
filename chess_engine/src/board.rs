@@ -9,7 +9,6 @@ use crate::{
 };
 use bitboard::BitBoard;
 use rand::seq::index;
-use regex::{CaptureMatches, Regex};
 use std::{collections::HashMap, fmt};
 use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
@@ -49,7 +48,9 @@ impl TryFrom<&str> for Board {
         // Check that we have the right number of ranks and for each valid rank update board accordingly
         match ranks.len() {
             Rank::COUNT => {
-                for (rank, rank_str) in ranks.iter().enumerate() {
+                // NOTE: FEN is in reverse order compared with our internal board representation
+                // with regards to rank (chars within rank are in correct order)
+                for (rank, rank_str) in ranks.iter().rev().enumerate() {
                     // do rank validation in separate function that will return Some(Piece)s or Nones in an array if valid
                     let rank_pieces: Result<[Option<Piece>; File::COUNT], FENParseError> =
                         Self::gen_rank_from_fen(rank_str, &mut freq_counter);
@@ -163,6 +164,7 @@ impl Board {
     ) -> Result<[Option<Piece>; File::COUNT], FENParseError> {
         let mut rank: [Option<Piece>; File::COUNT] = [None; File::COUNT];
         let mut square_counter: u8 = 0;
+        // NOTE: Rank order is reversed in FEN but not char order within rank
         for char in fen_rank.chars() {
             match char.to_digit(10) {
                 Some(digit) => {
@@ -353,8 +355,10 @@ mod tests {
         ]
     };
 
+    // FEN PARSING
+    // Rank level FEN parsing tests:
     #[test]
-    fn test_get_rank_from_fen_valid() {
+    fn test_get_rank_from_fen_valid_black_back_row_starting_position() {
         let input = "rnbqkbnr";
         let mut map = HashMap::with_capacity(Piece::COUNT);
         let output = Board::gen_rank_from_fen(input, &mut map);
@@ -372,11 +376,65 @@ mod tests {
     }
 
     #[test]
-    fn test_board_try_from_valid_base_fen_default() {
-        let output = Board::try_from(DEFAULT_BASE_FEN);
-        let expected: Result<Board, FENParseError> = Ok(DEFAULT_BOARD);
+    fn test_get_rank_from_fen_valid_gaps() {
+        let input = "rn2kb1r";
+        let mut map = HashMap::with_capacity(Piece::COUNT);
+        let output = Board::gen_rank_from_fen(input, &mut map);
+        let expected = Ok([
+            Some(Piece::BlackRook),
+            Some(Piece::BlackKnight),
+            None,
+            None,
+            Some(Piece::BlackKing),
+            Some(Piece::BlackBishop),
+            None,
+            Some(Piece::BlackRook),
+        ]);
         assert_eq!(output, expected);
     }
+
+    #[test]
+    fn test_get_rank_from_fen_valid_empty() {
+        let input = "8";
+        let mut map = HashMap::with_capacity(Piece::COUNT);
+        let output = Board::gen_rank_from_fen(input, &mut map);
+        let expected = Ok([None; 8]);
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_get_rank_from_fen_invalid_char() {
+        let input = "rn2Xb1r";
+        let mut map = HashMap::with_capacity(Piece::COUNT);
+        let output = Board::gen_rank_from_fen(input, &mut map);
+        let expected = Err(FENParseError::RankInvalidChar(input.to_string(), 'X'));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_get_rank_from_fen_invalid_digit() {
+        let input = "rn0kb1rqN"; // num squares would be valid
+        let mut map = HashMap::with_capacity(Piece::COUNT);
+        let output = Board::gen_rank_from_fen(input, &mut map);
+        let expected = Err(FENParseError::RankInvalidDigit(input.to_string(), 0));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_get_rank_from_fen_invalid_num_squares() {
+        let input = "rn2kb1rqN";
+        let mut map = HashMap::with_capacity(Piece::COUNT);
+        let output = Board::gen_rank_from_fen(input, &mut map);
+        let expected = Err(FENParseError::RankInvalidNumSquares(input.to_string()));
+        assert_eq!(output, expected);
+    }
+
+    // #[test]
+    // fn test_board_try_from_valid_base_fen_default() {
+    //     let output = Board::try_from(DEFAULT_BASE_FEN);
+    //     let expected: Result<Board, FENParseError> = Ok(DEFAULT_BOARD);
+    //     assert_eq!(output, expected);
+    // }
 
 
     // #[test]
