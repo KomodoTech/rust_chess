@@ -354,6 +354,24 @@ mod tests {
     };
 
     #[test]
+    fn test_get_rank_from_fen_valid() {
+        let input = "rnbqkbnr";
+        let mut map = HashMap::with_capacity(Piece::COUNT);
+        let output = Board::gen_rank_from_fen(input, &mut map);
+        let expected = Ok([
+            Some(Piece::BlackRook),
+            Some(Piece::BlackKnight),
+            Some(Piece::BlackBishop),
+            Some(Piece::BlackQueen),
+            Some(Piece::BlackKing),
+            Some(Piece::BlackBishop),
+            Some(Piece::BlackKnight),
+            Some(Piece::BlackRook),
+        ]);
+        assert_eq!(output, expected);
+    }
+
+    #[test]
     fn test_board_try_from_valid_base_fen_default() {
         let output = Board::try_from(DEFAULT_BASE_FEN);
         let expected: Result<Board, FENParseError> = Ok(DEFAULT_BOARD);
