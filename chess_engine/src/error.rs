@@ -76,8 +76,8 @@ pub enum FENParseError {
     InvalidKingNum(String),
 
     //TODO: Currently going to be a bit difficult to read with glyph
-    #[error("FEN {0} includes too many {1}s")]
-    InvalidNumOfPiece(String, String),
+    #[error("FEN {0} includes too many {1}s (counted {2})")]
+    InvalidNumOfPiece(String, String, usize),
 }
 
 #[derive(Error, Debug, PartialEq)]

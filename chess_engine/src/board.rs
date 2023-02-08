@@ -18,7 +18,7 @@ use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 /// piece if all 8 pawns were to somehow promote to the same piece
 const MAX_NUM_PIECE_TYPE_INSTANCES: usize = 10;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Board {
     // TODO: evaluate whether exposing pieces for Zobrist hashing is acceptable
     pub pieces: [Option<Piece>; NUM_BOARD_SQUARES],
@@ -130,10 +130,11 @@ impl TryFrom<&str> for Board {
         // check for max amount of piece type leq 9-10 (can disable later)
         for (&key, &val) in freq_counter.iter() {
             let piece = Piece::try_from(key).expect("key should always represent a valid piece");
-            if piece.get_max_num_allowed() as usize > val {
+            if val > piece.get_max_num_allowed() as usize {
                 return Err(FENParseError::InvalidNumOfPiece(
                     value.to_string(),
                     piece.to_string(),
+                    val,
                 ));
             }
         }
@@ -303,12 +304,62 @@ mod tests {
 
     const DEFAULT_BASE_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
 
-    // #[test]
-    // fn test_base_fen_regex_default() {
-    //     let output = Board::is_valid_base_fen(DEFAULT_BASE_FEN);
-    //     let expected = true;
-    //     assert_eq!(output, expected);
-    // }
+    const DEFAULT_BOARD: Board = Board {
+        pieces: [
+            None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+            None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+            None, Some(Piece::WhiteRook), Some(Piece::WhiteKnight), Some(Piece::WhiteBishop), Some(Piece::WhiteQueen), Some(Piece::WhiteKing), Some(Piece::WhiteBishop), Some(Piece::WhiteKnight), Some(Piece::WhiteRook), None,
+            None, Some(Piece::WhitePawn), Some(Piece::WhitePawn),   Some(Piece::WhitePawn),   Some(Piece::WhitePawn),  Some(Piece::WhitePawn), Some(Piece::WhitePawn),   Some(Piece::WhitePawn),   Some(Piece::WhitePawn), None,
+            None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+            None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+            None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+            None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+            None, Some(Piece::BlackPawn), Some(Piece::BlackPawn),   Some(Piece::BlackPawn),   Some(Piece::BlackPawn),  Some(Piece::BlackPawn), Some(Piece::BlackPawn),   Some(Piece::BlackPawn),   Some(Piece::BlackPawn), None,
+            None, Some(Piece::BlackRook), Some(Piece::BlackKnight), Some(Piece::BlackBishop), Some(Piece::BlackQueen), Some(Piece::BlackKing), Some(Piece::BlackBishop), Some(Piece::BlackKnight), Some(Piece::BlackRook), None,
+            None, None,                None,                None,                None,                None,                None,                None,                None,               None,
+            None, None,                None,                None,                None,                None,                None,                None,                None,               None,
+        ],
+        pawns: [BitBoard(0x00FF000000000000), BitBoard(0x000000000000FF00)],
+        kings_index: [Some(Square::E1), Some(Square::E8)],
+        piece_count: [8, 2, 2, 2, 1, 1, 8, 2, 2, 2, 1, 1],
+        big_piece_count: [8, 8],
+        major_piece_count: [3, 3],
+        minor_piece_count: [4, 4],
+        piece_list: [
+            // WhitePawns
+            [Some(Square::A2), Some(Square::B2), Some(Square::C2), Some(Square::D2), Some(Square::E2), Some(Square::F2), Some(Square::G2), Some(Square::H2), None, None],
+            // WhiteKnights
+            [Some(Square::B1), Some(Square::G1), None, None, None, None, None, None, None, None],
+            // WhiteBishops
+            [Some(Square::C1), Some(Square::F1), None, None, None, None, None, None, None, None],
+            // WhiteRooks
+            [Some(Square::A1), Some(Square::H1), None, None, None, None, None, None, None, None],
+            // WhiteQueens
+            [Some(Square::D1), None, None, None, None, None, None, None, None, None],
+            // WhiteKing
+            [Some(Square::E1), None, None, None, None, None, None, None, None, None],
+            // BlackPawns
+            [Some(Square::A7), Some(Square::B7), Some(Square::C7), Some(Square::D7), Some(Square::E7), Some(Square::F7), Some(Square::G7), Some(Square::H7), None, None],
+            // BlackKnights
+            [Some(Square::B8), Some(Square::G8), None, None, None, None, None, None, None, None],
+            // BlackBishops
+            [Some(Square::C8), Some(Square::F8), None, None, None, None, None, None, None, None],
+            // BlackRooks
+            [Some(Square::A8), Some(Square::H8), None, None, None, None, None, None, None, None],
+            // BlackQueens
+            [Some(Square::D8), None, None, None, None, None, None, None, None, None],
+            // BlackKing
+            [Some(Square::E8), None, None, None, None, None, None, None, None, None],
+        ]
+    };
+
+    #[test]
+    fn test_board_try_from_valid_base_fen_default() {
+        let output = Board::try_from(DEFAULT_BASE_FEN);
+        let expected: Result<Board, FENParseError> = Ok(DEFAULT_BOARD);
+        assert_eq!(output, expected);
+    }
+
 
     // #[test]
     // fn test_base_fen_regex_move_e4() {
@@ -328,55 +379,7 @@ mod tests {
 
     #[test]
     fn test_board_display() {
-        let input = Board {
-            pieces: [
-                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
-                None, Some(Piece::WhiteRook), Some(Piece::WhiteKnight), Some(Piece::WhiteBishop), Some(Piece::WhiteQueen), Some(Piece::WhiteKing), Some(Piece::WhiteBishop), Some(Piece::WhiteKnight), Some(Piece::WhiteRook), None,
-                None, Some(Piece::WhitePawn), Some(Piece::WhitePawn),   Some(Piece::WhitePawn),   Some(Piece::WhitePawn),  Some(Piece::WhitePawn), Some(Piece::WhitePawn),   Some(Piece::WhitePawn),   Some(Piece::WhitePawn), None,
-                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
-                None, Some(Piece::BlackPawn), Some(Piece::BlackPawn),   Some(Piece::BlackPawn),   Some(Piece::BlackPawn),  Some(Piece::BlackPawn), Some(Piece::BlackPawn),   Some(Piece::BlackPawn),   Some(Piece::BlackPawn), None,
-                None, Some(Piece::BlackRook), Some(Piece::BlackKnight), Some(Piece::BlackBishop), Some(Piece::BlackQueen), Some(Piece::BlackKing), Some(Piece::BlackBishop), Some(Piece::BlackKnight), Some(Piece::BlackRook), None,
-                None, None,                None,                None,                None,                None,                None,                None,                None,               None,
-                None, None,                None,                None,                None,                None,                None,                None,                None,               None,
-            ],
-            pawns: [BitBoard(0x00FF000000000000), BitBoard(0x000000000000FF00)],
-            kings_index: [Some(Square::E1), Some(Square::E8)],
-            piece_count: [8, 2, 2, 2, 1, 1, 8, 2, 2, 2, 1, 1],
-            big_piece_count: [8, 8],
-            major_piece_count: [3, 3],
-            minor_piece_count: [4, 4],
-            piece_list: [
-               // WhitePawns
-               [Some(Square::A2), Some(Square::B2), Some(Square::C2), Some(Square::D2), Some(Square::E2), Some(Square::F2), Some(Square::G2), Some(Square::H2), None, None],
-               // WhiteKnights
-               [Some(Square::B1), Some(Square::G1), None, None, None, None, None, None, None, None],
-               // WhiteBishops
-               [Some(Square::C1), Some(Square::F1), None, None, None, None, None, None, None, None],
-               // WhiteRooks
-               [Some(Square::A1), Some(Square::H1), None, None, None, None, None, None, None, None],
-               // WhiteQueens
-               [Some(Square::D1), None, None, None, None, None, None, None, None, None],
-               // WhiteKing
-               [Some(Square::E1), None, None, None, None, None, None, None, None, None],
-               // BlackPawns
-               [Some(Square::A7), Some(Square::B7), Some(Square::C7), Some(Square::D7), Some(Square::E7), Some(Square::F7), Some(Square::G7), Some(Square::H7), None, None],
-               // BlackKnights
-               [Some(Square::B8), Some(Square::G8), None, None, None, None, None, None, None, None],
-               // BlackBishops
-               [Some(Square::C8), Some(Square::F8), None, None, None, None, None, None, None, None],
-               // BlackRooks
-               [Some(Square::A8), Some(Square::H8), None, None, None, None, None, None, None, None],
-               // BlackQueens
-               [Some(Square::D8), None, None, None, None, None, None, None, None, None],
-               // BlackKing
-               [Some(Square::E8), None, None, None, None, None, None, None, None, None],
-            ]
-        };
-
+        let input = DEFAULT_BOARD;
         let output = input.to_string();
         let expected = "♖\t♘\t♗\t♕\t♔\t♗\t♘\t♖\n♙\t♙\t♙\t♙\t♙\t♙\t♙\t♙\n_\t_\t_\t_\t_\t_\t_\t_\n_\t_\t_\t_\t_\t_\t_\t_\n_\t_\t_\t_\t_\t_\t_\t_\n_\t_\t_\t_\t_\t_\t_\t_\n♟\t♟\t♟\t♟\t♟\t♟\t♟\t♟\n♜\t♞\t♝\t♛\t♚\t♝\t♞\t♜\n".to_string();
         println!("Base Board:\n{}", output);
