@@ -61,6 +61,10 @@ pub enum FENParseError {
     )]
     BaseFENWrongNumRanks(String, usize),
 
+    // Rank FEN Parsing:
+    #[error("Rank FEN is empty")]
+    RankEmpty,
+
     #[error("Rank FEN {0} should represent {} squares but does not", File::COUNT)]
     RankInvalidNumSquares(String),
 
@@ -72,12 +76,15 @@ pub enum FENParseError {
     #[error("Rank FEN {0} includes invalid char {1}")]
     RankInvalidChar(String, char),
 
+    #[error("Rank FEN {0} includes two consecutive digits")]
+    RankTwoConsecutiveDigits(String),
+
     #[error("FEN {0} must have exactly one white king and exactly one black king")]
     InvalidKingNum(String),
 
     //TODO: Currently going to be a bit difficult to read with glyph
-    #[error("FEN {0} includes too many {1}s (counted {2})")]
-    InvalidNumOfPiece(String, String, usize),
+    #[error("FEN {0} includes too many {1}s")]
+    InvalidNumOfPiece(String, char),
 }
 
 #[derive(Error, Debug, PartialEq)]
