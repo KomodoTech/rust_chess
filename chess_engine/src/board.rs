@@ -43,7 +43,6 @@ impl TryFrom<&str> for Board {
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let mut board = Board::new();
         let mut freq_counter: HashMap<char, usize> = HashMap::with_capacity(Piece::COUNT);
-
         let ranks: Vec<&str> = value.split('/').collect();
         // Check that we have the right number of ranks and for each valid rank update board accordingly
         match ranks.len() {
@@ -53,10 +52,10 @@ impl TryFrom<&str> for Board {
                 for (rank, rank_str) in ranks.iter().rev().enumerate() {
                     // do rank validation in separate function that will return Some(Piece)s or Nones in an array if valid
                     let rank_pieces: Result<[Option<Piece>; File::COUNT], FENParseError> =
-                        Self::gen_rank_from_fen(rank_str, &mut freq_counter);
+                        Self::gen_rank_from_fen(rank_str);
                     match rank_pieces {
+                        // if the rank is valid update the board
                         Ok(rp) => {
-                            // if the rank is valid update the board
                             for (file, &piece) in rp.iter().enumerate() {
                                 // get square from file and rank and use it to update board's pieces array
                                 let square = Square::from_file_and_rank(
@@ -73,16 +72,20 @@ impl TryFrom<&str> for Board {
                                     let is_major = p.is_major();
                                     let is_minor = p.is_minor();
 
-                                    // update board piece_list
-                                    let piece_type_index = p as usize; // outer (i) index for piece_list
-                                                                       // go to freq_counter and look for piece char as key. our rank validation
-                                                                       // has updated freq_counter so it will at least be 1. We subtract 1 for 0-indexing
-                                    let piece_index: usize = *freq_counter.get(&(p.into()))
-                                                                                .expect("white pawn should already be in freq_counter from rank level parsing") - 1; // inner (j) index for piece_list
+                                    // update freq_counter
+                                    freq_counter
+                                        .entry(char::from(p))
+                                        .and_modify(|count| *count += 1)
+                                        .or_insert(1);
+
+                                    // update piece_list
+                                    let piece_type_index = p as usize; // outer/row (i) index for piece_list
+                                                                       // inner/column (j) index for piece_list
+                                    let piece_index = *freq_counter.get(&char::from(p)).expect("value to be at least 1 since freq_counter was just updated") - 1;
                                     board.piece_list[piece_type_index][piece_index] = Some(square);
 
                                     // update piece counts
-                                    board.piece_count[color as usize] += 1;
+                                    board.piece_count[p as usize] += 1;
                                     if is_big {
                                         board.big_piece_count[color as usize] += 1;
                                     }
@@ -157,11 +160,7 @@ impl Board {
         }
     }
 
-    // TODO: TEST!
-    fn gen_rank_from_fen(
-        fen_rank: &str,
-        freq_counter: &mut HashMap<char, usize>,
-    ) -> Result<[Option<Piece>; File::COUNT], FENParseError> {
+    fn gen_rank_from_fen(fen_rank: &str) -> Result<[Option<Piece>; File::COUNT], FENParseError> {
         let mut rank: [Option<Piece>; File::COUNT] = [None; File::COUNT];
         let mut square_counter: u8 = 0;
         // NOTE: Rank order is reversed in FEN but not char order within rank
@@ -212,11 +211,6 @@ impl Board {
                             }
 
                             square_counter += 1;
-                            // update freq_counter
-                            freq_counter
-                                .entry(char)
-                                .and_modify(|count| *count += 1)
-                                .or_insert(1);
                         }
                         Err(_) => {
                             return Err(FENParseError::RankInvalidChar(fen_rank.to_string(), char))
@@ -321,11 +315,12 @@ mod tests {
             None, None,                None,                None,                None,                None,                None,                None,                None,               None,
             None, None,                None,                None,                None,                None,                None,                None,                None,               None,
         ],
-        pawns: [BitBoard(0x00FF000000000000), BitBoard(0x000000000000FF00)],
+        pawns: [BitBoard(0x000000000000FF00), BitBoard(0x00FF000000000000)],
         kings_index: [Some(Square::E1), Some(Square::E8)],
         piece_count: [8, 2, 2, 2, 1, 1, 8, 2, 2, 2, 1, 1],
         big_piece_count: [8, 8],
-        major_piece_count: [3, 3],
+        // NOTE: King considered major piece for us
+        major_piece_count: [4, 4],
         minor_piece_count: [4, 4],
         piece_list: [
             // WhitePawns
@@ -356,12 +351,11 @@ mod tests {
     };
 
     // FEN PARSING
-    // Rank level FEN parsing tests:
+    // Rank Level FEN Parsing Tests:
     #[test]
     fn test_get_rank_from_fen_valid_black_back_row_starting_position() {
         let input = "rnbqkbnr";
-        let mut map = HashMap::with_capacity(Piece::COUNT);
-        let output = Board::gen_rank_from_fen(input, &mut map);
+        let output = Board::gen_rank_from_fen(input);
         let expected = Ok([
             Some(Piece::BlackRook),
             Some(Piece::BlackKnight),
@@ -378,8 +372,7 @@ mod tests {
     #[test]
     fn test_get_rank_from_fen_valid_gaps() {
         let input = "rn2kb1r";
-        let mut map = HashMap::with_capacity(Piece::COUNT);
-        let output = Board::gen_rank_from_fen(input, &mut map);
+        let output = Board::gen_rank_from_fen(input);
         let expected = Ok([
             Some(Piece::BlackRook),
             Some(Piece::BlackKnight),
@@ -396,8 +389,7 @@ mod tests {
     #[test]
     fn test_get_rank_from_fen_valid_empty() {
         let input = "8";
-        let mut map = HashMap::with_capacity(Piece::COUNT);
-        let output = Board::gen_rank_from_fen(input, &mut map);
+        let output = Board::gen_rank_from_fen(input);
         let expected = Ok([None; 8]);
         assert_eq!(output, expected);
     }
@@ -405,8 +397,7 @@ mod tests {
     #[test]
     fn test_get_rank_from_fen_invalid_char() {
         let input = "rn2Xb1r";
-        let mut map = HashMap::with_capacity(Piece::COUNT);
-        let output = Board::gen_rank_from_fen(input, &mut map);
+        let output = Board::gen_rank_from_fen(input);
         let expected = Err(FENParseError::RankInvalidChar(input.to_string(), 'X'));
         assert_eq!(output, expected);
     }
@@ -414,8 +405,7 @@ mod tests {
     #[test]
     fn test_get_rank_from_fen_invalid_digit() {
         let input = "rn0kb1rqN"; // num squares would be valid
-        let mut map = HashMap::with_capacity(Piece::COUNT);
-        let output = Board::gen_rank_from_fen(input, &mut map);
+        let output = Board::gen_rank_from_fen(input);
         let expected = Err(FENParseError::RankInvalidDigit(input.to_string(), 0));
         assert_eq!(output, expected);
     }
@@ -423,18 +413,34 @@ mod tests {
     #[test]
     fn test_get_rank_from_fen_invalid_num_squares() {
         let input = "rn2kb1rqN";
-        let mut map = HashMap::with_capacity(Piece::COUNT);
-        let output = Board::gen_rank_from_fen(input, &mut map);
+        let output = Board::gen_rank_from_fen(input);
         let expected = Err(FENParseError::RankInvalidNumSquares(input.to_string()));
         assert_eq!(output, expected);
     }
 
-    // #[test]
-    // fn test_board_try_from_valid_base_fen_default() {
-    //     let output = Board::try_from(DEFAULT_BASE_FEN);
-    //     let expected: Result<Board, FENParseError> = Ok(DEFAULT_BOARD);
-    //     assert_eq!(output, expected);
-    // }
+    // Full Base FEN Board Parsing:
+    #[test]
+    fn test_board_try_from_valid_base_fen_default() {
+        let output = Board::try_from(DEFAULT_BASE_FEN);
+        let expected: Result<Board, FENParseError> = Ok(DEFAULT_BOARD);
+        // pieces
+        assert_eq!(output.as_ref().unwrap().pieces, expected.as_ref().unwrap().pieces);
+        // pawns
+        assert_eq!(output.as_ref().unwrap().pawns, expected.as_ref().unwrap().pawns);
+        // kings_index
+        assert_eq!(output.as_ref().unwrap().kings_index, expected.as_ref().unwrap().kings_index);
+        // piece_count
+        assert_eq!(output.as_ref().unwrap().piece_count, expected.as_ref().unwrap().piece_count);
+        // big_piece_count
+        assert_eq!(output.as_ref().unwrap().big_piece_count, expected.as_ref().unwrap().big_piece_count);
+        // major_piece_count
+        assert_eq!(output.as_ref().unwrap().major_piece_count, expected.as_ref().unwrap().major_piece_count);
+        // minor_piece_count
+        assert_eq!(output.as_ref().unwrap().minor_piece_count, expected.as_ref().unwrap().minor_piece_count);
+        // piece list
+        assert_eq!(output.as_ref().unwrap().piece_list, expected.as_ref().unwrap().piece_list);
+        // assert_eq!(output, expected);
+    }
 
 
     // #[test]

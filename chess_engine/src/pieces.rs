@@ -6,9 +6,10 @@ use strum_macros::EnumCount as EnumCountMacro;
 
 // CONSTANTS:
 const PIECE_BIG: [bool; Piece::COUNT] = [
-    //  wp     wn    wb    wr    wq    wk    bp     bn    bb    br    bq    bk
+    //wp     wn    wb    wr    wq    wk    bp     bn    bb    br    bq    bk
     false, true, true, true, true, true, false, true, true, true, true, true,
 ];
+// NOTE: in most chess vocabulary King is not a major piece, but here it is considered one
 const PIECE_MAJOR: [bool; Piece::COUNT] = [
     // wp  wn     wb     wr    wq    wk    bp     bn     bb     br    bq    bk
     false, false, false, true, true, true, false, false, false, true, true, true,
