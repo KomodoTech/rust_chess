@@ -160,7 +160,6 @@ impl Board {
         }
     }
 
-    // TODO: deal with something like this: pppp12p
     fn gen_rank_from_fen(fen_rank: &str) -> Result<[Option<Piece>; File::COUNT], FENParseError> {
         if fen_rank.is_empty() {
             return Err(FENParseError::RankEmpty);
@@ -273,6 +272,7 @@ impl Board {
         todo!()
     }
 
+    // TODO: test clears board
     /// Clears board
     pub fn clear_board(&mut self) {
         self.pieces = [None; NUM_BOARD_SQUARES];
@@ -281,7 +281,7 @@ impl Board {
         self.major_piece_count = [0; Color::COUNT];
         self.minor_piece_count = [0; Color::COUNT];
         self.piece_count = [0; Piece::COUNT];
-        // TODO: clear piece_list
+        self.piece_list = [[None; MAX_NUM_PIECE_TYPE_INSTANCES]; Piece::COUNT];
     }
 }
 
@@ -549,9 +549,81 @@ mod tests {
         assert_eq!(output.as_ref().unwrap().piece_list, expected.as_ref().unwrap().piece_list);
         assert_eq!(output, expected);
     }
+
+    #[test]
+    fn test_board_try_from_valid_base_fen_sliding_and_kings() {
+        let input = "r6r/1b2k1bq/8/8/7B/8/8/R3K2R";
+        let output = Board::try_from(input);
+        // TODO: pull this into utils it will be useful for testing later
+        let expected: Result<Board, FENParseError> = Ok(Board {
+            pieces: [
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                     None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                     None,
+                None, Some(Piece::WhiteRook), None,                     None,                     None,                    Some(Piece::WhiteKing),  None,                     None,                     Some(Piece::WhiteRook),   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                     None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                     None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     Some(Piece::WhiteBishop), None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                     None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                     None,
+                None, None,                   Some(Piece::BlackBishop), None,                     None,                    Some(Piece::BlackKing),  None,                     Some(Piece::BlackBishop), Some(Piece::BlackQueen),  None,
+                None, Some(Piece::BlackRook), None,                     None,                     None,                    None,                    None,                     None,                     Some(Piece::BlackRook),   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                     None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                     None,
+            ],
+            pawns: [BitBoard(0), BitBoard(0)],
+            kings_square: [Some(Square::E1), Some(Square::E7)],
+            piece_count: [0, 0, 1, 2, 0, 1, 0, 0, 2, 2, 1, 1],
+            big_piece_count: [4, 6],
+            major_piece_count: [3, 4],
+            minor_piece_count: [1, 2],
+            piece_list: [
+                // WhitePawns
+                [None, None, None, None, None, None, None, None, None, None],
+                // WhiteKnights
+                [None, None, None, None, None, None, None, None, None, None],
+                // WhiteBishops
+                [Some(Square::H4), None, None, None, None, None, None, None, None, None],
+                // WhiteRooks
+                [Some(Square::A1), Some(Square::H1), None, None, None, None, None, None, None, None],
+                // WhiteQueens
+                [None, None, None, None, None, None, None, None, None, None],
+                // WhiteKing
+                [Some(Square::E1), None, None, None, None, None, None, None, None, None],
+                // BlackPawns
+                [None, None, None, None, None, None, None, None, None, None],
+                // BlackKnights
+                [None, None, None, None, None, None, None, None, None, None],
+                // BlackBishops
+                [Some(Square::B7), Some(Square::G7), None, None, None, None, None, None, None, None],
+                // BlackRooks
+                [Some(Square::A8), Some(Square::H8), None, None, None, None, None, None, None, None],
+                // BlackQueens
+                [Some(Square::H7), None, None, None, None, None, None, None, None, None],
+                // BlackKing
+                [Some(Square::E7), None, None, None, None, None, None, None, None, None]
+            ]
+        });
+        // pieces
+        assert_eq!(output.as_ref().unwrap().pieces, expected.as_ref().unwrap().pieces);
+        // pawns
+        assert_eq!(output.as_ref().unwrap().pawns, expected.as_ref().unwrap().pawns);
+        // kings_index
+        assert_eq!(output.as_ref().unwrap().kings_square, expected.as_ref().unwrap().kings_square);
+        // piece_count
+        assert_eq!(output.as_ref().unwrap().piece_count, expected.as_ref().unwrap().piece_count);
+        // big_piece_count
+        assert_eq!(output.as_ref().unwrap().big_piece_count, expected.as_ref().unwrap().big_piece_count);
+        // major_piece_count
+        assert_eq!(output.as_ref().unwrap().major_piece_count, expected.as_ref().unwrap().major_piece_count);
+        // minor_piece_count
+        assert_eq!(output.as_ref().unwrap().minor_piece_count, expected.as_ref().unwrap().minor_piece_count);
+        // piece list
+        assert_eq!(output.as_ref().unwrap().piece_list, expected.as_ref().unwrap().piece_list);
+        // assert_eq!(output, expected);
+    }
     
     #[test]
-    fn test_board_try_from_valid_base_fen_valid_8() {
+    fn test_board_try_from_valid_base_fen_valid_no_captures_no_promotions() {
         let input = "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1";
         let output = Board::try_from(input);
         // TODO: pull this into utils it will be useful for testing later
