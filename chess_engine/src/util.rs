@@ -65,6 +65,15 @@ pub enum Color {
     Black,
 }
 
+impl From<Color> for char {
+    fn from(value: Color) -> Self {
+        match value {
+            Color::White => 'w',
+            Color::Black => 'b',
+        }
+    }
+}
+
 #[rustfmt::skip]
 pub const SQUARE_120_TO_64: [Option<Square64>; NUM_BOARD_SQUARES] = [
     None, None,                None,                None,                None,                None,                None,                None,                None,               None,

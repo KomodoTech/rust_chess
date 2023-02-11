@@ -1,5 +1,6 @@
-use rand::{random, thread_rng, Rng};
-use std::{char::MAX, default, fmt};
+use rand::prelude::*;
+use rand_pcg::Lcg128Xsl64;
+use std::{default, fmt};
 use strum::EnumCount;
 use strum_macros::{Display as EnumDisplay, EnumCount as EnumCountMacro};
 
@@ -13,14 +14,23 @@ use crate::{
 };
 
 // CONSTANTS:
-/// Maximum number of half moves we expect
+/// Maximum number of half moves we expect (it should be an even number for easy conversion
+/// into fullmove equivalents)
 pub const MAX_GAME_MOVES: usize = 2048;
 pub const NUM_FEN_SECTIONS: usize = 6;
 /// Number of squares for the internal board (10x12)
 pub const NUM_BOARD_SQUARES: usize = 120;
 const DEFAULT_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+// TODO: test to make sure seed is a good choice
+/// Seed used for Zobrist Hashing. Note that many PRNG implementations will behave poorly
+/// if the seed is poorly distributed (it should have roughly equal number of 0s and 1s)
+// NOTE: the seed data comes from this article: https://www.pcg-random.org/posts/simple-portable-cpp-seed-entropy.html
+const ZOBRIST_SEED: [u8; 32] = [
+    0x67, 0x0e, 0x5a, 0x45, 0x9a, 0xc9, 0xea, 0x9c, 0x88, 0x85, 0x36, 0x20, 0xc4, 0xc8, 0x36, 0xf9,
+    0x07, 0xab, 0x56, 0x40, 0xb2, 0x0b, 0x31, 0x3e, 0x7b, 0x94, 0x50, 0x51, 0x37, 0xf5, 0x0e, 0x84,
+];
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Undo {
     move_: u32,
     castle_permissions: CastlePerm,
@@ -29,28 +39,43 @@ struct Undo {
     position_key: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct Zobrist {
     color_key: u64,
-    piece_keys: [[u64; Piece::COUNT]; NUM_BOARD_SQUARES],
+    piece_keys: [[u64; NUM_BOARD_SQUARES]; Piece::COUNT],
     en_passant_keys: [u64; NUM_BOARD_SQUARES],
     castle_keys: [u64; NUM_CASTLE_PERM],
 }
 
+// NOTE: https://craftychess.com/hyatt/collisions.html
+// NOTE: https://www.unf.edu/~cwinton/html/cop4300/s09/class.notes/LCGinfo.pdf
+// NOTE: https://www.stmintz.com/ccc/index.php?id=29863
+// NOTE: https://www.pcg-random.org/index.html
+// NOTE: https://rust-random.github.io/book/portability.html
+// NOTE: https://rust-random.github.io/book/guide-rngs.html
+// NOTE: https://www.pcg-random.org/posts/cpp-seeding-surprises.html
+/// Zobrist hashing using rand_pcg variant that should work decently well on 32bit and 64bit machines
+/// We don't require cryptographically secure PRNG's, but there have historically been
+/// many truly terribly implemented random number generators, so we're doing our best to choose
+/// a decent one, even though the effect of collisions seems to be fairly minimal for Zobrist
+/// hashing.
 impl Zobrist {
     // TODO: revisit collisions and RNG (seed for testing)
-    // NOTE: https://craftychess.com/hyatt/collisions.html
     fn new() -> Self {
-        let color_key: u64 = random();
-        // TODO: couldn't find a way to initialize them with random numbers directly
-        let mut piece_keys = [[0u64; Piece::COUNT]; NUM_BOARD_SQUARES];
-        for mut square_array in piece_keys {
-            thread_rng().fill(&mut square_array[..]);
+        // declare seed deterministically from const we declared
+        let mut seed: <Lcg128Xsl64 as SeedableRng>::Seed = ZOBRIST_SEED;
+        // build Permuted Congruential Generator to do pseudo random number generation
+        let mut rng: Lcg128Xsl64 = Lcg128Xsl64::from_seed(seed);
+        // initialize Zobrist keys we want to fill with pseudo random values
+        let mut color_key: u64 = rng.gen();
+        let mut piece_keys = [[0u64; NUM_BOARD_SQUARES]; Piece::COUNT];
+        for square_array in &mut piece_keys {
+            rng.fill(square_array)
         }
         let mut en_passant_keys = [0u64; NUM_BOARD_SQUARES];
-        thread_rng().fill(&mut en_passant_keys[..]);
+        rng.fill(&mut en_passant_keys);
         let mut castle_keys = [0u64; NUM_CASTLE_PERM];
-        thread_rng().fill(&mut castle_keys[..]);
+        rng.fill(&mut castle_keys);
 
         Zobrist {
             color_key,
@@ -68,7 +93,7 @@ impl Default for Zobrist {
 }
 
 // TODO: make Zobrist generate at compile time with proc macro
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Gamestate {
     board: Board,
     active_color: Color,
@@ -80,48 +105,29 @@ pub struct Gamestate {
     zobrist: Zobrist,
 }
 
+// TODO: Test
 impl Default for Gamestate {
     fn default() -> Self {
-        Gamestate::new()
+        Gamestate::try_from(DEFAULT_FEN)
+            .expect("Default Gamestate failed to initialize with Default FEN")
     }
 }
 
-impl Gamestate {
-    pub fn new() -> Self {
-        let board = Board::new();
-        // TODO: call init on board with starting FEN
-        let active_color = Color::White;
-        let castle_permissions = CastlePerm::default();
-        // TODO: figure out what this should really be initially
-        let en_passant: Option<Square> = None;
-        let halfmove_clock: u32 = 0;
-        let fullmove_number: u32 = 0;
-        let history: [Option<Undo>; MAX_GAME_MOVES] = [None; MAX_GAME_MOVES];
-        let zobrist = Zobrist::new();
-
-        Gamestate {
-            board,
-            active_color,
-            castle_permissions,
-            en_passant,
-            halfmove_clock,
-            fullmove_number,
-            history,
-            zobrist,
-        }
-    }
-
-    // TODO: TEST!
-    /// Generates a new Gamestate from a FEN &str. Base FEN gets converted to board via TryFrom<&str>
-    pub fn new_from_fen(fen: &str) -> Result<Self, FENParseError> {
+// TODO: TEST!
+/// Generates a new Gamestate from a FEN &str. Base FEN gets converted to board via TryFrom<&str>
+/// Color and En Passant square must be lower case.
+impl TryFrom<&str> for Gamestate {
+    type Error = FENParseError;
+    fn try_from(fen: &str) -> Result<Self, FENParseError> {
         let fen_sections: Vec<&str> = fen.trim().split(' ').collect();
 
         match fen_sections.len() {
             len if len == NUM_FEN_SECTIONS => {
                 let active_color_str = fen_sections[1];
+                // active_color_str here should be either "w" or "b"
                 let active_color = match active_color_str {
-                    white if white == Color::White.to_string().as_str() => Color::White,
-                    black if black == Color::Black.to_string().as_str() => Color::Black,
+                    white if white == char::from(Color::White).to_string() => Color::White,
+                    black if black == char::from(Color::Black).to_string() => Color::Black,
                     _ => {
                         return Err(FENParseError::ActiveColorInvalid(
                             active_color_str.to_string(),
@@ -141,8 +147,9 @@ impl Gamestate {
                     }
                 };
 
+                // en_passant_str must be lowercase
                 let en_passant_str = fen_sections[3];
-                let en_passant_try = Square::try_from(en_passant_str.to_uppercase().as_str());
+                let en_passant_try = Square::try_from(en_passant_str);
                 let en_passant = match en_passant_try {
                     Ok(ep) => Some(ep),
                     Err(_) => match en_passant_str {
@@ -210,6 +217,32 @@ impl Gamestate {
             _ => Err(FENParseError::WrongNumFENSections(fen_sections.len())),
         }
     }
+}
+
+impl Gamestate {
+    pub fn new() -> Self {
+        let board = Board::new();
+        // TODO: call init on board with starting FEN
+        let active_color = Color::White;
+        let castle_permissions = CastlePerm::default();
+        // TODO: figure out what this should really be initially
+        let en_passant: Option<Square> = None;
+        let halfmove_clock: u32 = 0;
+        let fullmove_number: u32 = 0;
+        let history: [Option<Undo>; MAX_GAME_MOVES] = [None; MAX_GAME_MOVES];
+        let zobrist = Zobrist::new();
+
+        Gamestate {
+            board,
+            active_color,
+            castle_permissions,
+            en_passant,
+            halfmove_clock,
+            fullmove_number,
+            history,
+            zobrist,
+        }
+    }
 
     fn gen_position_key(&self) -> u64 {
         let mut position_key: u64 = 0;
@@ -236,10 +269,14 @@ impl Gamestate {
     }
 }
 
+#[rustfmt::skip]
 #[cfg(test)]
 mod tests {
+    use crate::board::bitboard::BitBoard;
+
     use super::*;
 
+    // TODO: properly seed and test Zobrist key gen to check for collision rate in norm
     #[test]
     fn test_gen_position_key_deterministic() {
         let gamestate = Gamestate::default();
@@ -249,5 +286,99 @@ mod tests {
         assert_eq!(output, expected);
     }
 
-    // TODO: properly seed and test Zobrist key gen to check for collision rate in norm
+    // FEN parsing tests
+    #[test]
+    fn test_gamestate_try_from_valid_fen_default() {
+        let input = DEFAULT_FEN;
+        let output = Gamestate::try_from(input);
+
+        let board = Board {
+            pieces: [
+                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+                None, Some(Piece::WhiteRook), Some(Piece::WhiteKnight), Some(Piece::WhiteBishop), Some(Piece::WhiteQueen), Some(Piece::WhiteKing), Some(Piece::WhiteBishop), Some(Piece::WhiteKnight), Some(Piece::WhiteRook), None,
+                None, Some(Piece::WhitePawn), Some(Piece::WhitePawn),   Some(Piece::WhitePawn),   Some(Piece::WhitePawn),  Some(Piece::WhitePawn), Some(Piece::WhitePawn),   Some(Piece::WhitePawn),   Some(Piece::WhitePawn), None,
+                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+                None, Some(Piece::BlackPawn), Some(Piece::BlackPawn),   Some(Piece::BlackPawn),   Some(Piece::BlackPawn),  Some(Piece::BlackPawn), Some(Piece::BlackPawn),   Some(Piece::BlackPawn),   Some(Piece::BlackPawn), None,
+                None, Some(Piece::BlackRook), Some(Piece::BlackKnight), Some(Piece::BlackBishop), Some(Piece::BlackQueen), Some(Piece::BlackKing), Some(Piece::BlackBishop), Some(Piece::BlackKnight), Some(Piece::BlackRook), None,
+                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+            ],      
+            pawns: [BitBoard(0x000000000000FF00), BitBoard(0x00FF000000000000)],
+            kings_square: [Some(Square::E1), Some(Square::E8)],
+            piece_count: [8, 2, 2, 2, 1, 1, 8, 2, 2, 2, 1, 1],
+            big_piece_count: [8, 8],
+            // NOTE: King considered major piece for us
+            major_piece_count: [4, 4],
+            minor_piece_count: [4, 4],
+            piece_list: [
+                // WhitePawns
+                [Some(Square::A2), Some(Square::B2), Some(Square::C2), Some(Square::D2), Some(Square::E2), Some(Square::F2), Some(Square::G2), Some(Square::H2), None, None],
+                // WhiteKnights
+                [Some(Square::B1), Some(Square::G1), None, None, None, None, None, None, None, None],
+                // WhiteBishops
+                [Some(Square::C1), Some(Square::F1), None, None, None, None, None, None, None, None],
+                // WhiteRooks
+                [Some(Square::A1), Some(Square::H1), None, None, None, None, None, None, None, None],
+                // WhiteQueens
+                [Some(Square::D1), None, None, None, None, None, None, None, None, None],
+                // WhiteKing
+                [Some(Square::E1), None, None, None, None, None, None, None, None, None],
+                // BlackPawns
+                [Some(Square::A7), Some(Square::B7), Some(Square::C7), Some(Square::D7), Some(Square::E7), Some(Square::F7), Some(Square::G7), Some(Square::H7), None, None],
+                // BlackKnights
+                [Some(Square::B8), Some(Square::G8), None, None, None, None, None, None, None, None],
+                // BlackBishops
+                [Some(Square::C8), Some(Square::F8), None, None, None, None, None, None, None, None],
+                // BlackRooks
+                [Some(Square::A8), Some(Square::H8), None, None, None, None, None, None, None, None],
+                // BlackQueens
+                [Some(Square::D8), None, None, None, None, None, None, None, None, None],
+                // BlackKing
+                [Some(Square::E8), None, None, None, None, None, None, None, None, None],
+            ]
+        };
+
+        let active_color = Color::White;
+        let castle_permissions = CastlePerm::default();
+        let en_passant = None;
+        let halfmove_clock = 0;
+        let fullmove_number = 1;
+        let history = [None; MAX_GAME_MOVES];
+        let zobrist = Zobrist::default();
+
+        let expected: Result<Gamestate, FENParseError> = Ok(Gamestate {
+            board,
+            active_color,
+            castle_permissions,
+            en_passant,
+            halfmove_clock,
+            fullmove_number,
+            history,
+            zobrist,
+        });
+
+        // board
+        assert_eq!(output.as_ref().unwrap().board, expected.as_ref().unwrap().board);
+        // active_color
+        assert_eq!(output.as_ref().unwrap().active_color, expected.as_ref().unwrap().active_color);
+        // castle_permissions
+        assert_eq!(output.as_ref().unwrap().castle_permissions, expected.as_ref().unwrap().castle_permissions);
+        // en_passant
+        assert_eq!(output.as_ref().unwrap().en_passant, expected.as_ref().unwrap().en_passant);
+        // halfmove_clock
+        assert_eq!(output.as_ref().unwrap().halfmove_clock, expected.as_ref().unwrap().halfmove_clock);
+        // fullmove_number
+        assert_eq!(output.as_ref().unwrap().fullmove_number, expected.as_ref().unwrap().fullmove_number);
+        // history
+        assert_eq!(output.as_ref().unwrap().history, expected.as_ref().unwrap().history);
+        // zobrist
+        assert_eq!(output.as_ref().unwrap().zobrist, expected.as_ref().unwrap().zobrist);
+        // println!("output zobrist:{:?}\nexpected zobrist:{:?}", output.as_ref().unwrap().zobrist, output.as_ref().unwrap().zobrist);
+        assert_eq!(output, expected);
+    }
+
 }

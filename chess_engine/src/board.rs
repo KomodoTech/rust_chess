@@ -17,17 +17,18 @@ use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 /// piece if all 8 pawns were to somehow promote to the same piece
 const MAX_NUM_PIECE_TYPE_INSTANCES: usize = 10;
 
+// TODO: redo testing setup so that inner fields can stay private
 #[derive(Debug, PartialEq, Eq)]
 pub struct Board {
     // TODO: evaluate whether exposing pieces for Zobrist hashing is acceptable
     pub pieces: [Option<Piece>; NUM_BOARD_SQUARES],
-    pawns: [BitBoard; Color::COUNT],
-    kings_square: [Option<Square>; Color::COUNT],
-    piece_count: [u32; Piece::COUNT],
-    big_piece_count: [u32; Color::COUNT],
-    major_piece_count: [u32; Color::COUNT],
-    minor_piece_count: [u32; Color::COUNT],
-    piece_list: [[Option<Square>; MAX_NUM_PIECE_TYPE_INSTANCES]; Piece::COUNT], // stores position of each piece to avoid searching through all squares
+    pub pawns: [BitBoard; Color::COUNT],
+    pub kings_square: [Option<Square>; Color::COUNT],
+    pub piece_count: [u32; Piece::COUNT],
+    pub big_piece_count: [u32; Color::COUNT],
+    pub major_piece_count: [u32; Color::COUNT],
+    pub minor_piece_count: [u32; Color::COUNT],
+    pub piece_list: [[Option<Square>; MAX_NUM_PIECE_TYPE_INSTANCES]; Piece::COUNT], // stores position of each piece to avoid searching through all squares
 }
 
 /// Returns an empty board
@@ -623,7 +624,7 @@ mod tests {
     }
     
     #[test]
-    fn test_board_try_from_valid_base_fen_valid_no_captures_no_promotions() {
+    fn test_board_try_from_valid_base_fen_no_captures_no_promotions() {
         let input = "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1";
         let output = Board::try_from(input);
         // TODO: pull this into utils it will be useful for testing later
