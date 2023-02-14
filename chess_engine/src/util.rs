@@ -1,5 +1,5 @@
 use crate::{
-    error::{RankConversionError, FileConversionError},
+    error::{FileConversionError, RankConversionError},
     gamestate::NUM_BOARD_SQUARES,
     pieces::Piece,
     squares::{Square, Square64},

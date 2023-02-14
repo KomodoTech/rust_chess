@@ -216,7 +216,9 @@ mod tests {
         let lhs = Square64::B1;
         let rhs: usize = 63;
         let output = lhs + rhs;
-        let expected = Err(SquareConversionError::ParseSquare64FromUsize(lhs as usize + rhs));
+        let expected = Err(SquareConversionError::ParseSquare64FromUsize(
+            lhs as usize + rhs,
+        ));
         assert_eq!(output, expected);
     }
 

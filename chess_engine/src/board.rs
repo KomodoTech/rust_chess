@@ -255,7 +255,7 @@ impl Board {
     }
 
     /// Returns FEN based on board position
-    pub fn to_base_fen(&self) -> String {
+    pub fn to_board_fen(&self) -> String {
         todo!()
     }
 
@@ -334,7 +334,7 @@ mod tests {
 
     // NOTE: we can consider this board invalid since there are no kings. Might be useful later
     // if we allow editing the board, so we'll keep it for now
-    const EMPTY_BASE_FEN: &str = "8/8/8/8/8/8/8/8";
+    const EMPTY_BOARD_FEN: &str = "8/8/8/8/8/8/8/8";
     #[rustfmt::skip]
     const EMPTY_BOARD: Board = Board {
         pieces: [
@@ -538,7 +538,7 @@ mod tests {
     };
 
     #[test]
-    fn test_board_try_from_valid_base_fen_default() {
+    fn test_board_try_from_valid_board_fen_default() {
         let input = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
         let output = Board::try_from(input);
         let expected: Result<Board, BoardFENParseError> = Ok(DEFAULT_BOARD);
@@ -586,7 +586,7 @@ mod tests {
     }
 
     #[test]
-    fn test_board_try_from_valid_base_fen_sliding_and_kings() {
+    fn test_board_try_from_valid_board_fen_sliding_and_kings() {
         let input = "r6r/1b2k1bq/8/8/7B/8/8/R3K2R";
         let output = Board::try_from(input);
         // TODO: pull this into utils it will be useful for testing later
@@ -683,7 +683,7 @@ mod tests {
     }
 
     #[test]
-    fn test_board_try_from_valid_base_fen_no_captures_no_promotions() {
+    fn test_board_try_from_valid_board_fen_no_captures_no_promotions() {
         let input = "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1";
         let output = Board::try_from(input);
         // TODO: pull this into utils it will be useful for testing later
@@ -781,7 +781,7 @@ mod tests {
     }
 
     #[test]
-    fn test_board_try_from_invalid_base_fen_all_8() {
+    fn test_board_try_from_invalid_board_fen_all_8() {
         let input = "8/8/8/8/8/8/8/8";
         let output = Board::try_from(input);
         let expected = Err(BoardFENParseError::InvalidKingNum(input.to_string()));
@@ -789,7 +789,7 @@ mod tests {
     }
 
     #[test]
-    fn test_board_try_from_invalid_base_fen_too_few_ranks() {
+    fn test_board_try_from_invalid_board_fen_too_few_ranks() {
         let input = "8/8/rbkqn2p/8/8/8/PPKPP1PP";
         let output = Board::try_from(input);
         let expected = Err(BoardFENParseError::WrongNumRanks(input.to_string(), 7));
@@ -797,7 +797,7 @@ mod tests {
     }
 
     #[test]
-    fn test_board_try_from_invalid_base_fen_too_many_ranks() {
+    fn test_board_try_from_invalid_board_fen_too_many_ranks() {
         let input = "8/8/rbkqn2p/8/8/8/PPKPP1PP/8/";
         let output = Board::try_from(input);
         let expected = Err(BoardFENParseError::WrongNumRanks(input.to_string(), 9));
@@ -805,7 +805,7 @@ mod tests {
     }
 
     #[test]
-    fn test_board_try_from_invalid_base_fen_empty_ranks() {
+    fn test_board_try_from_invalid_board_fen_empty_ranks() {
         let input = "8/8/rbkqn2p//8/8/PPKPP1PP/8";
         let output = Board::try_from(input);
         let expected = Err(BoardFENParseError::RankFENParseError(
@@ -815,7 +815,7 @@ mod tests {
     }
 
     #[test]
-    fn test_board_try_from_invalid_base_fen_too_few_kings() {
+    fn test_board_try_from_invalid_board_fen_too_few_kings() {
         let input = "8/8/rbqn3p/8/8/8/PPKPP1PP/8";
         let output = Board::try_from(input);
         let expected = Err(BoardFENParseError::InvalidKingNum(input.to_string()));
@@ -823,7 +823,7 @@ mod tests {
     }
 
     #[test]
-    fn test_board_try_from_invalid_base_fen_too_many_kings() {
+    fn test_board_try_from_invalid_board_fen_too_many_kings() {
         let input = "8/8/rbqnkkpr/8/8/8/PPKPP1PP/8";
         let output = Board::try_from(input);
         let expected = Err(BoardFENParseError::InvalidNumOfPiece(
@@ -834,7 +834,7 @@ mod tests {
     }
 
     #[test]
-    fn test_board_try_from_invalid_base_fen_too_many_white_queens() {
+    fn test_board_try_from_invalid_board_fen_too_many_white_queens() {
         let input = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/QQQQQQQQ";
         let output = Board::try_from(input);
         let expected = Err(BoardFENParseError::InvalidNumOfPiece(
@@ -845,7 +845,7 @@ mod tests {
     }
 
     #[test]
-    fn test_board_try_from_invalid_base_fen_too_many_white_pawns() {
+    fn test_board_try_from_invalid_board_fen_too_many_white_pawns() {
         let input = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/PPPPPPPP";
         let output = Board::try_from(input);
         let expected = Err(BoardFENParseError::InvalidNumOfPiece(
@@ -856,17 +856,17 @@ mod tests {
     }
 
     // #[test]
-    // fn test_base_fen_regex_move_e4() {
+    // fn test_board_fen_regex_move_e4() {
     //     let input = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR";
-    //     let output = Board::is_valid_base_fen(input);
+    //     let output = Board::is_valid_board_fen(input);
     //     let expected = true;
     //     assert_eq!(output, expected);
     // }
 
     // #[test]
-    // fn test_base_fen_regex_move_e4_c5() {
+    // fn test_board_fen_regex_move_e4_c5() {
     //     let input = "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR";
-    //     let output = Board::is_valid_base_fen(input);
+    //     let output = Board::is_valid_board_fen(input);
     //     let expected = true;
     //     assert_eq!(output, expected);
     // }
@@ -892,14 +892,14 @@ mod tests {
     // fn test_fen_parsing() {
     //     let empty_fen = "8/8/8/8/8/8/8/8";
     //     let board = Board::new();
-    //     assert_eq!(empty_fen, board.to_base_fen());
+    //     assert_eq!(empty_fen, board.to_board_fen());
 
     //     let board = Board::default();
-    //     assert_eq!(DEFAULT_BASE_FEN, board.to_base_fen());
+    //     assert_eq!(DEFAULT_BOARD_FEN, board.to_board_fen());
 
     //     let sicilian_fen = "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR";
-    //     let board = Board::from_base_fen(sicilian_fen).unwrap();
-    //     assert_eq!(sicilian_fen, board.to_base_fen());
+    //     let board = Board::from_board_fen(sicilian_fen).unwrap();
+    //     assert_eq!(sicilian_fen, board.to_board_fen());
     // }
 
     // #[test]
@@ -911,13 +911,13 @@ mod tests {
     //     board.add_piece(square, pawn);
 
     //     let new_fen = "8/4p3/8/8/8/8/8/8";
-    //     assert_eq!(new_fen, board.to_base_fen());
+    //     assert_eq!(new_fen, board.to_board_fen());
     //     assert_eq!(board.get_piece_at(square), Some(pawn));
     // }
 
     // Tests that check that Rank FEN Errors are properly converted to BoardFENParseErrors:
     #[test]
-    fn test_board_try_from_valid_base_fen_untrimmed() {
+    fn test_board_try_from_valid_board_fen_untrimmed() {
         // NOTE: Gamestate will be responsible for trimming
         let input = "  rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR ";
         let output = Board::try_from(input);

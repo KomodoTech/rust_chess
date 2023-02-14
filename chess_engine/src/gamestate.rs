@@ -7,7 +7,9 @@ use strum_macros::{Display as EnumDisplay, EnumCount as EnumCountMacro};
 use crate::{
     board::Board,
     castle_perms::{self, CastlePerm, NUM_CASTLE_PERM},
-    error::{BoardFENParseError, CastlePermConversionError, GamestateFENParseError, RankFENParseError},
+    error::{
+        BoardFENParseError, CastlePermConversionError, GamestateFENParseError, RankFENParseError,
+    },
     pieces::Piece,
     squares::Square,
     util::Color,
@@ -123,7 +125,37 @@ impl Default for Gamestate {
 /// Color and En Passant square must be lower case.
 impl TryFrom<&str> for Gamestate {
     type Error = GamestateFENParseError;
-    fn try_from(fen: &str) -> Result<Self, GamestateFENParseError> {
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Self::gen_gamestate_from_fen(value)
+    }
+}
+
+impl Gamestate {
+    pub fn new() -> Self {
+        let board = Board::new();
+        // TODO: call init on board with starting FEN
+        let active_color = Color::White;
+        let castle_permissions = CastlePerm::default();
+        // TODO: figure out what this should really be initially
+        let en_passant: Option<Square> = None;
+        let halfmove_clock: u32 = 0;
+        let fullmove_number: u32 = 0;
+        let history = Vec::new();
+        let zobrist = Zobrist::new();
+
+        Gamestate {
+            board,
+            active_color,
+            castle_permissions,
+            en_passant,
+            halfmove_clock,
+            fullmove_number,
+            history,
+            zobrist,
+        }
+    }
+
+    fn gen_gamestate_from_fen(fen: &str) -> Result<Self, GamestateFENParseError> {
         let fen_sections: Vec<&str> = fen.trim().split(' ').collect();
 
         match fen_sections.len() {
@@ -228,32 +260,6 @@ impl TryFrom<&str> for Gamestate {
             )),
         }
     }
-}
-
-impl Gamestate {
-    pub fn new() -> Self {
-        let board = Board::new();
-        // TODO: call init on board with starting FEN
-        let active_color = Color::White;
-        let castle_permissions = CastlePerm::default();
-        // TODO: figure out what this should really be initially
-        let en_passant: Option<Square> = None;
-        let halfmove_clock: u32 = 0;
-        let fullmove_number: u32 = 0;
-        let history = Vec::new();
-        let zobrist = Zobrist::new();
-
-        Gamestate {
-            board,
-            active_color,
-            castle_permissions,
-            en_passant,
-            halfmove_clock,
-            fullmove_number,
-            history,
-            zobrist,
-        }
-    }
 
     fn gen_position_key(&self) -> u64 {
         let mut position_key: u64 = 0;
@@ -282,8 +288,8 @@ impl Gamestate {
 
 #[cfg(test)]
 mod tests {
-    use crate::board::bitboard::BitBoard;
     use super::*;
+    use crate::board::bitboard::BitBoard;
 
     // TODO: properly seed and test Zobrist key gen to check for collision rate in norm
     #[test]
