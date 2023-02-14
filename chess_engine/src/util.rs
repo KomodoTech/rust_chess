@@ -20,13 +20,13 @@ pub enum File {
     FileG,
     FileH,
 }
-// TODO: test tryfroms for file and rank
+
 impl TryFrom<usize> for File {
     type Error = FileConversionError;
     fn try_from(value: usize) -> Result<Self, Self::Error> {
         Self::iter()
             .find(|r| *r as usize == value)
-            .ok_or(FileConversionError::ParseFileFromUsize(value))
+            .ok_or(FileConversionError::FromUsize(value))
     }
 }
 
@@ -47,7 +47,7 @@ impl TryFrom<usize> for Rank {
     fn try_from(value: usize) -> Result<Self, Self::Error> {
         Self::iter()
             .find(|r| *r as usize == value)
-            .ok_or(RankConversionError::ParseRankFromUsize(value))
+            .ok_or(RankConversionError::FromUsize(value))
     }
 }
 

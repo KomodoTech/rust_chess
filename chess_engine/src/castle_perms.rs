@@ -58,23 +58,19 @@ impl CastlePerm {
                 }
                 '-' => {}
                 _ => {
-                    return Err(
-                        CastlePermConversionError::ParseCastlePermFromStrInvalidChar(
-                            value.to_string(),
-                            char,
-                        ),
-                    );
+                    return Err(CastlePermConversionError::FromStrInvalidChar(
+                        value.to_string(),
+                        char,
+                    ));
                 }
             }
         }
         match castle_perm_fens_index {
             index if (0..=15).contains(&index) => match value {
                 v if v == CASTLE_PERM_FENS[castle_perm_fens_index] => Ok(castle_perm),
-                _ => Err(CastlePermConversionError::ParseCastlePermFromStr(
-                    value.to_string(),
-                )),
+                _ => Err(CastlePermConversionError::FromStr(value.to_string())),
             },
-            _ => Err(CastlePermConversionError::ParseCastlePermFromStrDuplicates(
+            _ => Err(CastlePermConversionError::FromStrDuplicates(
                 value.to_string(),
             )),
         }
@@ -107,7 +103,7 @@ impl TryFrom<u8> for CastlePerm {
                 }
                 Ok(castle_perm)
             }
-            _ => Err(CastlePermConversionError::ParseCastlePermFromU8ErrorValueTooLarge(value)),
+            _ => Err(CastlePermConversionError::FromU8ValueTooLarge(value)),
         }
     }
 }
@@ -176,8 +172,7 @@ mod tests {
     fn test_castle_perm_try_from_u8_invalid_input() {
         let input: u8 = 0b0100_0101;
         let output = CastlePerm::try_from(input);
-        let expected =
-            Err(CastlePermConversionError::ParseCastlePermFromU8ErrorValueTooLarge(input));
+        let expected = Err(CastlePermConversionError::FromU8ValueTooLarge(input));
         assert_eq!(output, expected);
     }
 
@@ -219,9 +214,10 @@ mod tests {
     fn test_castle_perm_try_from_str_invalid_char() {
         let input = "qX";
         let output = CastlePerm::try_from(input);
-        let expected = Err(
-            CastlePermConversionError::ParseCastlePermFromStrInvalidChar(input.to_string(), 'X'),
-        );
+        let expected = Err(CastlePermConversionError::FromStrInvalidChar(
+            input.to_string(),
+            'X',
+        ));
         assert_eq!(output, expected);
     }
 
@@ -229,9 +225,7 @@ mod tests {
     fn test_castle_perm_try_from_str_invalid_order() {
         let input = "qKQ";
         let output = CastlePerm::try_from(input);
-        let expected = Err(CastlePermConversionError::ParseCastlePermFromStr(
-            input.to_string(),
-        ));
+        let expected = Err(CastlePermConversionError::FromStr(input.to_string()));
         assert_eq!(output, expected);
     }
 
@@ -239,7 +233,7 @@ mod tests {
     fn test_castle_perm_try_from_str_too_many_chars() {
         let input = "KQkqK";
         let output = CastlePerm::try_from(input);
-        let expected = Err(CastlePermConversionError::ParseCastlePermFromStrDuplicates(
+        let expected = Err(CastlePermConversionError::FromStrDuplicates(
             input.to_string(),
         ));
         assert_eq!(output, expected);
@@ -249,9 +243,7 @@ mod tests {
     fn test_castle_perm_try_from_str_dupe_dash() {
         let input = "--";
         let output = CastlePerm::try_from(input);
-        let expected = Err(CastlePermConversionError::ParseCastlePermFromStr(
-            input.to_string(),
-        ));
+        let expected = Err(CastlePermConversionError::FromStr(input.to_string()));
         assert_eq!(output, expected);
     }
 
@@ -259,9 +251,7 @@ mod tests {
     fn test_castle_perm_try_from_str_dupe_dash_and_too_long() {
         let input = "KQkq--";
         let output = CastlePerm::try_from(input);
-        let expected = Err(CastlePermConversionError::ParseCastlePermFromStr(
-            input.to_string(),
-        ));
+        let expected = Err(CastlePermConversionError::FromStr(input.to_string()));
         assert_eq!(output, expected);
     }
 

@@ -280,11 +280,11 @@ impl Board {
         todo!()
     }
 
-    // TODO: test clears board
     /// Clears board
     pub fn clear_board(&mut self) {
         self.pieces = [None; NUM_BOARD_SQUARES];
         self.pawns = [BitBoard(0); Color::COUNT];
+        self.kings_square = [None; Color::COUNT];
         self.big_piece_count = [0; Color::COUNT];
         self.major_piece_count = [0; Color::COUNT];
         self.minor_piece_count = [0; Color::COUNT];
@@ -325,8 +325,6 @@ impl fmt::Display for Board {
         writeln!(f)
     }
 }
-
-// TODO: clean up commented out tests
 
 #[cfg(test)]
 mod tests {
@@ -855,22 +853,6 @@ mod tests {
         assert_eq!(output, expected);
     }
 
-    // #[test]
-    // fn test_board_fen_regex_move_e4() {
-    //     let input = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR";
-    //     let output = Board::is_valid_board_fen(input);
-    //     let expected = true;
-    //     assert_eq!(output, expected);
-    // }
-
-    // #[test]
-    // fn test_board_fen_regex_move_e4_c5() {
-    //     let input = "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR";
-    //     let output = Board::is_valid_board_fen(input);
-    //     let expected = true;
-    //     assert_eq!(output, expected);
-    // }
-
     #[test]
     fn test_board_display() {
         let input = DEFAULT_BOARD;
@@ -880,40 +862,13 @@ mod tests {
         assert_eq!(output, expected);
     }
 
-    // #[test]
-    // fn test_board_to_string() {
-    //     let board = Board::default();
-    //     let ref_string = "r n b q k b n r\np p p p p p p p\n. . . . . . . .\n. . . . . . . .\n. . . . . . . .\n. . . . . . . .\nP P P P P P P P\nR N B Q K B N R";
-    //     let output_string = board.to_string(); // autoderived from impl Display
-    //     assert_eq!(ref_string, output_string);
-    // }
-
-    // #[test]
-    // fn test_fen_parsing() {
-    //     let empty_fen = "8/8/8/8/8/8/8/8";
-    //     let board = Board::new();
-    //     assert_eq!(empty_fen, board.to_board_fen());
-
-    //     let board = Board::default();
-    //     assert_eq!(DEFAULT_BOARD_FEN, board.to_board_fen());
-
-    //     let sicilian_fen = "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR";
-    //     let board = Board::from_board_fen(sicilian_fen).unwrap();
-    //     assert_eq!(sicilian_fen, board.to_board_fen());
-    // }
-
-    // #[test]
-    // fn test_add_piece() {
-    //     let mut board = Board::new();
-    //     let square = Square::from_name("e7").unwrap();
-    //     let pawn: Piece = 'p'.try_into().unwrap(); //black pawn
-
-    //     board.add_piece(square, pawn);
-
-    //     let new_fen = "8/4p3/8/8/8/8/8/8";
-    //     assert_eq!(new_fen, board.to_board_fen());
-    //     assert_eq!(board.get_piece_at(square), Some(pawn));
-    // }
+    #[test]
+    fn test_clear_board() {
+        let mut input = DEFAULT_BOARD;
+        input.clear_board();
+        let expected = EMPTY_BOARD;
+        assert_eq!(input, expected);
+    }
 
     // Tests that check that Rank FEN Errors are properly converted to BoardFENParseErrors:
     #[test]

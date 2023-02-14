@@ -120,7 +120,6 @@ impl fmt::Display for BitBoard {
         for rank in Rank::iter() {
             for file in File::iter() {
                 let square_64 = Square64::from_file_and_rank(file, rank);
-                // TODO: explore converting squares to bitboards and implementing bit operations
                 match self.check_bit(square_64) {
                     true => {
                         write!(f, "1");

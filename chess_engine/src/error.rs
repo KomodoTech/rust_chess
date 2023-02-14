@@ -46,7 +46,6 @@ pub enum BoardFENParseError {
     )]
     WrongNumRanks(String, usize),
 
-    //TODO: Currently going to be a bit difficult to read with glyph
     #[error("FEN {0} includes too many {1}s")]
     InvalidNumOfPiece(String, char),
 
@@ -107,57 +106,63 @@ pub enum BitBoardError {
 #[derive(Error, Debug, PartialEq)]
 pub enum PieceConversionError {
     #[error("could not convert char {0} into a Piece")]
-    ParsePieceFromChar(char),
+    FromChar(char),
 }
 
 #[derive(Error, Debug, PartialEq)]
 pub enum CastlePermConversionError {
     #[error("could not convert u8 {0} into a CastlePerm because {0} is greater than 0x0F")]
-    ParseCastlePermFromU8ErrorValueTooLarge(u8),
+    FromU8ValueTooLarge(u8),
 
     #[error("could not convert {0} into a CastlePerm because char {0} is invalid")]
-    ParseCastlePermFromStrInvalidChar(String, char),
+    FromStrInvalidChar(String, char),
 
-    // Won't catch - duplicates
+    // Won't catch '-' duplicates
     #[error("could not convert {0} into a CastlePerm encountered duplicates")]
-    ParseCastlePermFromStrDuplicates(String),
+    FromStrDuplicates(String),
 
     #[error("could not convert {0} into a CastlePerm")]
-    ParseCastlePermFromStr(String),
+    FromStr(String),
 }
 
 #[derive(Error, Debug, PartialEq)]
 pub enum SquareConversionError {
     #[error("could not convert &str {0} into a Square")]
-    ParseSquareFromStr(#[from] StrumParseError),
+    FromStr(#[from] StrumParseError),
 
     #[error("could not convert u8 {0} into a Square")]
-    ParseSquareFromU8(u8),
-
-    #[error("could not convert u8 {0} into a Square64")]
-    ParseSquare64FromU8(u8),
+    FromU8(u8),
 
     #[error("could not convert u32 {0} into a Square")]
-    ParseSquareFromU32(u32),
-
-    #[error("could not convert u32 {0} into a Square64")]
-    ParseSquare64FromU32(u32),
+    FromU32(u32),
 
     #[error("could not convert usize {0} into a Square")]
-    ParseSquareFromUsize(usize),
+    FromUsize(usize),
+}
+
+#[derive(Error, Debug, PartialEq)]
+pub enum Square64ConversionError {
+    #[error("could not convert &str {0} into a Square64")]
+    FromStr(#[from] StrumParseError),
+
+    #[error("could not convert u8 {0} into a Square64")]
+    FromU8(u8),
+
+    #[error("could not convert u32 {0} into a Square64")]
+    FromU32(u32),
 
     #[error("could not convert usize {0} into a Square64")]
-    ParseSquare64FromUsize(usize),
+    FromUsize(usize),
 }
 
 #[derive(Error, Debug, PartialEq)]
 pub enum RankConversionError {
     #[error("could not convert usize {0} into a Rank")]
-    ParseRankFromUsize(usize),
+    FromUsize(usize),
 }
 
 #[derive(Error, Debug, PartialEq)]
 pub enum FileConversionError {
     #[error("could not convert usize {0} into a File")]
-    ParseFileFromUsize(usize),
+    FromUsize(usize),
 }

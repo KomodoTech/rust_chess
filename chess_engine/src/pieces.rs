@@ -96,7 +96,7 @@ impl TryFrom<char> for Piece {
             'r' => Ok(Piece::BlackRook),
             'q' => Ok(Piece::BlackQueen),
             'k' => Ok(Piece::BlackKing),
-            _ => Err(PieceConversionError::ParsePieceFromChar(value)),
+            _ => Err(PieceConversionError::FromChar(value)),
         }
     }
 }
@@ -219,7 +219,7 @@ mod test {
     fn test_piece_try_from_char_invalid_input() {
         let input = 'M';
         let output = Piece::try_from(input);
-        let expected = Err(PieceConversionError::ParsePieceFromChar(input));
+        let expected = Err(PieceConversionError::FromChar(input));
         assert_eq!(output, expected);
     }
 

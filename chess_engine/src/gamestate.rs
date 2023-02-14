@@ -62,7 +62,6 @@ struct Zobrist {
 /// a decent one, even though the effect of collisions seems to be fairly minimal for Zobrist
 /// hashing.
 impl Zobrist {
-    // TODO: revisit collisions and RNG (seed for testing)
     fn new() -> Self {
         // declare seed deterministically from const we declared
         let mut seed: <Lcg128Xsl64 as SeedableRng>::Seed = ZOBRIST_SEED;
@@ -94,8 +93,6 @@ impl Default for Zobrist {
     }
 }
 
-// TODO: Make history a Vec (check capacity default ~10) on the heap (many games at once on server this could be an issue)
-
 // TODO: make Zobrist generate at compile time with proc macro
 #[derive(Debug, PartialEq, Eq)]
 pub struct Gamestate {
@@ -109,7 +106,6 @@ pub struct Gamestate {
     zobrist: Zobrist,
 }
 
-// TODO: Test
 impl Default for Gamestate {
     fn default() -> Self {
         Gamestate::try_from(DEFAULT_FEN)
@@ -117,10 +113,6 @@ impl Default for Gamestate {
     }
 }
 
-// TODO: pull out fen parsing into its own separate function and call it from try_from. More intuitive
-// Do the same for Board Fen parsing
-
-// TODO: TEST!
 /// Generates a new Gamestate from a FEN &str. Base FEN gets converted to board via TryFrom<&str>
 /// Color and En Passant square must be lower case.
 impl TryFrom<&str> for Gamestate {
@@ -131,12 +123,12 @@ impl TryFrom<&str> for Gamestate {
 }
 
 impl Gamestate {
+    // TODO: determine if new should be this zeroed out version of the board
+    // or if it should just be the default board
     pub fn new() -> Self {
         let board = Board::new();
-        // TODO: call init on board with starting FEN
         let active_color = Color::White;
         let castle_permissions = CastlePerm::default();
-        // TODO: figure out what this should really be initially
         let en_passant: Option<Square> = None;
         let halfmove_clock: u32 = 0;
         let fullmove_number: u32 = 0;
@@ -306,6 +298,7 @@ mod tests {
     fn test_gamestate_try_from_valid_fen_default() {
         let input = DEFAULT_FEN;
         let output = Gamestate::try_from(input);
+        let default = Gamestate::default();
         #[rustfmt::skip]
         let board = Board {
             pieces: [
@@ -418,6 +411,7 @@ mod tests {
         );
         // println!("output zobrist:{:?}\nexpected zobrist:{:?}", output.as_ref().unwrap().zobrist, output.as_ref().unwrap().zobrist);
         assert_eq!(output, expected);
+        assert_eq!(default, expected.unwrap());
     }
 
     // Tests for if Board and Rank Errors are being converted correctly to Gamestate Errors:

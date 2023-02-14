@@ -1,6 +1,6 @@
 use crate::{
     board::bitboard::BitBoard,
-    error::SquareConversionError,
+    error::{Square64ConversionError, SquareConversionError},
     util::{File, Rank, FILES_BOARD, RANKS_BOARD, SQUARE_120_TO_64, SQUARE_64_TO_120},
 };
 use num::Integer;
@@ -34,40 +34,40 @@ impl From<Square> for Square64 {
 }
 
 impl Add<usize> for Square64 {
-    type Output = Result<Self, SquareConversionError>;
+    type Output = Result<Self, Square64ConversionError>;
     fn add(self, rhs: usize) -> Self::Output {
-        let result: Result<Self, SquareConversionError> = (self as usize + rhs).try_into();
+        let result: Result<Self, Square64ConversionError> = (self as usize + rhs).try_into();
         result
     }
 }
 
 impl TryFrom<u8> for Square64 {
-    type Error = SquareConversionError;
+    type Error = Square64ConversionError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Self::iter()
             .find(|s| *s as u8 == value)
-            .ok_or(SquareConversionError::ParseSquare64FromU8(value))
+            .ok_or(Square64ConversionError::FromU8(value))
     }
 }
 
 impl TryFrom<u32> for Square64 {
-    type Error = SquareConversionError;
+    type Error = Square64ConversionError;
 
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         Self::iter()
             .find(|s| *s as u32 == value)
-            .ok_or(SquareConversionError::ParseSquare64FromU32(value))
+            .ok_or(Square64ConversionError::FromU32(value))
     }
 }
 
 impl TryFrom<usize> for Square64 {
-    type Error = SquareConversionError;
+    type Error = Square64ConversionError;
 
     fn try_from(value: usize) -> Result<Self, Self::Error> {
         Self::iter()
             .find(|s| *s as usize == value)
-            .ok_or(SquareConversionError::ParseSquare64FromUsize(value))
+            .ok_or(Square64ConversionError::FromUsize(value))
     }
 }
 
@@ -109,28 +109,13 @@ impl From<Square64> for Square {
     }
 }
 
-// TODO: this is implemented and tested, but I think it might actually be a bad idea.
-// when you take Square as usize you don't expect a 0..=63 range, so this might actually
-// cause some confusion and lead to bugs. Plus it isn't optimal performance-wise
-// impl Add<usize> for Square {
-//     type Output = Result<Self, SquareConversionError>;
-//     fn add(self, rhs: usize) -> Self::Output {
-//         let index_64 = Square64::from(self) as usize + rhs;
-//         let square_64 = Square64::try_from(index_64);
-//         match square_64 {
-//             Ok(s_64) => {Ok(Square::from(s_64))},
-//             Err(e) => {Err(SquareConversionError::ParseSquareFromUsizeError(index_64))},
-//         }
-//     }
-// }
-
 impl TryFrom<u8> for Square {
     type Error = SquareConversionError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Self::iter()
             .find(|s| *s as u8 == value)
-            .ok_or(SquareConversionError::ParseSquareFromU8(value))
+            .ok_or(SquareConversionError::FromU8(value))
     }
 }
 
@@ -140,7 +125,7 @@ impl TryFrom<u32> for Square {
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         Self::iter()
             .find(|s| *s as u32 == value)
-            .ok_or(SquareConversionError::ParseSquareFromU32(value))
+            .ok_or(SquareConversionError::FromU32(value))
     }
 }
 
@@ -150,7 +135,7 @@ impl TryFrom<usize> for Square {
     fn try_from(value: usize) -> Result<Self, Self::Error> {
         Self::iter()
             .find(|s| *s as usize == value)
-            .ok_or(SquareConversionError::ParseSquareFromUsize(value))
+            .ok_or(SquareConversionError::FromUsize(value))
     }
 }
 
@@ -216,38 +201,9 @@ mod tests {
         let lhs = Square64::B1;
         let rhs: usize = 63;
         let output = lhs + rhs;
-        let expected = Err(SquareConversionError::ParseSquare64FromUsize(
-            lhs as usize + rhs,
-        ));
+        let expected = Err(Square64ConversionError::FromUsize(lhs as usize + rhs));
         assert_eq!(output, expected);
     }
-
-    // #[test]
-    // fn test_square_120_addition_usize_valid() {
-    //     let lhs = Square::B1;
-    //     let rhs: usize = 8;
-    //     let output = lhs + rhs;
-    //     let expected = Ok(Square::B2);
-    //     assert_eq!(output, expected);
-    // }
-
-    // #[test]
-    // fn test_square_120_addition_usize_valid_zero() {
-    //     let lhs = Square::B1;
-    //     let rhs: usize = 0;
-    //     let output = lhs + rhs;
-    //     let expected = Ok(Square::B1);
-    //     assert_eq!(output, expected);
-    // }
-
-    // #[test]
-    // fn test_square_120_addition_usize_invalid() {
-    //     let lhs = Square::B1;
-    //     let rhs: usize = 63;
-    //     let output = lhs + rhs;
-    //     let expected = Err(SquareConversionError::ParseSquareFromUsizeError((Square64::from(lhs)) as usize + rhs));
-    //     assert_eq!(output, expected);
-    // }
 
     #[test]
     fn test_square_120_try_from_str_valid() {
@@ -261,18 +217,17 @@ mod tests {
     fn test_square_120_try_from_str_lowercase_invalid() {
         let input = "d2";
         let output = Square::try_from(input).map_err(Into::into);
-        let expected = Err(SquareConversionError::ParseSquareFromStr(
+        let expected = Err(SquareConversionError::FromStr(
             strum::ParseError::VariantNotFound,
         ));
         assert_eq!(output, expected);
     }
 
-    // TODO: look into strum::ParseError and use it appropriately
     #[test]
     fn test_square_120_try_from_str_invalid() {
         let input = "INVALID";
         let output = Square::try_from(input).map_err(Into::into);
-        let expected = Err(SquareConversionError::ParseSquareFromStr(
+        let expected = Err(SquareConversionError::FromStr(
             strum::ParseError::VariantNotFound,
         ));
         assert_eq!(output, expected);
@@ -298,7 +253,7 @@ mod tests {
     fn test_square_64_try_from_str_lowercase_invalid() {
         let input = "d2";
         let output = Square64::try_from(input).map_err(Into::into);
-        let expected = Err(SquareConversionError::ParseSquareFromStr(
+        let expected = Err(Square64ConversionError::FromStr(
             strum::ParseError::VariantNotFound,
         ));
         assert_eq!(output, expected);
@@ -308,7 +263,7 @@ mod tests {
     fn test_square_64_try_from_str_invalid() {
         let input = "INVALID";
         let output = Square64::try_from(input).map_err(Into::into);
-        let expected = Err(SquareConversionError::ParseSquareFromStr(
+        let expected = Err(Square64ConversionError::FromStr(
             strum::ParseError::VariantNotFound,
         ));
         assert_eq!(output, expected);
@@ -334,7 +289,7 @@ mod tests {
     fn test_square_120_try_from_u8_invalid() {
         let input: u8 = 11;
         let output = Square::try_from(input);
-        let expected = Err(SquareConversionError::ParseSquareFromU8(11));
+        let expected = Err(SquareConversionError::FromU8(11));
         assert_eq!(output, expected);
     }
 
@@ -350,7 +305,7 @@ mod tests {
     fn test_square_64_try_from_u8_invalid() {
         let input: u8 = 64;
         let output = Square64::try_from(input);
-        let expected = Err(SquareConversionError::ParseSquare64FromU8(64));
+        let expected = Err(Square64ConversionError::FromU8(64));
         assert_eq!(output, expected);
     }
 
@@ -366,7 +321,7 @@ mod tests {
     fn test_square_120_try_from_u32_invalid() {
         let input: u32 = 11;
         let output = Square::try_from(input);
-        let expected = Err(SquareConversionError::ParseSquareFromU32(11));
+        let expected = Err(SquareConversionError::FromU32(11));
         assert_eq!(output, expected);
     }
 
@@ -382,7 +337,7 @@ mod tests {
     fn test_square_64_try_from_u32_invalid() {
         let input: u32 = 64;
         let output = Square64::try_from(input);
-        let expected = Err(SquareConversionError::ParseSquare64FromU32(64));
+        let expected = Err(Square64ConversionError::FromU32(64));
         assert_eq!(output, expected);
     }
 
@@ -398,7 +353,7 @@ mod tests {
     fn test_square_120_try_from_usize_invalid() {
         let input: usize = 11;
         let output = Square::try_from(input);
-        let expected = Err(SquareConversionError::ParseSquareFromUsize(11));
+        let expected = Err(SquareConversionError::FromUsize(11));
         assert_eq!(output, expected);
     }
 
@@ -414,7 +369,7 @@ mod tests {
     fn test_square_64_try_from_usize_invalid() {
         let input: usize = 64;
         let output = Square64::try_from(input);
-        let expected = Err(SquareConversionError::ParseSquare64FromUsize(64));
+        let expected = Err(Square64ConversionError::FromUsize(64));
         assert_eq!(output, expected);
     }
 
