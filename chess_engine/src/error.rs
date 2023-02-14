@@ -9,17 +9,65 @@ use strum::{EnumCount, ParseError as StrumParseError};
 
 use thiserror::Error;
 
-// TODO: Clean up names and explore thiserror #from to see if you can convert
-// from one type of error to another
-// TODO: determine whether using &str instead of Strings is worth it
 #[derive(Error, Debug, PartialEq)]
 pub enum ChessError {
     #[error("illegal move attempted: {0}")]
     IllegalMove(Move),
 }
 
+// TODO: Clean up names and explore thiserror #from to see if you can convert
+// from one type of error to another
+// #[error("test")]
+// FENParseError(#[from] FENParseError),
+//
+// question mark calls into automatically
+// let fizz = foo.bar()?;
+// let chess_error = match fizz {
+//     Ok(t) => ...,
+//     Err(e) => fizz.into()
+// }
+
 #[derive(Error, Debug, PartialEq)]
-pub enum FENParseError {
+pub enum RankFENParseError {
+    #[error("Rank FEN is empty")]
+    Empty,
+
+    #[error("Rank FEN {0} should represent {} squares but does not", File::COUNT)]
+    InvalidNumSquares(String),
+
+    #[error(
+        "Rank FEN {0} has character {1} which represents invalid digit (needs to be in 1..=8)"
+    )]
+    InvalidDigit(String, usize),
+
+    #[error("Rank FEN {0} includes invalid char {1}")]
+    InvalidChar(String, char),
+
+    #[error("Rank FEN {0} includes two consecutive digits")]
+    TwoConsecutiveDigits(String),
+}
+
+#[derive(Error, Debug, PartialEq)]
+pub enum BoardFENParseError {
+    #[error(
+        "base FEN {0} has {1} ranks separated by / delimiter instead of {}",
+        Rank::COUNT
+    )]
+    WrongNumRanks(String, usize),
+
+    //TODO: Currently going to be a bit difficult to read with glyph
+    #[error("FEN {0} includes too many {1}s")]
+    InvalidNumOfPiece(String, char),
+
+    #[error("FEN {0} must have exactly one white king and exactly one black king")]
+    InvalidKingNum(String),
+
+    #[error("Encountered error while trying to parse a Rank FEN")]
+    RankFENParseError(#[from] RankFENParseError),
+}
+
+#[derive(Error, Debug, PartialEq)]
+pub enum GamestateFENParseError {
     #[error(
         "number of subsections of FEN &str is {0}, but should be {}",
         NUM_FEN_SECTIONS
@@ -52,39 +100,8 @@ pub enum FENParseError {
     )]
     FullmoveClockExceedsMaxGameMoves(u32),
 
-    #[error("base FEN for Board {0} is invalid")]
-    BoardInvalid(String),
-
-    #[error(
-        "base FEN {0} has {1} ranks separated by / delimiter instead of {}",
-        Rank::COUNT
-    )]
-    BaseFENWrongNumRanks(String, usize),
-
-    // Rank FEN Parsing:
-    #[error("Rank FEN is empty")]
-    RankEmpty,
-
-    #[error("Rank FEN {0} should represent {} squares but does not", File::COUNT)]
-    RankInvalidNumSquares(String),
-
-    #[error(
-        "Rank FEN {0} has character {1} which represents invalid digit (needs to be in 1..=8)"
-    )]
-    RankInvalidDigit(String, usize),
-
-    #[error("Rank FEN {0} includes invalid char {1}")]
-    RankInvalidChar(String, char),
-
-    #[error("Rank FEN {0} includes two consecutive digits")]
-    RankTwoConsecutiveDigits(String),
-
-    #[error("FEN {0} must have exactly one white king and exactly one black king")]
-    InvalidKingNum(String),
-
-    //TODO: Currently going to be a bit difficult to read with glyph
-    #[error("FEN {0} includes too many {1}s")]
-    InvalidNumOfPiece(String, char),
+    #[error("base FEN for Board is invalid")]
+    BoardFENParseError(#[from] BoardFENParseError),
 }
 
 #[derive(Error, Debug, PartialEq)]

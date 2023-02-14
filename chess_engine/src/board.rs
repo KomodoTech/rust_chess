@@ -1,7 +1,7 @@
 // TODO: when bitboard errors are removed, remove pub keyword
 pub mod bitboard;
 use crate::{
-    error::{ConversionError, FENParseError},
+    error::{BoardFENParseError, ConversionError, RankFENParseError},
     gamestate::NUM_BOARD_SQUARES,
     pieces::Piece,
     squares::{Square, Square64},
@@ -39,9 +39,27 @@ impl Default for Board {
 }
 
 impl TryFrom<&str> for Board {
-    type Error = FENParseError;
-
+    type Error = BoardFENParseError;
     fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Self::gen_board_from_fen(value)
+    }
+}
+
+impl Board {
+    pub fn new() -> Self {
+        Self {
+            pieces: [None; NUM_BOARD_SQUARES],
+            pawns: [BitBoard(0), BitBoard(0)],
+            kings_square: [None, None],
+            piece_count: [0; Piece::COUNT],
+            big_piece_count: [0; Color::COUNT],
+            major_piece_count: [0; Color::COUNT],
+            minor_piece_count: [0; Color::COUNT],
+            piece_list: [[None; MAX_NUM_PIECE_TYPE_INSTANCES]; Piece::COUNT],
+        }
+    }
+
+    fn gen_board_from_fen(value: &str) -> Result<Self, BoardFENParseError> {
         let mut board = Board::new();
         let mut freq_counter: HashMap<char, usize> = HashMap::with_capacity(Piece::COUNT);
         let ranks: Vec<&str> = value.split('/').collect();
@@ -52,8 +70,8 @@ impl TryFrom<&str> for Board {
                 // with regards to rank (chars within rank are in correct order)
                 for (rank, rank_str) in ranks.iter().rev().enumerate() {
                     // do rank validation in separate function that will return Some(Piece)s or Nones in an array if valid
-                    let rank_pieces: Result<[Option<Piece>; File::COUNT], FENParseError> =
-                        Self::gen_rank_from_fen(rank_str);
+                    let rank_pieces: Result<[Option<Piece>; File::COUNT], BoardFENParseError> =
+                        Ok(Self::gen_rank_from_fen(rank_str)?); // use ? to convert from RankFENParseError to BoardFENParseError automatically
                     match rank_pieces {
                         // if the rank is valid update the board
                         Ok(rp) => {
@@ -82,7 +100,7 @@ impl TryFrom<&str> for Board {
 
                                     // check for max amount of piece type leq 9-10 (can disable later)
                                     if piece_index >= p.get_max_num_allowed() as usize {
-                                        return Err(FENParseError::InvalidNumOfPiece(
+                                        return Err(BoardFENParseError::InvalidNumOfPiece(
                                             value.to_string(),
                                             char::from(p),
                                         ));
@@ -133,7 +151,7 @@ impl TryFrom<&str> for Board {
                 }
             }
             _ => {
-                return Err(FENParseError::BaseFENWrongNumRanks(
+                return Err(BoardFENParseError::WrongNumRanks(
                     value.to_string(),
                     ranks.len(),
                 ))
@@ -141,29 +159,18 @@ impl TryFrom<&str> for Board {
         }
         // check freq counter for kings (optionally for max num of pieces per type)
         if freq_counter.get(&'k') != Some(&1) || freq_counter.get(&'K') != Some(&1) {
-            return Err(FENParseError::InvalidKingNum(value.to_string()));
+            return Err(BoardFENParseError::InvalidKingNum(value.to_string()));
         }
         Ok(board)
     }
-}
 
-impl Board {
-    pub fn new() -> Self {
-        Self {
-            pieces: [None; NUM_BOARD_SQUARES],
-            pawns: [BitBoard(0), BitBoard(0)],
-            kings_square: [None, None],
-            piece_count: [0; Piece::COUNT],
-            big_piece_count: [0; Color::COUNT],
-            major_piece_count: [0; Color::COUNT],
-            minor_piece_count: [0; Color::COUNT],
-            piece_list: [[None; MAX_NUM_PIECE_TYPE_INSTANCES]; Piece::COUNT],
-        }
-    }
-
-    fn gen_rank_from_fen(fen_rank: &str) -> Result<[Option<Piece>; File::COUNT], FENParseError> {
+    /// Takes a &str that corresponds to a portion of a FEN string for a specific Rank (e.g. rnbqkbnr)
+    /// and generates a corresponding Option<Piece> array
+    fn gen_rank_from_fen(
+        fen_rank: &str,
+    ) -> Result<[Option<Piece>; File::COUNT], RankFENParseError> {
         if fen_rank.is_empty() {
-            return Err(FENParseError::RankEmpty);
+            return Err(RankFENParseError::Empty);
         }
 
         let mut rank: [Option<Piece>; File::COUNT] = [None; File::COUNT];
@@ -177,7 +184,7 @@ impl Board {
                     // "ppp12pp"
                     match is_last_char_digit {
                         true => {
-                            return Err(FENParseError::RankTwoConsecutiveDigits(
+                            return Err(RankFENParseError::TwoConsecutiveDigits(
                                 fen_rank.to_string(),
                             ))
                         }
@@ -197,7 +204,7 @@ impl Board {
                                     }
                                 }
                                 false => {
-                                    return Err(FENParseError::RankInvalidNumSquares(
+                                    return Err(RankFENParseError::InvalidNumSquares(
                                         fen_rank.to_string(),
                                     ))
                                 }
@@ -205,7 +212,7 @@ impl Board {
                             square_counter += d as u8;
                         }
                         _ => {
-                            return Err(FENParseError::RankInvalidDigit(
+                            return Err(RankFENParseError::InvalidDigit(
                                 fen_rank.to_string(),
                                 digit as usize,
                             ))
@@ -225,7 +232,7 @@ impl Board {
                                     rank[sq_count as usize] = Some(piece)
                                 }
                                 _ => {
-                                    return Err(FENParseError::RankInvalidNumSquares(
+                                    return Err(RankFENParseError::InvalidNumSquares(
                                         fen_rank.to_string(),
                                     ))
                                 }
@@ -234,7 +241,7 @@ impl Board {
                             square_counter += 1;
                         }
                         Err(_) => {
-                            return Err(FENParseError::RankInvalidChar(fen_rank.to_string(), char))
+                            return Err(RankFENParseError::InvalidChar(fen_rank.to_string(), char))
                         }
                     }
                 }
@@ -243,7 +250,7 @@ impl Board {
         // check the square_counter is exactly 8
         match square_counter {
             8 => Ok(rank),
-            _ => Err(FENParseError::RankInvalidNumSquares(fen_rank.to_string())),
+            _ => Err(RankFENParseError::InvalidNumSquares(fen_rank.to_string())),
         }
     }
 
@@ -319,14 +326,16 @@ impl fmt::Display for Board {
     }
 }
 
+// TODO: clean up commented out tests
+
 #[cfg(test)]
-#[rustfmt::skip]
 mod tests {
     use super::*;
 
     // NOTE: we can consider this board invalid since there are no kings. Might be useful later
     // if we allow editing the board, so we'll keep it for now
     const EMPTY_BASE_FEN: &str = "8/8/8/8/8/8/8/8";
+    #[rustfmt::skip]
     const EMPTY_BOARD: Board = Board {
         pieces: [
             None, None, None, None, None, None, None, None, None, None,
@@ -424,7 +433,7 @@ mod tests {
     fn test_get_rank_from_fen_invalid_empty() {
         let input = "";
         let output = Board::gen_rank_from_fen(input);
-        let expected = Err(FENParseError::RankEmpty);
+        let expected = Err(RankFENParseError::Empty);
         assert_eq!(output, expected);
     }
 
@@ -432,7 +441,7 @@ mod tests {
     fn test_get_rank_from_fen_invalid_char() {
         let input = "rn2Xb1r";
         let output = Board::gen_rank_from_fen(input);
-        let expected = Err(FENParseError::RankInvalidChar(input.to_string(), 'X'));
+        let expected = Err(RankFENParseError::InvalidChar(input.to_string(), 'X'));
         assert_eq!(output, expected);
     }
 
@@ -440,43 +449,44 @@ mod tests {
     fn test_get_rank_from_fen_invalid_digit() {
         let input = "rn0kb1rqN"; // num squares would be valid
         let output = Board::gen_rank_from_fen(input);
-        let expected = Err(FENParseError::RankInvalidDigit(input.to_string(), 0));
+        let expected = Err(RankFENParseError::InvalidDigit(input.to_string(), 0));
         assert_eq!(output, expected);
     }
 
     #[test]
-    fn test_get_rank_from_fen_too_many_squares() {
+    fn test_get_rank_from_fen_invalid_too_many_squares() {
         let input = "rn2kb1rqN";
         let output = Board::gen_rank_from_fen(input);
-        let expected = Err(FENParseError::RankInvalidNumSquares(input.to_string()));
+        let expected = Err(RankFENParseError::InvalidNumSquares(input.to_string()));
         assert_eq!(output, expected);
     }
 
     #[test]
-    fn test_get_rank_from_fen_too_few_squares() {
+    fn test_get_rank_from_fen_invalid_too_few_squares() {
         let input = "rn2kb";
         let output = Board::gen_rank_from_fen(input);
-        let expected = Err(FENParseError::RankInvalidNumSquares(input.to_string()));
+        let expected = Err(RankFENParseError::InvalidNumSquares(input.to_string()));
         assert_eq!(output, expected);
     }
 
     #[test]
-    fn test_get_rank_from_fen_invalid_two_consecutive_digits(){
+    fn test_get_rank_from_fen_invalid_two_consecutive_digits() {
         let input = "pppp12p"; // adds up to 8 squares but isn't valid
         let ouput = Board::gen_rank_from_fen(input);
-        let expected = Err(FENParseError::RankTwoConsecutiveDigits(input.to_string()));
+        let expected = Err(RankFENParseError::TwoConsecutiveDigits(input.to_string()));
         assert_eq!(ouput, expected);
     }
 
     #[test]
-    fn test_get_rank_from_fen_invalid_two_consecutive_digits_invalid_num_squares(){
+    fn test_get_rank_from_fen_invalid_two_consecutive_digits_invalid_num_squares() {
         let input = "pppp18p"; // adds up to more than 8 squares but gets caught for consecutive digits
         let ouput = Board::gen_rank_from_fen(input);
-        let expected = Err(FENParseError::RankTwoConsecutiveDigits(input.to_string()));
+        let expected = Err(RankFENParseError::TwoConsecutiveDigits(input.to_string()));
         assert_eq!(ouput, expected);
     }
 
     // Full Base FEN Board Parsing:
+    #[rustfmt::skip]
     const DEFAULT_BOARD: Board = Board {
         pieces: [
             None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
@@ -531,23 +541,47 @@ mod tests {
     fn test_board_try_from_valid_base_fen_default() {
         let input = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
         let output = Board::try_from(input);
-        let expected: Result<Board, FENParseError> = Ok(DEFAULT_BOARD);
+        let expected: Result<Board, BoardFENParseError> = Ok(DEFAULT_BOARD);
         // pieces
-        assert_eq!(output.as_ref().unwrap().pieces, expected.as_ref().unwrap().pieces);
+        assert_eq!(
+            output.as_ref().unwrap().pieces,
+            expected.as_ref().unwrap().pieces
+        );
         // pawns
-        assert_eq!(output.as_ref().unwrap().pawns, expected.as_ref().unwrap().pawns);
+        assert_eq!(
+            output.as_ref().unwrap().pawns,
+            expected.as_ref().unwrap().pawns
+        );
         // kings_index
-        assert_eq!(output.as_ref().unwrap().kings_square, expected.as_ref().unwrap().kings_square);
+        assert_eq!(
+            output.as_ref().unwrap().kings_square,
+            expected.as_ref().unwrap().kings_square
+        );
         // piece_count
-        assert_eq!(output.as_ref().unwrap().piece_count, expected.as_ref().unwrap().piece_count);
+        assert_eq!(
+            output.as_ref().unwrap().piece_count,
+            expected.as_ref().unwrap().piece_count
+        );
         // big_piece_count
-        assert_eq!(output.as_ref().unwrap().big_piece_count, expected.as_ref().unwrap().big_piece_count);
+        assert_eq!(
+            output.as_ref().unwrap().big_piece_count,
+            expected.as_ref().unwrap().big_piece_count
+        );
         // major_piece_count
-        assert_eq!(output.as_ref().unwrap().major_piece_count, expected.as_ref().unwrap().major_piece_count);
+        assert_eq!(
+            output.as_ref().unwrap().major_piece_count,
+            expected.as_ref().unwrap().major_piece_count
+        );
         // minor_piece_count
-        assert_eq!(output.as_ref().unwrap().minor_piece_count, expected.as_ref().unwrap().minor_piece_count);
+        assert_eq!(
+            output.as_ref().unwrap().minor_piece_count,
+            expected.as_ref().unwrap().minor_piece_count
+        );
         // piece list
-        assert_eq!(output.as_ref().unwrap().piece_list, expected.as_ref().unwrap().piece_list);
+        assert_eq!(
+            output.as_ref().unwrap().piece_list,
+            expected.as_ref().unwrap().piece_list
+        );
         assert_eq!(output, expected);
     }
 
@@ -556,7 +590,8 @@ mod tests {
         let input = "r6r/1b2k1bq/8/8/7B/8/8/R3K2R";
         let output = Board::try_from(input);
         // TODO: pull this into utils it will be useful for testing later
-        let expected: Result<Board, FENParseError> = Ok(Board {
+        #[rustfmt::skip]
+        let expected: Result<Board, BoardFENParseError> = Ok(Board {
             pieces: [
                 None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                     None,
                 None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                     None,
@@ -605,30 +640,55 @@ mod tests {
             ]
         });
         // pieces
-        assert_eq!(output.as_ref().unwrap().pieces, expected.as_ref().unwrap().pieces);
+        assert_eq!(
+            output.as_ref().unwrap().pieces,
+            expected.as_ref().unwrap().pieces
+        );
         // pawns
-        assert_eq!(output.as_ref().unwrap().pawns, expected.as_ref().unwrap().pawns);
+        assert_eq!(
+            output.as_ref().unwrap().pawns,
+            expected.as_ref().unwrap().pawns
+        );
         // kings_index
-        assert_eq!(output.as_ref().unwrap().kings_square, expected.as_ref().unwrap().kings_square);
+        assert_eq!(
+            output.as_ref().unwrap().kings_square,
+            expected.as_ref().unwrap().kings_square
+        );
         // piece_count
-        assert_eq!(output.as_ref().unwrap().piece_count, expected.as_ref().unwrap().piece_count);
+        assert_eq!(
+            output.as_ref().unwrap().piece_count,
+            expected.as_ref().unwrap().piece_count
+        );
         // big_piece_count
-        assert_eq!(output.as_ref().unwrap().big_piece_count, expected.as_ref().unwrap().big_piece_count);
+        assert_eq!(
+            output.as_ref().unwrap().big_piece_count,
+            expected.as_ref().unwrap().big_piece_count
+        );
         // major_piece_count
-        assert_eq!(output.as_ref().unwrap().major_piece_count, expected.as_ref().unwrap().major_piece_count);
+        assert_eq!(
+            output.as_ref().unwrap().major_piece_count,
+            expected.as_ref().unwrap().major_piece_count
+        );
         // minor_piece_count
-        assert_eq!(output.as_ref().unwrap().minor_piece_count, expected.as_ref().unwrap().minor_piece_count);
+        assert_eq!(
+            output.as_ref().unwrap().minor_piece_count,
+            expected.as_ref().unwrap().minor_piece_count
+        );
         // piece list
-        assert_eq!(output.as_ref().unwrap().piece_list, expected.as_ref().unwrap().piece_list);
+        assert_eq!(
+            output.as_ref().unwrap().piece_list,
+            expected.as_ref().unwrap().piece_list
+        );
         // assert_eq!(output, expected);
     }
-    
+
     #[test]
     fn test_board_try_from_valid_base_fen_no_captures_no_promotions() {
         let input = "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1";
         let output = Board::try_from(input);
         // TODO: pull this into utils it will be useful for testing later
-        let expected: Result<Board, FENParseError> = Ok(Board {
+        #[rustfmt::skip]
+        let expected: Result<Board, BoardFENParseError> = Ok(Board {
             pieces: [
                 None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
                 None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
@@ -678,38 +738,53 @@ mod tests {
             ]
         });
         // pieces
-        assert_eq!(output.as_ref().unwrap().pieces, expected.as_ref().unwrap().pieces);
+        assert_eq!(
+            output.as_ref().unwrap().pieces,
+            expected.as_ref().unwrap().pieces
+        );
         // pawns
-        assert_eq!(output.as_ref().unwrap().pawns, expected.as_ref().unwrap().pawns);
+        assert_eq!(
+            output.as_ref().unwrap().pawns,
+            expected.as_ref().unwrap().pawns
+        );
         // kings_index
-        assert_eq!(output.as_ref().unwrap().kings_square, expected.as_ref().unwrap().kings_square);
+        assert_eq!(
+            output.as_ref().unwrap().kings_square,
+            expected.as_ref().unwrap().kings_square
+        );
         // piece_count
-        assert_eq!(output.as_ref().unwrap().piece_count, expected.as_ref().unwrap().piece_count);
+        assert_eq!(
+            output.as_ref().unwrap().piece_count,
+            expected.as_ref().unwrap().piece_count
+        );
         // big_piece_count
-        assert_eq!(output.as_ref().unwrap().big_piece_count, expected.as_ref().unwrap().big_piece_count);
+        assert_eq!(
+            output.as_ref().unwrap().big_piece_count,
+            expected.as_ref().unwrap().big_piece_count
+        );
         // major_piece_count
-        assert_eq!(output.as_ref().unwrap().major_piece_count, expected.as_ref().unwrap().major_piece_count);
+        assert_eq!(
+            output.as_ref().unwrap().major_piece_count,
+            expected.as_ref().unwrap().major_piece_count
+        );
         // minor_piece_count
-        assert_eq!(output.as_ref().unwrap().minor_piece_count, expected.as_ref().unwrap().minor_piece_count);
+        assert_eq!(
+            output.as_ref().unwrap().minor_piece_count,
+            expected.as_ref().unwrap().minor_piece_count
+        );
         // piece list
-        assert_eq!(output.as_ref().unwrap().piece_list, expected.as_ref().unwrap().piece_list);
+        assert_eq!(
+            output.as_ref().unwrap().piece_list,
+            expected.as_ref().unwrap().piece_list
+        );
         // assert_eq!(output, expected);
-    }
-
-    // NOTE: Gamestate will be responsible for trimming
-    #[test]
-    fn test_board_try_from_valid_base_fen_untrimmed() {
-        let input = "  rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR ";
-        let output = Board::try_from(input);
-        let expected: Result<Board, FENParseError> = Err(FENParseError::RankInvalidChar("RNBQKBNR ".to_string(), ' '));
-        assert_eq!(output, expected);
     }
 
     #[test]
     fn test_board_try_from_invalid_base_fen_all_8() {
         let input = "8/8/8/8/8/8/8/8";
         let output = Board::try_from(input);
-        let expected = Err(FENParseError::InvalidKingNum(input.to_string()));
+        let expected = Err(BoardFENParseError::InvalidKingNum(input.to_string()));
         assert_eq!(output, expected);
     }
 
@@ -717,7 +792,7 @@ mod tests {
     fn test_board_try_from_invalid_base_fen_too_few_ranks() {
         let input = "8/8/rbkqn2p/8/8/8/PPKPP1PP";
         let output = Board::try_from(input);
-        let expected = Err(FENParseError::BaseFENWrongNumRanks(input.to_string(), 7));
+        let expected = Err(BoardFENParseError::WrongNumRanks(input.to_string(), 7));
         assert_eq!(output, expected);
     }
 
@@ -725,7 +800,7 @@ mod tests {
     fn test_board_try_from_invalid_base_fen_too_many_ranks() {
         let input = "8/8/rbkqn2p/8/8/8/PPKPP1PP/8/";
         let output = Board::try_from(input);
-        let expected = Err(FENParseError::BaseFENWrongNumRanks(input.to_string(), 9));
+        let expected = Err(BoardFENParseError::WrongNumRanks(input.to_string(), 9));
         assert_eq!(output, expected);
     }
 
@@ -733,42 +808,53 @@ mod tests {
     fn test_board_try_from_invalid_base_fen_empty_ranks() {
         let input = "8/8/rbkqn2p//8/8/PPKPP1PP/8";
         let output = Board::try_from(input);
-        let expected = Err(FENParseError::RankEmpty);
+        let expected = Err(BoardFENParseError::RankFENParseError(
+            RankFENParseError::Empty,
+        ));
         assert_eq!(output, expected);
     }
 
     #[test]
-    fn test_board_try_from_invalid_base_fen_too_few_kings(){
+    fn test_board_try_from_invalid_base_fen_too_few_kings() {
         let input = "8/8/rbqn3p/8/8/8/PPKPP1PP/8";
         let output = Board::try_from(input);
-        let expected = Err(FENParseError::InvalidKingNum(input.to_string()));
+        let expected = Err(BoardFENParseError::InvalidKingNum(input.to_string()));
         assert_eq!(output, expected);
     }
 
     #[test]
-    fn test_board_try_from_invalid_base_fen_too_many_kings(){
+    fn test_board_try_from_invalid_base_fen_too_many_kings() {
         let input = "8/8/rbqnkkpr/8/8/8/PPKPP1PP/8";
         let output = Board::try_from(input);
-        let expected = Err(FENParseError::InvalidNumOfPiece(input.to_string(), 'k'));
-        assert_eq!(output, expected);
-    }
- 
-    #[test]
-    fn test_board_try_from_invalid_base_fen_too_many_white_queens(){
-        let input = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/QQQQQQQQ";
-        let output = Board::try_from(input);
-        let expected = Err(FENParseError::InvalidNumOfPiece(input.to_string(), 'Q'));
+        let expected = Err(BoardFENParseError::InvalidNumOfPiece(
+            input.to_string(),
+            'k',
+        ));
         assert_eq!(output, expected);
     }
 
     #[test]
-    fn test_board_try_from_invalid_base_fen_too_many_white_pawns(){
-        let input = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/PPPPPPPP";
+    fn test_board_try_from_invalid_base_fen_too_many_white_queens() {
+        let input = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/QQQQQQQQ";
         let output = Board::try_from(input);
-        let expected = Err(FENParseError::InvalidNumOfPiece(input.to_string(), 'P'));
+        let expected = Err(BoardFENParseError::InvalidNumOfPiece(
+            input.to_string(),
+            'Q',
+        ));
         assert_eq!(output, expected);
     }
-    
+
+    #[test]
+    fn test_board_try_from_invalid_base_fen_too_many_white_pawns() {
+        let input = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/PPPPPPPP";
+        let output = Board::try_from(input);
+        let expected = Err(BoardFENParseError::InvalidNumOfPiece(
+            input.to_string(),
+            'P',
+        ));
+        assert_eq!(output, expected);
+    }
+
     // #[test]
     // fn test_base_fen_regex_move_e4() {
     //     let input = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR";
@@ -828,4 +914,93 @@ mod tests {
     //     assert_eq!(new_fen, board.to_base_fen());
     //     assert_eq!(board.get_piece_at(square), Some(pawn));
     // }
+
+    // Tests that check that Rank FEN Errors are properly converted to BoardFENParseErrors:
+    #[test]
+    fn test_board_try_from_valid_base_fen_untrimmed() {
+        // NOTE: Gamestate will be responsible for trimming
+        let input = "  rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR ";
+        let output = Board::try_from(input);
+        let expected: Result<Board, BoardFENParseError> =
+            Err(BoardFENParseError::RankFENParseError(
+                RankFENParseError::InvalidChar("RNBQKBNR ".to_string(), ' '),
+            ));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_board_invalid_empty() {
+        let input = "/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
+        let output = Board::try_from(input);
+        let expected = Err(BoardFENParseError::RankFENParseError(
+            RankFENParseError::Empty,
+        ));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_board_invalid_char() {
+        let invalid_rank_str = "rn2Xb1r";
+        let input = "rn2Xb1r/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
+        let output = Board::try_from(input);
+        let expected = Err(BoardFENParseError::RankFENParseError(
+            RankFENParseError::InvalidChar(invalid_rank_str.to_string(), 'X'),
+        ));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_board_invalid_digit() {
+        let invalid_rank_str = "rn0kb1rqN"; // num squares would be valid
+        let input = "rn0kb1rqN/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
+        let output = Board::try_from(input);
+        let expected = Err(BoardFENParseError::RankFENParseError(
+            RankFENParseError::InvalidDigit(invalid_rank_str.to_string(), 0),
+        ));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_board_invalid_too_many_squares() {
+        let invalid_rank_str = "rn2kb1rqN";
+        let input = "rn2kb1rqN/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
+        let output = Board::try_from(input);
+        let expected = Err(BoardFENParseError::RankFENParseError(
+            RankFENParseError::InvalidNumSquares(invalid_rank_str.to_string()),
+        ));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_board_invalid_too_few_squares() {
+        let invalid_rank_str = "rn2kb";
+        let input = "rn2kb/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
+        let output = Board::try_from(input);
+        let expected = Err(BoardFENParseError::RankFENParseError(
+            RankFENParseError::InvalidNumSquares(invalid_rank_str.to_string()),
+        ));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_board_invalid_two_consecutive_digits() {
+        let invalid_rank_str = "pppp12p"; // adds up to 8 squares but isn't valid
+        let input = "pppp12p/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
+        let ouput = Board::try_from(input);
+        let expected = Err(BoardFENParseError::RankFENParseError(
+            RankFENParseError::TwoConsecutiveDigits(invalid_rank_str.to_string()),
+        ));
+        assert_eq!(ouput, expected);
+    }
+
+    #[test]
+    fn test_board_invalid_two_consecutive_digits_invalid_num_squares() {
+        let invalid_rank_str = "pppp18p"; // adds up to more than 8 squares but gets caught for consecutive digits
+        let input = "pppp18p/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
+        let ouput = Board::try_from(input);
+        let expected = Err(BoardFENParseError::RankFENParseError(
+            RankFENParseError::TwoConsecutiveDigits(invalid_rank_str.to_string()),
+        ));
+        assert_eq!(ouput, expected);
+    }
 }

@@ -7,7 +7,7 @@ use strum_macros::{Display as EnumDisplay, EnumCount as EnumCountMacro};
 use crate::{
     board::Board,
     castle_perms::{self, CastlePerm, NUM_CASTLE_PERM},
-    error::{ConversionError, FENParseError},
+    error::{BoardFENParseError, ConversionError, GamestateFENParseError, RankFENParseError},
     pieces::Piece,
     squares::Square,
     util::Color,
@@ -92,6 +92,8 @@ impl Default for Zobrist {
     }
 }
 
+// TODO: Make history a Vec (check capacity default ~10) on the heap (many games at once on server this could be an issue)
+
 // TODO: make Zobrist generate at compile time with proc macro
 #[derive(Debug, PartialEq, Eq)]
 pub struct Gamestate {
@@ -101,7 +103,7 @@ pub struct Gamestate {
     en_passant: Option<Square>,
     halfmove_clock: u32,
     fullmove_number: u32,
-    history: [Option<Undo>; MAX_GAME_MOVES],
+    history: Vec<Undo>,
     zobrist: Zobrist,
 }
 
@@ -113,12 +115,15 @@ impl Default for Gamestate {
     }
 }
 
+// TODO: pull out fen parsing into its own separate function and call it from try_from. More intuitive
+// Do the same for Board Fen parsing
+
 // TODO: TEST!
 /// Generates a new Gamestate from a FEN &str. Base FEN gets converted to board via TryFrom<&str>
 /// Color and En Passant square must be lower case.
 impl TryFrom<&str> for Gamestate {
-    type Error = FENParseError;
-    fn try_from(fen: &str) -> Result<Self, FENParseError> {
+    type Error = GamestateFENParseError;
+    fn try_from(fen: &str) -> Result<Self, GamestateFENParseError> {
         let fen_sections: Vec<&str> = fen.trim().split(' ').collect();
 
         match fen_sections.len() {
@@ -129,7 +134,7 @@ impl TryFrom<&str> for Gamestate {
                     white if white == char::from(Color::White).to_string() => Color::White,
                     black if black == char::from(Color::Black).to_string() => Color::Black,
                     _ => {
-                        return Err(FENParseError::ActiveColorInvalid(
+                        return Err(GamestateFENParseError::ActiveColorInvalid(
                             active_color_str.to_string(),
                         ))
                     }
@@ -141,7 +146,7 @@ impl TryFrom<&str> for Gamestate {
                 let castle_permissions = match castle_permissions_try {
                     Ok(cp) => cp,
                     Err(_) => {
-                        return Err(FENParseError::CastlePermInvalid(
+                        return Err(GamestateFENParseError::CastlePermInvalid(
                             castle_permissions_str.to_string(),
                         ))
                     }
@@ -155,7 +160,9 @@ impl TryFrom<&str> for Gamestate {
                     Err(_) => match en_passant_str {
                         "-" => None,
                         _ => {
-                            return Err(FENParseError::EnPassantInvalid(en_passant_str.to_string()))
+                            return Err(GamestateFENParseError::EnPassantInvalid(
+                                en_passant_str.to_string(),
+                            ))
                         }
                     },
                 };
@@ -165,10 +172,14 @@ impl TryFrom<&str> for Gamestate {
                 let halfmove_clock = match halfmove_clock_try {
                     Ok(num) => match num {
                         n if (0..=MAX_GAME_MOVES).contains(&(n as usize)) => n,
-                        _ => return Err(FENParseError::HalfmoveClockExceedsMaxGameMoves(num)),
+                        _ => {
+                            return Err(GamestateFENParseError::HalfmoveClockExceedsMaxGameMoves(
+                                num,
+                            ))
+                        }
                     },
                     Err(_) => {
-                        return Err(FENParseError::HalfmoveClockInvalid(
+                        return Err(GamestateFENParseError::HalfmoveClockInvalid(
                             halfmove_clock_str.to_string(),
                         ))
                     }
@@ -179,25 +190,23 @@ impl TryFrom<&str> for Gamestate {
                 let fullmove_number = match fullmove_number_try {
                     Ok(num) => match num {
                         n if (0..=MAX_GAME_MOVES / 2).contains(&(n as usize)) => n,
-                        _ => return Err(FENParseError::FullmoveClockExceedsMaxGameMoves(num)),
+                        _ => {
+                            return Err(GamestateFENParseError::FullmoveClockExceedsMaxGameMoves(
+                                num,
+                            ))
+                        }
                     },
                     Err(_) => {
-                        return Err(FENParseError::FullmoveClockInvalid(
+                        return Err(GamestateFENParseError::FullmoveClockInvalid(
                             fullmove_number_str.to_string(),
                         ));
                     }
                 };
 
                 let board_str = fen_sections[0];
-                let board_try = Board::try_from(board_str);
-                let board = match board_try {
-                    Ok(b) => b,
-                    Err(_) => {
-                        return Err(FENParseError::BoardInvalid(board_str.to_string()));
-                    }
-                };
+                let board = Board::try_from(board_str)?;
 
-                let history: [Option<Undo>; MAX_GAME_MOVES] = [None; MAX_GAME_MOVES];
+                let history = Vec::new();
                 let zobrist = Zobrist::default();
 
                 // TODO: check that the castle permissions actually match the board
@@ -214,7 +223,9 @@ impl TryFrom<&str> for Gamestate {
                     zobrist,
                 })
             }
-            _ => Err(FENParseError::WrongNumFENSections(fen_sections.len())),
+            _ => Err(GamestateFENParseError::WrongNumFENSections(
+                fen_sections.len(),
+            )),
         }
     }
 }
@@ -229,7 +240,7 @@ impl Gamestate {
         let en_passant: Option<Square> = None;
         let halfmove_clock: u32 = 0;
         let fullmove_number: u32 = 0;
-        let history: [Option<Undo>; MAX_GAME_MOVES] = [None; MAX_GAME_MOVES];
+        let history = Vec::new();
         let zobrist = Zobrist::new();
 
         Gamestate {
@@ -269,11 +280,9 @@ impl Gamestate {
     }
 }
 
-#[rustfmt::skip]
 #[cfg(test)]
 mod tests {
     use crate::board::bitboard::BitBoard;
-
     use super::*;
 
     // TODO: properly seed and test Zobrist key gen to check for collision rate in norm
@@ -291,7 +300,7 @@ mod tests {
     fn test_gamestate_try_from_valid_fen_default() {
         let input = DEFAULT_FEN;
         let output = Gamestate::try_from(input);
-
+        #[rustfmt::skip]
         let board = Board {
             pieces: [
                 None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
@@ -347,10 +356,10 @@ mod tests {
         let en_passant = None;
         let halfmove_clock = 0;
         let fullmove_number = 1;
-        let history = [None; MAX_GAME_MOVES];
+        let history = Vec::new();
         let zobrist = Zobrist::default();
 
-        let expected: Result<Gamestate, FENParseError> = Ok(Gamestate {
+        let expected: Result<Gamestate, GamestateFENParseError> = Ok(Gamestate {
             board,
             active_color,
             castle_permissions,
@@ -362,23 +371,227 @@ mod tests {
         });
 
         // board
-        assert_eq!(output.as_ref().unwrap().board, expected.as_ref().unwrap().board);
+        assert_eq!(
+            output.as_ref().unwrap().board,
+            expected.as_ref().unwrap().board
+        );
         // active_color
-        assert_eq!(output.as_ref().unwrap().active_color, expected.as_ref().unwrap().active_color);
+        assert_eq!(
+            output.as_ref().unwrap().active_color,
+            expected.as_ref().unwrap().active_color
+        );
         // castle_permissions
-        assert_eq!(output.as_ref().unwrap().castle_permissions, expected.as_ref().unwrap().castle_permissions);
+        assert_eq!(
+            output.as_ref().unwrap().castle_permissions,
+            expected.as_ref().unwrap().castle_permissions
+        );
         // en_passant
-        assert_eq!(output.as_ref().unwrap().en_passant, expected.as_ref().unwrap().en_passant);
+        assert_eq!(
+            output.as_ref().unwrap().en_passant,
+            expected.as_ref().unwrap().en_passant
+        );
         // halfmove_clock
-        assert_eq!(output.as_ref().unwrap().halfmove_clock, expected.as_ref().unwrap().halfmove_clock);
+        assert_eq!(
+            output.as_ref().unwrap().halfmove_clock,
+            expected.as_ref().unwrap().halfmove_clock
+        );
         // fullmove_number
-        assert_eq!(output.as_ref().unwrap().fullmove_number, expected.as_ref().unwrap().fullmove_number);
+        assert_eq!(
+            output.as_ref().unwrap().fullmove_number,
+            expected.as_ref().unwrap().fullmove_number
+        );
         // history
-        assert_eq!(output.as_ref().unwrap().history, expected.as_ref().unwrap().history);
+        assert_eq!(
+            output.as_ref().unwrap().history,
+            expected.as_ref().unwrap().history
+        );
         // zobrist
-        assert_eq!(output.as_ref().unwrap().zobrist, expected.as_ref().unwrap().zobrist);
+        assert_eq!(
+            output.as_ref().unwrap().zobrist,
+            expected.as_ref().unwrap().zobrist
+        );
         // println!("output zobrist:{:?}\nexpected zobrist:{:?}", output.as_ref().unwrap().zobrist, output.as_ref().unwrap().zobrist);
         assert_eq!(output, expected);
     }
 
+    // Tests for if Board and Rank Errors are being converted correctly to Gamestate Errors:
+    #[test]
+    fn test_gamestate_try_from_invalid_board_fen_all_8() {
+        let invalid_board_str = "8/8/8/8/8/8/8/8";
+        let input = "8/8/8/8/8/8/8/8 w KQkq - 0 1";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::BoardFENParseError(
+            BoardFENParseError::InvalidKingNum(invalid_board_str.to_string()),
+        ));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_try_from_invalid_board_fen_too_few_ranks() {
+        let invalid_board_str = "8/8/rbkqn2p/8/8/8/PPKPP1PP";
+        let input = "8/8/rbkqn2p/8/8/8/PPKPP1PP w KQkq - 0 1";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::BoardFENParseError(
+            BoardFENParseError::WrongNumRanks(invalid_board_str.to_string(), 7),
+        ));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_try_from_invalid_board_fen_too_many_ranks() {
+        let invalid_board_str = "8/8/rbkqn2p/8/8/8/PPKPP1PP/8/";
+        let input = "8/8/rbkqn2p/8/8/8/PPKPP1PP/8/ w KQkq - 0 1";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::BoardFENParseError(
+            BoardFENParseError::WrongNumRanks(invalid_board_str.to_string(), 9),
+        ));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_try_from_invalid_board_fen_empty_ranks() {
+        let invalid_board_str = "8/8/rbkqn2p//8/8/PPKPP1PP/8";
+        let input = "8/8/rbkqn2p//8/8/PPKPP1PP/8 w KQkq - 0 1";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::BoardFENParseError(
+            BoardFENParseError::RankFENParseError(RankFENParseError::Empty),
+        ));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_try_from_invalid_board_fen_too_few_kings() {
+        let invalid_board_str = "8/8/rbqn3p/8/8/8/PPKPP1PP/8";
+        let input = "8/8/rbqn3p/8/8/8/PPKPP1PP/8 w KQkq - 0 1";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::BoardFENParseError(
+            BoardFENParseError::InvalidKingNum(invalid_board_str.to_string()),
+        ));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_try_from_invalid_board_fen_too_many_kings() {
+        let invalid_board_str = "8/8/rbqnkkpr/8/8/8/PPKPP1PP/8";
+        let input = "8/8/rbqnkkpr/8/8/8/PPKPP1PP/8 w KQkq - 0 1";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::BoardFENParseError(
+            BoardFENParseError::InvalidNumOfPiece(invalid_board_str.to_string(), 'k'),
+        ));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_try_from_invalid_board_fen_too_many_white_queens() {
+        let invalid_board_str = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/QQQQQQQQ";
+        let input = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/QQQQQQQQ w KQkq - 0 1";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::BoardFENParseError(
+            BoardFENParseError::InvalidNumOfPiece(invalid_board_str.to_string(), 'Q'),
+        ));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_try_from_invalid_board_fen_too_many_white_pawns() {
+        let invalid_board_str = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/PPPPPPPP";
+        let input = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/PPPPPPPP w KQkq - 0 1";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::BoardFENParseError(
+            BoardFENParseError::InvalidNumOfPiece(invalid_board_str.to_string(), 'P'),
+        ));
+        assert_eq!(output, expected);
+    }
+
+    // Rank Level:
+    #[test]
+    fn test_gamestate_try_from_invalid_rank_fen_empty() {
+        let invalid_board_str = "";
+        let input = "/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::BoardFENParseError(
+            BoardFENParseError::RankFENParseError(RankFENParseError::Empty),
+        ));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_try_from_invalid_rank_fen_char() {
+        let invalid_rank_str = "rn2Xb1r";
+        let input = "rn2Xb1r/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::BoardFENParseError(
+            BoardFENParseError::RankFENParseError(RankFENParseError::InvalidChar(
+                invalid_rank_str.to_string(),
+                'X',
+            )),
+        ));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_board_try_from_invalid_rank_fen_digit() {
+        let invalid_rank_str = "rn0kb1rqN"; // num squares would be valid
+        let input = "rn0kb1rqN/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::BoardFENParseError(
+            BoardFENParseError::RankFENParseError(RankFENParseError::InvalidDigit(
+                invalid_rank_str.to_string(),
+                0,
+            )),
+        ));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_board_invalid_rank_fen_too_many_squares() {
+        let invalid_rank_str = "rn2kb1rqN";
+        let input = "rn2kb1rqN/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::BoardFENParseError(
+            BoardFENParseError::RankFENParseError(RankFENParseError::InvalidNumSquares(
+                invalid_rank_str.to_string(),
+            )),
+        ));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_board_invalid_rank_fen_too_few_squares() {
+        let invalid_rank_str = "rn2kb";
+        let input = "rn2kb/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::BoardFENParseError(
+            BoardFENParseError::RankFENParseError(RankFENParseError::InvalidNumSquares(
+                invalid_rank_str.to_string(),
+            )),
+        ));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_board_invalid_rank_fen_two_consecutive_digits() {
+        let invalid_rank_str = "pppp12p"; // adds up to 8 squares but isn't valid
+        let input = "pppp12p/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        let ouput = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::BoardFENParseError(
+            BoardFENParseError::RankFENParseError(RankFENParseError::TwoConsecutiveDigits(
+                invalid_rank_str.to_string(),
+            )),
+        ));
+        assert_eq!(ouput, expected);
+    }
+
+    #[test]
+    fn test_board_invalid_rank_fen_two_consecutive_digits_invalid_num_squares() {
+        let invalid_rank_str = "pppp18p"; // adds up to more than 8 squares but gets caught for consecutive digits
+        let input = "pppp18p/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        let ouput = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::BoardFENParseError(
+            BoardFENParseError::RankFENParseError(RankFENParseError::TwoConsecutiveDigits(
+                invalid_rank_str.to_string(),
+            )),
+        ));
+        assert_eq!(ouput, expected);
+    }
 }
