@@ -15,18 +15,6 @@ pub enum ChessError {
     IllegalMove(Move),
 }
 
-// TODO: Clean up names and explore thiserror #from to see if you can convert
-// from one type of error to another
-// #[error("test")]
-// FENParseError(#[from] FENParseError),
-//
-// question mark calls into automatically
-// let fizz = foo.bar()?;
-// let chess_error = match fizz {
-//     Ok(t) => ...,
-//     Err(e) => fizz.into()
-// }
-
 #[derive(Error, Debug, PartialEq)]
 pub enum RankFENParseError {
     #[error("Rank FEN is empty")]
@@ -49,6 +37,9 @@ pub enum RankFENParseError {
 
 #[derive(Error, Debug, PartialEq)]
 pub enum BoardFENParseError {
+    #[error("Encountered error while trying to parse a Rank FEN")]
+    RankFENParseError(#[from] RankFENParseError),
+
     #[error(
         "base FEN {0} has {1} ranks separated by / delimiter instead of {}",
         Rank::COUNT
@@ -61,13 +52,13 @@ pub enum BoardFENParseError {
 
     #[error("FEN {0} must have exactly one white king and exactly one black king")]
     InvalidKingNum(String),
-
-    #[error("Encountered error while trying to parse a Rank FEN")]
-    RankFENParseError(#[from] RankFENParseError),
 }
 
 #[derive(Error, Debug, PartialEq)]
 pub enum GamestateFENParseError {
+    #[error("base FEN for Board is invalid")]
+    BoardFENParseError(#[from] BoardFENParseError),
+
     #[error(
         "number of subsections of FEN &str is {0}, but should be {}",
         NUM_FEN_SECTIONS
@@ -99,9 +90,6 @@ pub enum GamestateFENParseError {
         MAX_GAME_MOVES/2
     )]
     FullmoveClockExceedsMaxGameMoves(u32),
-
-    #[error("base FEN for Board is invalid")]
-    BoardFENParseError(#[from] BoardFENParseError),
 }
 
 #[derive(Error, Debug, PartialEq)]
@@ -117,10 +105,13 @@ pub enum BitBoardError {
 }
 
 #[derive(Error, Debug, PartialEq)]
-pub enum ConversionError {
+pub enum PieceConversionError {
     #[error("could not convert char {0} into a Piece")]
     ParsePieceFromChar(char),
+}
 
+#[derive(Error, Debug, PartialEq)]
+pub enum CastlePermConversionError {
     #[error("could not convert u8 {0} into a CastlePerm because {0} is greater than 0x0F")]
     ParseCastlePermFromU8ErrorValueTooLarge(u8),
 
@@ -133,7 +124,10 @@ pub enum ConversionError {
 
     #[error("could not convert {0} into a CastlePerm")]
     ParseCastlePermFromStr(String),
+}
 
+#[derive(Error, Debug, PartialEq)]
+pub enum SquareConversionError {
     #[error("could not convert &str {0} into a Square")]
     ParseSquareFromStr(#[from] StrumParseError),
 
@@ -154,10 +148,16 @@ pub enum ConversionError {
 
     #[error("could not convert usize {0} into a Square64")]
     ParseSquare64FromUsize(usize),
+}
 
+#[derive(Error, Debug, PartialEq)]
+pub enum RankConversionError {
     #[error("could not convert usize {0} into a Rank")]
     ParseRankFromUsize(usize),
+}
 
+#[derive(Error, Debug, PartialEq)]
+pub enum FileConversionError {
     #[error("could not convert usize {0} into a File")]
     ParseFileFromUsize(usize),
 }

@@ -1,4 +1,4 @@
-use crate::{error::ConversionError, util::Color};
+use crate::{error::PieceConversionError, util::Color};
 
 use std::fmt::{self, write};
 use strum::EnumCount;
@@ -80,7 +80,7 @@ impl Piece {
 }
 
 impl TryFrom<char> for Piece {
-    type Error = ConversionError;
+    type Error = PieceConversionError;
 
     fn try_from(value: char) -> Result<Self, Self::Error> {
         match value {
@@ -96,7 +96,7 @@ impl TryFrom<char> for Piece {
             'r' => Ok(Piece::BlackRook),
             'q' => Ok(Piece::BlackQueen),
             'k' => Ok(Piece::BlackKing),
-            _ => Err(ConversionError::ParsePieceFromChar(value)),
+            _ => Err(PieceConversionError::ParsePieceFromChar(value)),
         }
     }
 }
@@ -219,7 +219,7 @@ mod test {
     fn test_piece_try_from_char_invalid_input() {
         let input = 'M';
         let output = Piece::try_from(input);
-        let expected = Err(ConversionError::ParsePieceFromChar(input));
+        let expected = Err(PieceConversionError::ParsePieceFromChar(input));
         assert_eq!(output, expected);
     }
 

@@ -1,7 +1,7 @@
 // TODO: when bitboard errors are removed, remove pub keyword
 pub mod bitboard;
 use crate::{
-    error::{BoardFENParseError, ConversionError, RankFENParseError},
+    error::{BoardFENParseError, RankFENParseError},
     gamestate::NUM_BOARD_SQUARES,
     pieces::Piece,
     squares::{Square, Square64},

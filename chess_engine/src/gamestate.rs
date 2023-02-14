@@ -7,7 +7,7 @@ use strum_macros::{Display as EnumDisplay, EnumCount as EnumCountMacro};
 use crate::{
     board::Board,
     castle_perms::{self, CastlePerm, NUM_CASTLE_PERM},
-    error::{BoardFENParseError, ConversionError, GamestateFENParseError, RankFENParseError},
+    error::{BoardFENParseError, CastlePermConversionError, GamestateFENParseError, RankFENParseError},
     pieces::Piece,
     squares::Square,
     util::Color,

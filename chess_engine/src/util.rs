@@ -1,5 +1,5 @@
 use crate::{
-    error::ConversionError,
+    error::{RankConversionError, FileConversionError},
     gamestate::NUM_BOARD_SQUARES,
     pieces::Piece,
     squares::{Square, Square64},
@@ -22,11 +22,11 @@ pub enum File {
 }
 // TODO: test tryfroms for file and rank
 impl TryFrom<usize> for File {
-    type Error = ConversionError;
+    type Error = FileConversionError;
     fn try_from(value: usize) -> Result<Self, Self::Error> {
         Self::iter()
             .find(|r| *r as usize == value)
-            .ok_or(ConversionError::ParseFileFromUsize(value))
+            .ok_or(FileConversionError::ParseFileFromUsize(value))
     }
 }
 
@@ -43,11 +43,11 @@ pub enum Rank {
 }
 
 impl TryFrom<usize> for Rank {
-    type Error = ConversionError;
+    type Error = RankConversionError;
     fn try_from(value: usize) -> Result<Self, Self::Error> {
         Self::iter()
             .find(|r| *r as usize == value)
-            .ok_or(ConversionError::ParseRankFromUsize(value))
+            .ok_or(RankConversionError::ParseRankFromUsize(value))
     }
 }
 

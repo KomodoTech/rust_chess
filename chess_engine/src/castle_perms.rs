@@ -1,4 +1,4 @@
-use crate::error::ConversionError;
+use crate::error::CastlePermConversionError;
 use std::fmt;
 use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::{Display as EnumDisplay, EnumCount as EnumCountMacro, EnumIter, EnumString};
@@ -45,7 +45,7 @@ impl From<CastlePerm> for u8 {
 }
 
 impl TryFrom<u8> for CastlePerm {
-    type Error = ConversionError;
+    type Error = CastlePermConversionError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             // only 16 different possible castle permissions
@@ -60,7 +60,7 @@ impl TryFrom<u8> for CastlePerm {
                 }
                 Ok(castle_perm)
             }
-            _ => Err(ConversionError::ParseCastlePermFromU8ErrorValueTooLarge(
+            _ => Err(CastlePermConversionError::ParseCastlePermFromU8ErrorValueTooLarge(
                 value,
             )),
         }
@@ -68,7 +68,7 @@ impl TryFrom<u8> for CastlePerm {
 }
 
 impl TryFrom<&str> for CastlePerm {
-    type Error = ConversionError;
+    type Error = CastlePermConversionError;
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         let mut castle_perm = CastlePerm([None; Castle::COUNT]);
         let mut castle_perm_fens_index: usize = 0;
@@ -92,7 +92,7 @@ impl TryFrom<&str> for CastlePerm {
                 }
                 '-' => {}
                 _ => {
-                    return Err(ConversionError::ParseCastlePermFromStrInvalidChar(
+                    return Err(CastlePermConversionError::ParseCastlePermFromStrInvalidChar(
                         value.to_string(),
                         char,
                     ));
@@ -102,9 +102,9 @@ impl TryFrom<&str> for CastlePerm {
         match castle_perm_fens_index {
             index if (0..=15).contains(&index) => match value {
                 v if v == CASTLE_PERM_FENS[castle_perm_fens_index] => Ok(castle_perm),
-                _ => Err(ConversionError::ParseCastlePermFromStr(value.to_string())),
+                _ => Err(CastlePermConversionError::ParseCastlePermFromStr(value.to_string())),
             },
-            _ => Err(ConversionError::ParseCastlePermFromStrDuplicates(
+            _ => Err(CastlePermConversionError::ParseCastlePermFromStrDuplicates(
                 value.to_string(),
             )),
         }
@@ -168,7 +168,7 @@ mod tests {
     fn test_castle_perm_try_from_u8_invalid_input() {
         let input: u8 = 0b0100_0101;
         let output = CastlePerm::try_from(input);
-        let expected = Err(ConversionError::ParseCastlePermFromU8ErrorValueTooLarge(
+        let expected = Err(CastlePermConversionError::ParseCastlePermFromU8ErrorValueTooLarge(
             input,
         ));
         assert_eq!(output, expected);
@@ -212,7 +212,7 @@ mod tests {
     fn test_castle_perm_try_from_str_invalid_char() {
         let input = "qX";
         let output = CastlePerm::try_from(input);
-        let expected = Err(ConversionError::ParseCastlePermFromStrInvalidChar(
+        let expected = Err(CastlePermConversionError::ParseCastlePermFromStrInvalidChar(
             input.to_string(),
             'X',
         ));
@@ -223,7 +223,7 @@ mod tests {
     fn test_castle_perm_try_from_str_invalid_order() {
         let input = "qKQ";
         let output = CastlePerm::try_from(input);
-        let expected = Err(ConversionError::ParseCastlePermFromStr(input.to_string()));
+        let expected = Err(CastlePermConversionError::ParseCastlePermFromStr(input.to_string()));
         assert_eq!(output, expected);
     }
 
@@ -231,7 +231,7 @@ mod tests {
     fn test_castle_perm_try_from_str_too_many_chars() {
         let input = "KQkqK";
         let output = CastlePerm::try_from(input);
-        let expected = Err(ConversionError::ParseCastlePermFromStrDuplicates(
+        let expected = Err(CastlePermConversionError::ParseCastlePermFromStrDuplicates(
             input.to_string(),
         ));
         assert_eq!(output, expected);
@@ -241,7 +241,7 @@ mod tests {
     fn test_castle_perm_try_from_str_dupe_dash() {
         let input = "--";
         let output = CastlePerm::try_from(input);
-        let expected = Err(ConversionError::ParseCastlePermFromStr(input.to_string()));
+        let expected = Err(CastlePermConversionError::ParseCastlePermFromStr(input.to_string()));
         assert_eq!(output, expected);
     }
 
@@ -249,7 +249,7 @@ mod tests {
     fn test_castle_perm_try_from_str_dupe_dash_and_too_long() {
         let input = "KQkq--";
         let output = CastlePerm::try_from(input);
-        let expected = Err(ConversionError::ParseCastlePermFromStr(input.to_string()));
+        let expected = Err(CastlePermConversionError::ParseCastlePermFromStr(input.to_string()));
         assert_eq!(output, expected);
     }
 
