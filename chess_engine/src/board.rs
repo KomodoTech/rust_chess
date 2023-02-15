@@ -59,6 +59,8 @@ impl Board {
         }
     }
 
+    // TODO: Look for bishops trapped behind non-enemy pawns (or behind any 3 pawns)
+    // TODO: Check for non-jumpers in impossible positions
     fn gen_board_from_fen(value: &str) -> Result<Self, BoardFENParseError> {
         let mut board = Board::new();
         let mut freq_counter: HashMap<char, usize> = HashMap::with_capacity(Piece::COUNT);
@@ -70,83 +72,82 @@ impl Board {
                 // with regards to rank (chars within rank are in correct order)
                 for (rank, rank_str) in ranks.iter().rev().enumerate() {
                     // do rank validation in separate function that will return Some(Piece)s or Nones in an array if valid
-                    let rank_pieces: Result<[Option<Piece>; File::COUNT], BoardFENParseError> =
-                        Ok(Self::gen_rank_from_fen(rank_str)?); // use ? to convert from RankFENParseError to BoardFENParseError automatically
-                    match rank_pieces {
-                        // if the rank is valid update the board
-                        Ok(rp) => {
-                            for (file, &piece) in rp.iter().enumerate() {
-                                // get square from file and rank and use it to update board's pieces array
-                                let square = Square::from_file_and_rank(
-                                    File::try_from(file).expect("file should be in range 0..=7"),
-                                    Rank::try_from(rank).expect("rank should be in range 0..=7"),
-                                );
-                                board.pieces[square as usize] = piece;
+                    // use ? to convert from RankFENParseError to BoardFENParseError automatically and throw Err if not Ok
+                    let rank_pieces = Self::gen_rank_from_fen(rank_str)?;
+                    // if the rank is valid update the board
+                    for (file, &piece) in rank_pieces.iter().enumerate() {
+                        // get square from file and rank and use it to update board's pieces array
+                        let square = Square::from_file_and_rank(
+                            File::try_from(file).expect("file should be in range 0..=7"),
+                            Rank::try_from(rank).expect("rank should be in range 0..=7"),
+                        );
+                        board.pieces[square as usize] = piece;
 
-                                // for each piece in rank we got back do other updates that can be done for any
-                                // piece type (piece_count, piece_list, big/major/minor_piece_count)
-                                if let Some(p) = piece {
-                                    // update freq_counter
-                                    freq_counter
-                                        .entry(char::from(p))
-                                        .and_modify(|count| *count += 1)
-                                        .or_insert(1);
+                        // for each piece in rank we got back do other updates that can be done for any
+                        // piece type (piece_count, piece_list, big/major/minor_piece_count)
+                        if let Some(p) = piece {
+                            // update freq_counter
+                            freq_counter
+                                .entry(char::from(p))
+                                .and_modify(|count| *count += 1)
+                                .or_insert(1);
 
-                                    // update piece_list
-                                    let piece_type_index = p as usize; // outer/row (i) index for piece_list
-                                                                       // inner/column (j) index for piece_list
-                                    let piece_index = *freq_counter.get(&char::from(p))
-                                                                            .expect("value to be at least 1 since freq_counter was just updated") - 1;
+                            // update piece_list
+                            let piece_type_index = p as usize; // outer/row (i) index for piece_list
+                                                               // inner/column (j) index for piece_list
+                            let piece_index = *freq_counter.get(&char::from(p)).expect(
+                                "value to be at least 1 since freq_counter was just updated",
+                            ) - 1;
 
-                                    // check for max amount of piece type leq 9-10 (can disable later)
-                                    if piece_index >= p.get_max_num_allowed() as usize {
-                                        return Err(BoardFENParseError::InvalidNumOfPiece(
-                                            value.to_string(),
-                                            char::from(p),
-                                        ));
-                                    }
+                            // check for max amount of piece type leq max allowed for that piece
+                            if piece_index >= p.get_max_num_allowed() as usize {
+                                return Err(BoardFENParseError::InvalidNumOfPiece(
+                                    value.to_string(),
+                                    char::from(p),
+                                ));
+                            }
 
-                                    board.piece_list[piece_type_index][piece_index] = Some(square);
+                            board.piece_list[piece_type_index][piece_index] = Some(square);
 
-                                    // update piece counts
-                                    let color = p.get_color();
-                                    let is_big = p.is_big();
-                                    let is_major = p.is_major();
-                                    let is_minor = p.is_minor();
+                            // update piece counts
+                            let color = p.get_color();
+                            let is_big = p.is_big();
+                            let is_major = p.is_major();
+                            let is_minor = p.is_minor();
 
-                                    board.piece_count[p as usize] += 1;
-                                    if is_big {
-                                        board.big_piece_count[color as usize] += 1;
-                                    }
-                                    if is_major {
-                                        board.major_piece_count[color as usize] += 1;
-                                    }
-                                    if is_minor {
-                                        board.minor_piece_count[color as usize] += 1;
-                                    }
+                            board.piece_count[p as usize] += 1;
+                            if is_big {
+                                board.big_piece_count[color as usize] += 1;
+                            }
+                            if is_major {
+                                board.major_piece_count[color as usize] += 1;
+                            }
+                            if is_minor {
+                                board.minor_piece_count[color as usize] += 1;
+                            }
 
-                                    // update fields of board that are dependent on the piece type
-                                    // (pawns, kings_square)
-                                    match p {
-                                        Piece::WhitePawn => board.pawns[p.get_color() as usize]
-                                            .set_bit(Square64::from(square)),
-                                        Piece::BlackPawn => board.pawns[p.get_color() as usize]
-                                            .set_bit(Square64::from(square)),
-                                        Piece::WhiteKing => {
-                                            board.kings_square[p.get_color() as usize] =
-                                                Some(square)
-                                        }
-                                        Piece::BlackKing => {
-                                            board.kings_square[p.get_color() as usize] =
-                                                Some(square)
-                                        }
-                                        _ => (),
-                                    }
-                                };
+                            // TODO: check that there aren't any pawns in first or last rank
+                            // update fields of board that are dependent on the piece type
+                            // (pawns, kings_square)
+                            // TODO: check that there aren't more promoted pieces than missing
+                            // pawns
+                            // TODO: it's impossible to have more than 6 pawns in a single file
+                            // TODO: Check minimum number of enemy missing pieces doesn't contradict number of pawns in a single file
+                            // TODO: if there are white pawns in A2 and A3 there can't be one in B2... Generalize
+                            match p {
+                                Piece::WhitePawn => board.pawns[p.get_color() as usize]
+                                    .set_bit(Square64::from(square)),
+                                Piece::BlackPawn => board.pawns[p.get_color() as usize]
+                                    .set_bit(Square64::from(square)),
+                                Piece::WhiteKing => {
+                                    board.kings_square[p.get_color() as usize] = Some(square)
+                                }
+                                Piece::BlackKing => {
+                                    board.kings_square[p.get_color() as usize] = Some(square)
+                                }
+                                _ => (),
                             }
                         }
-                        // rank validation failed. pass along error
-                        Err(e) => return Err(e),
                     }
                 }
             }
@@ -157,10 +158,14 @@ impl Board {
                 ))
             }
         }
-        // check freq counter for kings (optionally for max num of pieces per type)
+        // TODO: Check that kings are separated by at least 1 square
+        // check freq counter for kings
         if freq_counter.get(&'k') != Some(&1) || freq_counter.get(&'K') != Some(&1) {
             return Err(BoardFENParseError::InvalidKingNum(value.to_string()));
         }
+
+        // TODO: Check that non-active player is not in check
+        // TODO: Check that active color is checked less than 3 times (if 2 can't be by (pawn + (pawn || bishop || knight) || (bishop + bishop) || (knight + knight)))
         Ok(board)
     }
 

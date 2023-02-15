@@ -1,6 +1,8 @@
+use std::num::ParseIntError;
+
 use crate::{
     board::bitboard::BitBoard,
-    gamestate::{MAX_GAME_MOVES, NUM_FEN_SECTIONS},
+    gamestate::{HALF_MOVE_MAX, MAX_GAME_MOVES, NUM_FEN_SECTIONS},
     moves::Move,
     squares::{Square, Square64},
     util::{File, Rank},
@@ -41,7 +43,7 @@ pub enum BoardFENParseError {
     RankFENParseError(#[from] RankFENParseError),
 
     #[error(
-        "base FEN {0} has {1} ranks separated by / delimiter instead of {}",
+        "board FEN {0} has {1} ranks separated by / delimiter instead of {}",
         Rank::COUNT
     )]
     WrongNumRanks(String, usize),
@@ -55,8 +57,17 @@ pub enum BoardFENParseError {
 
 #[derive(Error, Debug, PartialEq)]
 pub enum GamestateFENParseError {
-    #[error("base FEN for Board is invalid")]
+    #[error("board FEN is invalid")]
     BoardFENParseError(#[from] BoardFENParseError),
+
+    #[error("Halfmove Clock is invalid")]
+    HalfmoveClockFENParseError(#[from] HalfmoveClockFENParseError),
+
+    #[error("Fullmove Counter is invalid")]
+    FullmoveCounterFENParseError(#[from] FullmoveCounterFENParseError),
+
+    #[error("FEN is invalid because it is empty")]
+    Empty,
 
     #[error(
         "number of subsections of FEN &str is {0}, but should be {}",
@@ -65,30 +76,46 @@ pub enum GamestateFENParseError {
     WrongNumFENSections(usize),
 
     #[error("active color section of substring {0} is an invalid Color")]
-    ActiveColorInvalid(String),
+    ActiveColor(String),
 
     #[error("castle permissions {0} are invalid")]
-    CastlePermInvalid(String),
+    CastlePerm(String),
 
     #[error("en passant square {0} is invalid")]
-    EnPassantInvalid(String),
+    EnPassant(String),
 
-    #[error("half moves {0} is not a valid unsigned integer")]
-    HalfmoveClockInvalid(String),
+    #[error("en passant square is invalid. It should be lowercase.")]
+    EnPassantUppercase,
+}
+
+#[derive(Error, Debug, PartialEq)]
+pub enum FullmoveCounterFENParseError {
+    #[error("full moves is not a valid u32")]
+    Parse(#[from] ParseIntError),
 
     #[error(
-        "half moves {0} exceeds maximum number of half moves expected {}",
+        "full moves {0} must be in range 1..={}",
         MAX_GAME_MOVES
     )]
-    HalfmoveClockExceedsMaxGameMoves(u32),
+    NotInRange(u32),
 
-    #[error("full moves {0} is not a valid unsigned integer")]
-    FullmoveClockInvalid(String),
+    #[error("full moves {0} should be at least half the amount of half moves {1}")]
+    SmallerThanHalfmoveClockDividedByTwo(u32, u32),
+}
 
-    #[error("half moves {0} exceeds maximum number of full moves expected {}",
-        MAX_GAME_MOVES/2
+#[derive(Error, Debug, PartialEq)]
+pub enum HalfmoveClockFENParseError {
+    #[error("half moves is not a valid u32")]
+    Parse(#[from] ParseIntError),
+
+    #[error(
+        "half moves {0} exceeds maximum number of half moves before a tie is called {}",
+        HALF_MOVE_MAX
     )]
-    FullmoveClockExceedsMaxGameMoves(u32),
+    ExceedsMax(u32),
+
+    #[error("half moves can't be 0 if there is en passant square")]
+    ZeroWhileEnPassant,
 }
 
 #[derive(Error, Debug, PartialEq)]

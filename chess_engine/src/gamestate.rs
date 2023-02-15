@@ -1,6 +1,6 @@
 use rand::prelude::*;
 use rand_pcg::Lcg128Xsl64;
-use std::{default, fmt};
+use std::{default, fmt, num::ParseIntError};
 use strum::EnumCount;
 use strum_macros::{Display as EnumDisplay, EnumCount as EnumCountMacro};
 
@@ -8,7 +8,8 @@ use crate::{
     board::Board,
     castle_perms::{self, CastlePerm, NUM_CASTLE_PERM},
     error::{
-        BoardFENParseError, CastlePermConversionError, GamestateFENParseError, RankFENParseError,
+        BoardFENParseError, CastlePermConversionError, FullmoveCounterFENParseError,
+        GamestateFENParseError, HalfmoveClockFENParseError, RankFENParseError,
     },
     pieces::Piece,
     squares::Square,
@@ -16,9 +17,11 @@ use crate::{
 };
 
 // CONSTANTS:
-/// Maximum number of half moves we expect (it should be an even number for easy conversion
-/// into fullmove equivalents)
-pub const MAX_GAME_MOVES: usize = 2048;
+/// Maximum number of full moves we expect
+pub const MAX_GAME_MOVES: usize = 1024;
+/// When we reach 50 moves (aka 100 half moves) without a pawn advance or a piece capture the game ends
+/// immediately in a tie
+pub const HALF_MOVE_MAX: usize = 100;
 pub const NUM_FEN_SECTIONS: usize = 6;
 /// Number of squares for the internal board (10x12)
 pub const NUM_BOARD_SQUARES: usize = 120;
@@ -100,8 +103,8 @@ pub struct Gamestate {
     active_color: Color,
     castle_permissions: CastlePerm,
     en_passant: Option<Square>,
-    halfmove_clock: u32,
-    fullmove_number: u32,
+    halfmove_clock: u32, // number of moves both players have made since last pawn advance of piece capture
+    fullmove_number: u32, // number of completed turns in the game (incremented when black moves)
     history: Vec<Undo>,
     zobrist: Zobrist,
 }
@@ -147,94 +150,132 @@ impl Gamestate {
         }
     }
 
+    // TODO: make sure that on the frontend the number of characters that can be passed is limited to something reasonable
     fn gen_gamestate_from_fen(fen: &str) -> Result<Self, GamestateFENParseError> {
         let fen_sections: Vec<&str> = fen.trim().split(' ').collect();
+        let mut fen_sections_iterator = fen_sections.iter();
 
-        match fen_sections.len() {
-            len if len == NUM_FEN_SECTIONS => {
-                let active_color_str = fen_sections[1];
+        // deal with board FEN separately because spaces in the middle will break parse and complicate things
+        let board_str = *fen_sections_iterator
+            .next()
+            .ok_or(GamestateFENParseError::Empty)?;
+        let board = Board::try_from(board_str)?;
+
+        // go through rest of FEN sections and clean up any empty sections aka extra spaces
+        let mut remaining_sections: Vec<&str> = vec![]; // will not include any empty sections
+        for &section in fen_sections_iterator {
+            // Check if current fen section is empty (if so just a space that we can ignore)
+            if !section.is_empty() {
+                remaining_sections.push(section);
+            }
+        }
+
+        match remaining_sections.len() {
+            len if len == NUM_FEN_SECTIONS - 1 => {
+                let active_color_str = remaining_sections[0];
                 // active_color_str here should be either "w" or "b"
                 let active_color = match active_color_str {
                     white if white == char::from(Color::White).to_string() => Color::White,
                     black if black == char::from(Color::Black).to_string() => Color::Black,
                     _ => {
-                        return Err(GamestateFENParseError::ActiveColorInvalid(
+                        return Err(GamestateFENParseError::ActiveColor(
                             active_color_str.to_string(),
                         ))
                     }
                 };
 
+                // Check that castling permissions don't contradict position of rooks and kings
                 // TODO: look into X-FEN and Shredder-FEN for Chess960
-                let castle_permissions_str = fen_sections[2];
-                let castle_permissions_try = CastlePerm::try_from(castle_permissions_str);
-                let castle_permissions = match castle_permissions_try {
+                let castle_permissions_str = remaining_sections[1];
+                let castle_permissions = match CastlePerm::try_from(castle_permissions_str) {
                     Ok(cp) => cp,
                     Err(_) => {
-                        return Err(GamestateFENParseError::CastlePermInvalid(
+                        return Err(GamestateFENParseError::CastlePerm(
                             castle_permissions_str.to_string(),
                         ))
                     }
                 };
 
-                // en_passant_str must be lowercase
-                let en_passant_str = fen_sections[3];
-                let en_passant_try = Square::try_from(en_passant_str);
-                let en_passant = match en_passant_try {
-                    Ok(ep) => Some(ep),
+                // TODO: Check if en_passant makes sense (x3 or x6 rank, must be a pawn of the correct color in front,
+                // en passant square and the one behind it are empty since pawn just moved up two spaces)
+                let en_passant_str = remaining_sections[2];
+                let en_passant = match Square::try_from(en_passant_str.to_uppercase().as_str()) {
+                    // en_passant_str must be lowercase
+                    Ok(ep) => match en_passant_str {
+                        uppercase if uppercase == en_passant_str.to_uppercase() => {
+                            return Err(GamestateFENParseError::EnPassantUppercase)
+                        }
+                        _ => Some(ep),
+                    },
                     Err(_) => match en_passant_str {
                         "-" => None,
                         _ => {
-                            return Err(GamestateFENParseError::EnPassantInvalid(
+                            return Err(GamestateFENParseError::EnPassant(
                                 en_passant_str.to_string(),
                             ))
                         }
                     },
                 };
 
-                let halfmove_clock_str = fen_sections[4];
-                let halfmove_clock_try = halfmove_clock_str.parse::<u32>();
-                let halfmove_clock = match halfmove_clock_try {
+                let halfmove_clock_str = remaining_sections[3];
+                let halfmove_clock = match halfmove_clock_str.parse::<u32>() {
                     Ok(num) => match num {
-                        n if (0..=MAX_GAME_MOVES).contains(&(n as usize)) => n,
+                        // if there is an en passant square, the half move clock must equal 0 (pawn must have moved for en passant to be active)
+                        zero if zero == 0 => match en_passant {
+                            None => zero,
+                            Some(ep) => return Err(GamestateFENParseError::from(HalfmoveClockFENParseError::ZeroWhileEnPassant))
+                        },
+                        // if this num was 100 the game would immediately tie, so this is considered invalid
+                        n if (1..HALF_MOVE_MAX).contains(&(n as usize)) => n,
                         _ => {
-                            return Err(GamestateFENParseError::HalfmoveClockExceedsMaxGameMoves(
-                                num,
+                            return Err(GamestateFENParseError::from(
+                                HalfmoveClockFENParseError::ExceedsMax(num),
                             ))
                         }
                     },
-                    Err(_) => {
-                        return Err(GamestateFENParseError::HalfmoveClockInvalid(
-                            halfmove_clock_str.to_string(),
+                    Err(e) => {
+                        return Err(GamestateFENParseError::from(
+                            HalfmoveClockFENParseError::from(e),
                         ))
                     }
                 };
 
-                let fullmove_number_str = fen_sections[5];
-                let fullmove_number_try = fullmove_number_str.parse::<u32>();
-                let fullmove_number = match fullmove_number_try {
+                let fullmove_number_str = remaining_sections[4];
+                // check that fullmove_number is a valid u32
+                let fullmove_number = match fullmove_number_str.parse::<u32>() {
                     Ok(num) => match num {
-                        n if (0..=MAX_GAME_MOVES / 2).contains(&(n as usize)) => n,
+                        // check that fullmove number is less than MAX_GAME_MOVES
+                        n if (1..=MAX_GAME_MOVES).contains(&(n as usize)) => {
+                            // Check that halfmove and fullmove aren't mutually exclusive
+                            let halfmove_clock = halfmove_clock_str.parse::<u32>().expect(
+                                "halfmove_clock_str should be a valid u32 since we check it above",
+                            );
+                            let offset: u32 = match active_color {
+                                Color::White => 0,
+                                Color::Black => 1
+                            };
+                            match n {
+                                plausible if ((2*(plausible - 1) + offset) >= halfmove_clock) => plausible,
+                                _ => return Err(GamestateFENParseError::from(FullmoveCounterFENParseError::SmallerThanHalfmoveClockDividedByTwo(n, halfmove_clock)))
+                            }
+                        }
                         _ => {
-                            return Err(GamestateFENParseError::FullmoveClockExceedsMaxGameMoves(
-                                num,
+                            return Err(GamestateFENParseError::from(
+                                FullmoveCounterFENParseError::NotInRange(num),
                             ))
                         }
                     },
-                    Err(_) => {
-                        return Err(GamestateFENParseError::FullmoveClockInvalid(
-                            fullmove_number_str.to_string(),
-                        ));
+                    Err(e) => {
+                        return Err(GamestateFENParseError::from(
+                            FullmoveCounterFENParseError::from(e),
+                        ))
                     }
                 };
-
-                let board_str = fen_sections[0];
-                let board = Board::try_from(board_str)?;
 
                 let history = Vec::new();
                 let zobrist = Zobrist::default();
 
-                // TODO: check that the castle permissions actually match the board
-                // TODO: optionally at the end check if active color can win in one move and disallow
+                // TODO: Check if active color can win in one move and disallow
 
                 Ok(Gamestate {
                     board,
@@ -294,6 +335,7 @@ mod tests {
     }
 
     // FEN parsing tests
+    // Full FEN parsing
     #[test]
     fn test_gamestate_try_from_valid_fen_default() {
         let input = DEFAULT_FEN;
@@ -412,6 +454,104 @@ mod tests {
         // println!("output zobrist:{:?}\nexpected zobrist:{:?}", output.as_ref().unwrap().zobrist, output.as_ref().unwrap().zobrist);
         assert_eq!(output, expected);
         assert_eq!(default, expected.unwrap());
+    }
+
+    // TODO:
+    //     let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq e6 0 3";
+
+    // Tests for extra spaces
+    #[test]
+    fn test_gamestate_try_from_valid_fen_untrimmed() {
+        let input = "   rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 ";
+        let output = Gamestate::try_from(input);
+        let expected = Ok(Gamestate::default());
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_try_from_valid_fen_spaces_between_sections() {
+        let input = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR  w    KQkq    - 0 1";
+        let output = Gamestate::try_from(input);
+        let expected = Ok(Gamestate::default());
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_try_from_valid_fen_spaces_wrong_number_of_sections() {
+        let input = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQ kq - 0 1";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::WrongNumFENSections(7));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_try_from_invalid_fen_spaces_in_board_section() {
+        let invalid_board_section = "rnbqkbnr/pppppppp/";
+        let input = "rnbqkbnr/pppppppp/ 8/8/8/8/PPPPPPPP/RNBQK BNR w KQkq - 0 1";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::from(
+            BoardFENParseError::WrongNumRanks(invalid_board_section.to_string(), 3),
+        ));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_try_from_invalid_fen_spaces_in_board_section_end() {
+        let input = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQK BNR w KQkq - 0 1";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::from(BoardFENParseError::from(
+            RankFENParseError::InvalidNumSquares("RNBQK".to_string()),
+        )));
+        assert_eq!(output, expected);
+    }
+
+    // NOTE: enpassant testing for - is done by the tests that use default FENs
+    #[test]
+    fn test_gamestate_try_from_invalid_en_passant_uppercase() {
+        let en_passant_str = "E6";
+        let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq E6 0 3";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::EnPassantUppercase);
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_try_from_invalid_en_passant_square() {
+        let en_passant_str = "e9";
+        let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq e9 0 3";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::EnPassant(
+            en_passant_str.to_string(),
+        ));
+        assert_eq!(output, expected);
+    }
+
+    // Halfmove and Fullmove
+    #[test]
+    fn test_gamestate_try_from_invalid_halfmove_exceeds_max() {
+        let halfmove: u32 = 100;
+        let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq - 100 1024";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::from(HalfmoveClockFENParseError::ExceedsMax(halfmove)));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_try_from_invalid_fullmove_exceeds_max() {
+        let fullmove: u32 = 1025;
+        let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq - 0 1025";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::from(FullmoveCounterFENParseError::NotInRange(fullmove)));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_try_from_invalid_fullmove_zero() {
+        let fullmove: u32 = 0;
+        let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq - 0 0";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::from(FullmoveCounterFENParseError::NotInRange(fullmove)));
+        assert_eq!(output, expected);
     }
 
     // Tests for if Board and Rank Errors are being converted correctly to Gamestate Errors:
