@@ -40,7 +40,7 @@ impl From<File> for char {
             File::FileE => 'E',
             File::FileF => 'F',
             File::FileG => 'G',
-            File::FileH => 'H'
+            File::FileH => 'H',
         }
     }
 }
@@ -76,7 +76,7 @@ impl From<Rank> for u8 {
             Rank::Rank5 => 5,
             Rank::Rank6 => 6,
             Rank::Rank7 => 7,
-            Rank::Rank8 => 8
+            Rank::Rank8 => 8,
         }
     }
 }

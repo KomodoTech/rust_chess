@@ -111,8 +111,8 @@ pub enum HalfmoveClockFENParseError {
     )]
     ExceedsMax(u32),
 
-    #[error("half moves can't be 0 if there is en passant square")]
-    ZeroWhileEnPassant,
+    #[error("half moves must be 0 if there is en passant square")]
+    NonZeroWhileEnPassant,
 }
 
 #[derive(Error, Debug, PartialEq)]

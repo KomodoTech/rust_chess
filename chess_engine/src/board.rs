@@ -8,7 +8,6 @@ use crate::{
     util::{Color, File, Rank},
 };
 use bitboard::BitBoard;
-use rand::seq::index;
 use std::{
     collections::HashMap,
     fmt::{self, write},

@@ -1,6 +1,10 @@
 use rand::prelude::*;
 use rand_pcg::Lcg128Xsl64;
-use std::{default, fmt, num::ParseIntError};
+use std::{
+    default,
+    fmt::{self, write},
+    num::ParseIntError,
+};
 use strum::EnumCount;
 use strum_macros::{Display as EnumDisplay, EnumCount as EnumCountMacro};
 
@@ -125,6 +129,24 @@ impl TryFrom<&str> for Gamestate {
     }
 }
 
+impl fmt::Display for Gamestate {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "{}", self.board);
+        writeln!(f, "Active Color: {}", self.active_color);
+        write!(f, "En Passant: ");
+        match self.en_passant {
+            Some(ep) => {
+                writeln!(f, "{}", ep);
+            }
+            None => {
+                writeln!(f, "-");
+            }
+        }
+        writeln!(f, "Castle Permissions: {}", self.castle_permissions);
+        writeln!(f, "Position Key: {}", self.gen_position_key())
+    }
+}
+
 impl Gamestate {
     // TODO: determine if new should be this zeroed out version of the board
     // or if it should just be the default board
@@ -221,17 +243,18 @@ impl Gamestate {
                 let halfmove_clock_str = remaining_sections[3];
                 let halfmove_clock = match halfmove_clock_str.parse::<u32>() {
                     Ok(num) => match num {
-                        // if there is an en passant square, the half move clock must equal 0 (pawn must have moved for en passant to be active)
-                        zero if zero == 0 => match en_passant {
-                            None => zero,
-                            Some(ep) => {
-                                return Err(GamestateFENParseError::from(
-                                    HalfmoveClockFENParseError::ZeroWhileEnPassant,
-                                ))
-                            }
-                        },
                         // if this num was 100 the game would immediately tie, so this is considered invalid
-                        n if (1..HALF_MOVE_MAX).contains(&(n as usize)) => n,
+                        n if (0..HALF_MOVE_MAX).contains(&(n as usize)) => {
+                            // if there is an en passant square, the half move clock must equal 0 (pawn must have moved for en passant to be active)
+                            match (n != 0) && en_passant.is_some() {
+                                true => {
+                                    return Err(GamestateFENParseError::from(
+                                        HalfmoveClockFENParseError::NonZeroWhileEnPassant,
+                                    ))
+                                }
+                                false => n,
+                            }
+                        }
                         _ => {
                             return Err(GamestateFENParseError::from(
                                 HalfmoveClockFENParseError::ExceedsMax(num),
@@ -461,9 +484,135 @@ mod tests {
         assert_eq!(default, expected.unwrap());
     }
 
+    // Display
+    // TODO: When perft testing is built get rid of this test since it really isn't worth testing the display like this
+    #[rustfmt::skip]
+    #[test]
+    fn test_gamestate_display() {
+        let fen_start = DEFAULT_FEN;
+        let gs_start = Gamestate::try_from(fen_start).unwrap();
+        let gs_start_string = gs_start.to_string();
+        let fen_wpe4 = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1";
+        let gs_wpe4 = Gamestate::try_from(fen_wpe4).unwrap();
+        let gs_wpe4_string = gs_wpe4.to_string();
+        let fen_bpc5 = "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq c6 0 2";
+        let gs_bpc5 = Gamestate::try_from(fen_bpc5).unwrap();
+        let gs_bpc5_string = gs_bpc5.to_string();
+        let fen_wnf3 = "rnbqkbnr/pp1ppppp/8/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2";
+        let gs_wnf3 = Gamestate::try_from(fen_wnf3).unwrap();
+        let gs_wnf3_string = gs_wnf3.to_string();
+
+        println!("Starting Position:\n{}", gs_start);
+        println!("Move white pawn to E4:\n{}", gs_wpe4);
+        println!("Move black pawn to C5:\n{}", gs_bpc5);
+        println!("Move white knight to F3:\n{}", gs_wnf3);
+
+        let expected_board_start = format!("{}{}{}{}{}{}{}{}{}",
+                            "8\t♜\t♞\t♝\t♛\t♚\t♝\t♞\t♜\n",
+                            "7\t♟\t♟\t♟\t♟\t♟\t♟\t♟\t♟\n",
+                            "6\t.\t.\t.\t.\t.\t.\t.\t.\n",
+                            "5\t.\t.\t.\t.\t.\t.\t.\t.\n",
+                            "4\t.\t.\t.\t.\t.\t.\t.\t.\n",
+                            "3\t.\t.\t.\t.\t.\t.\t.\t.\n",
+                            "2\t♙\t♙\t♙\t♙\t♙\t♙\t♙\t♙\n",
+                            "1\t♖\t♘\t♗\t♕\t♔\t♗\t♘\t♖\n\n",
+                            "\tA\tB\tC\tD\tE\tF\tG\tH\n"
+                        );
+        let expected_active_color_start = "White";
+        let expected_en_passant_start = "-";
+        let expected_castle_permissions_start = "KQkq";
+        let expected_position_key_start = gs_start.gen_position_key();
+        let expected_start = format!(
+                                            "{}\nActive Color: {}\nEn Passant: {}\nCastle Permissions: {}\nPosition Key: {}\n", 
+                                            expected_board_start,
+                                            expected_active_color_start,
+                                            expected_en_passant_start,
+                                            expected_castle_permissions_start,
+                                            expected_position_key_start
+                                        );
+        
+
+        let expected_board_wpe4 = format!("{}{}{}{}{}{}{}{}{}",
+                            "8\t♜\t♞\t♝\t♛\t♚\t♝\t♞\t♜\n",
+                            "7\t♟\t♟\t♟\t♟\t♟\t♟\t♟\t♟\n",
+                            "6\t.\t.\t.\t.\t.\t.\t.\t.\n",
+                            "5\t.\t.\t.\t.\t.\t.\t.\t.\n",
+                            "4\t.\t.\t.\t.\t♙\t.\t.\t.\n",
+                            "3\t.\t.\t.\t.\t.\t.\t.\t.\n",
+                            "2\t♙\t♙\t♙\t♙\t.\t♙\t♙\t♙\n",
+                            "1\t♖\t♘\t♗\t♕\t♔\t♗\t♘\t♖\n\n",
+                            "\tA\tB\tC\tD\tE\tF\tG\tH\n"
+                        );
+        let expected_active_color_wpe4 = "Black";
+        let expected_en_passant_wpe4 = "E3"; 
+        let expected_castle_permissions_wpe4 = "KQkq";
+        let expected_position_key_wpe4 = gs_wpe4.gen_position_key();
+        let expected_wpe4 = format!(
+                                            "{}\nActive Color: {}\nEn Passant: {}\nCastle Permissions: {}\nPosition Key: {}\n", 
+                                            expected_board_wpe4,
+                                            expected_active_color_wpe4,
+                                            expected_en_passant_wpe4,
+                                            expected_castle_permissions_wpe4,
+                                            expected_position_key_wpe4
+                                        );
+
+        let expected_board_bpc5 = format!("{}{}{}{}{}{}{}{}{}",
+                            "8\t♜\t♞\t♝\t♛\t♚\t♝\t♞\t♜\n",
+                            "7\t♟\t♟\t.\t♟\t♟\t♟\t♟\t♟\n",
+                            "6\t.\t.\t.\t.\t.\t.\t.\t.\n",
+                            "5\t.\t.\t♟\t.\t.\t.\t.\t.\n",
+                            "4\t.\t.\t.\t.\t♙\t.\t.\t.\n",
+                            "3\t.\t.\t.\t.\t.\t.\t.\t.\n",
+                            "2\t♙\t♙\t♙\t♙\t.\t♙\t♙\t♙\n",
+                            "1\t♖\t♘\t♗\t♕\t♔\t♗\t♘\t♖\n\n",
+                            "\tA\tB\tC\tD\tE\tF\tG\tH\n"
+                        );
+        let expected_active_color_bpc5 = "White";
+        let expected_en_passant_bpc5 = "C6"; 
+        let expected_castle_permissions_bpc5 = "KQkq";
+        let expected_position_key_bpc5 = gs_bpc5.gen_position_key();
+        let expected_bpc5 = format!(
+                                            "{}\nActive Color: {}\nEn Passant: {}\nCastle Permissions: {}\nPosition Key: {}\n", 
+                                            expected_board_bpc5,
+                                            expected_active_color_bpc5,
+                                            expected_en_passant_bpc5,
+                                            expected_castle_permissions_bpc5,
+                                            expected_position_key_bpc5
+                                        );
+
+        let expected_board_wnf3 = format!("{}{}{}{}{}{}{}{}{}",
+                            "8\t♜\t♞\t♝\t♛\t♚\t♝\t♞\t♜\n",
+                            "7\t♟\t♟\t.\t♟\t♟\t♟\t♟\t♟\n",
+                            "6\t.\t.\t.\t.\t.\t.\t.\t.\n",
+                            "5\t.\t.\t♟\t.\t.\t.\t.\t.\n",
+                            "4\t.\t.\t.\t.\t♙\t.\t.\t.\n",
+                            "3\t.\t.\t.\t.\t.\t♘\t.\t.\n",
+                            "2\t♙\t♙\t♙\t♙\t.\t♙\t♙\t♙\n",
+                            "1\t♖\t♘\t♗\t♕\t♔\t♗\t.\t♖\n\n",
+                            "\tA\tB\tC\tD\tE\tF\tG\tH\n"
+                        );
+        let expected_active_color_wnf3 = "Black";
+        let expected_en_passant_wnf3 = "-";
+        let expected_castle_permissions_wnf3 = "KQkq";
+        let expected_position_key_wnf3 = gs_wnf3.gen_position_key();
+        let expected_wnf3 = format!(
+                                            "{}\nActive Color: {}\nEn Passant: {}\nCastle Permissions: {}\nPosition Key: {}\n", 
+                                            expected_board_wnf3,
+                                            expected_active_color_wnf3,
+                                            expected_en_passant_wnf3,
+                                            expected_castle_permissions_wnf3,
+                                            expected_position_key_wnf3
+                                        );
+
+        assert_eq!(gs_start_string, expected_start);
+        assert_eq!(gs_wpe4_string, expected_wpe4);
+        assert_eq!(gs_bpc5_string, expected_bpc5);
+        assert_eq!(gs_wnf3_string, expected_wnf3);
+    }
+
+    // FEN PARSING:
     // TODO:
     //     let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq e6 0 3";
-
     // Tests for extra spaces
     #[test]
     fn test_gamestate_try_from_valid_fen_untrimmed() {
