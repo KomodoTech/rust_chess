@@ -30,6 +30,21 @@ impl TryFrom<usize> for File {
     }
 }
 
+impl From<File> for char {
+    fn from(value: File) -> Self {
+        match value {
+            File::FileA => 'A',
+            File::FileB => 'B',
+            File::FileC => 'C',
+            File::FileD => 'D',
+            File::FileE => 'E',
+            File::FileF => 'F',
+            File::FileG => 'G',
+            File::FileH => 'H'
+        }
+    }
+}
+
 #[derive(EnumIter, Debug, Copy, Clone, PartialEq, Eq, Display, EnumCountMacro)]
 pub enum Rank {
     Rank1,
@@ -48,6 +63,21 @@ impl TryFrom<usize> for Rank {
         Self::iter()
             .find(|r| *r as usize == value)
             .ok_or(RankConversionError::FromUsize(value))
+    }
+}
+
+impl From<Rank> for u8 {
+    fn from(value: Rank) -> Self {
+        match value {
+            Rank::Rank1 => 1,
+            Rank::Rank2 => 2,
+            Rank::Rank3 => 3,
+            Rank::Rank4 => 4,
+            Rank::Rank5 => 5,
+            Rank::Rank6 => 6,
+            Rank::Rank7 => 7,
+            Rank::Rank8 => 8
+        }
     }
 }
 

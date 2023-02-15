@@ -151,6 +151,7 @@ impl Gamestate {
     }
 
     // TODO: make sure that on the frontend the number of characters that can be passed is limited to something reasonable
+    /// Validate full FEN string and generate valid Gamestate object if validation succeeds
     fn gen_gamestate_from_fen(fen: &str) -> Result<Self, GamestateFENParseError> {
         let fen_sections: Vec<&str> = fen.trim().split(' ').collect();
         let mut fen_sections_iterator = fen_sections.iter();
@@ -223,7 +224,11 @@ impl Gamestate {
                         // if there is an en passant square, the half move clock must equal 0 (pawn must have moved for en passant to be active)
                         zero if zero == 0 => match en_passant {
                             None => zero,
-                            Some(ep) => return Err(GamestateFENParseError::from(HalfmoveClockFENParseError::ZeroWhileEnPassant))
+                            Some(ep) => {
+                                return Err(GamestateFENParseError::from(
+                                    HalfmoveClockFENParseError::ZeroWhileEnPassant,
+                                ))
+                            }
                         },
                         // if this num was 100 the game would immediately tie, so this is considered invalid
                         n if (1..HALF_MOVE_MAX).contains(&(n as usize)) => n,
@@ -252,7 +257,7 @@ impl Gamestate {
                             );
                             let offset: u32 = match active_color {
                                 Color::White => 0,
-                                Color::Black => 1
+                                Color::Black => 1,
                             };
                             match n {
                                 plausible if ((2*(plausible - 1) + offset) >= halfmove_clock) => plausible,
@@ -532,7 +537,9 @@ mod tests {
         let halfmove: u32 = 100;
         let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq - 100 1024";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::from(HalfmoveClockFENParseError::ExceedsMax(halfmove)));
+        let expected = Err(GamestateFENParseError::from(
+            HalfmoveClockFENParseError::ExceedsMax(halfmove),
+        ));
         assert_eq!(output, expected);
     }
 
@@ -541,7 +548,9 @@ mod tests {
         let fullmove: u32 = 1025;
         let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq - 0 1025";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::from(FullmoveCounterFENParseError::NotInRange(fullmove)));
+        let expected = Err(GamestateFENParseError::from(
+            FullmoveCounterFENParseError::NotInRange(fullmove),
+        ));
         assert_eq!(output, expected);
     }
 
@@ -550,7 +559,9 @@ mod tests {
         let fullmove: u32 = 0;
         let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq - 0 0";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::from(FullmoveCounterFENParseError::NotInRange(fullmove)));
+        let expected = Err(GamestateFENParseError::from(
+            FullmoveCounterFENParseError::NotInRange(fullmove),
+        ));
         assert_eq!(output, expected);
     }
 

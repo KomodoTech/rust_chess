@@ -93,10 +93,7 @@ pub enum FullmoveCounterFENParseError {
     #[error("full moves is not a valid u32")]
     Parse(#[from] ParseIntError),
 
-    #[error(
-        "full moves {0} must be in range 1..={}",
-        MAX_GAME_MOVES
-    )]
+    #[error("full moves {0} must be in range 1..={}", MAX_GAME_MOVES)]
     NotInRange(u32),
 
     #[error("full moves {0} should be at least half the amount of half moves {1}")]

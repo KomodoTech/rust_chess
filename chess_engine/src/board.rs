@@ -9,7 +9,10 @@ use crate::{
 };
 use bitboard::BitBoard;
 use rand::seq::index;
-use std::{collections::HashMap, fmt};
+use std::{
+    collections::HashMap,
+    fmt::{self, write},
+};
 use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 
@@ -298,19 +301,36 @@ impl Board {
     }
 }
 
+// TODO: flip board display so black is at the top and white at the bottom
+// TODO: use shorter version of rank and file names
 impl fmt::Display for Board {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for rank in Rank::iter() {
+        // Reverse ranks so the board is presented like a chess board typically is
+        // with white at the bottom
+        for rank in Rank::iter().rev() {
             for file in File::iter() {
                 let square = Square::from_file_and_rank(file, rank);
                 let piece = self.pieces[square as usize];
                 match file {
+                    // Add rank number at the start of each rank
+                    File::FileA => {
+                        write!(f, "{}\t", u8::from(rank));
+                        match piece {
+                            Some(p) => {
+                                write!(f, "{}\t", p);
+                            }
+                            None => {
+                                write!(f, ".\t");
+                            }
+                        }
+                    }
+                    // Don't add tab at the end of rank
                     File::FileH => match piece {
                         Some(p) => {
                             write!(f, "{}", p);
                         }
                         _ => {
-                            write!(f, "_");
+                            write!(f, ".");
                         }
                     },
                     _ => match piece {
@@ -318,13 +338,26 @@ impl fmt::Display for Board {
                             write!(f, "{}\t", p);
                         }
                         _ => {
-                            write!(f, "_\t");
+                            write!(f, ".\t");
                         }
                     },
                 }
             }
-            if rank != Rank::Rank8 {
+            if rank != Rank::Rank1 {
                 writeln!(f);
+            }
+        }
+        // Add File legend at the bottom
+        write!(f, "\n\n\t");
+        for file in File::iter() {
+            match file {
+                // Don't add trailing tab
+                File::FileH => {
+                    write!(f, "{}", char::from(file));
+                }
+                _ => {
+                    write!(f, "{}\t", char::from(file));
+                }
             }
         }
         writeln!(f)
@@ -333,6 +366,8 @@ impl fmt::Display for Board {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::format;
+
     use super::*;
 
     // NOTE: we can consider this board invalid since there are no kings. Might be useful later
@@ -858,11 +893,22 @@ mod tests {
         assert_eq!(output, expected);
     }
 
+    #[rustfmt::skip]
     #[test]
     fn test_board_display() {
         let input = DEFAULT_BOARD;
         let output = input.to_string();
-        let expected = "♖\t♘\t♗\t♕\t♔\t♗\t♘\t♖\n♙\t♙\t♙\t♙\t♙\t♙\t♙\t♙\n_\t_\t_\t_\t_\t_\t_\t_\n_\t_\t_\t_\t_\t_\t_\t_\n_\t_\t_\t_\t_\t_\t_\t_\n_\t_\t_\t_\t_\t_\t_\t_\n♟\t♟\t♟\t♟\t♟\t♟\t♟\t♟\n♜\t♞\t♝\t♛\t♚\t♝\t♞\t♜\n".to_string();
+        let expected = format!("{}{}{}{}{}{}{}{}{}",
+                            "8\t♜\t♞\t♝\t♛\t♚\t♝\t♞\t♜\n",
+                            "7\t♟\t♟\t♟\t♟\t♟\t♟\t♟\t♟\n",
+                            "6\t.\t.\t.\t.\t.\t.\t.\t.\n",
+                            "5\t.\t.\t.\t.\t.\t.\t.\t.\n",
+                            "4\t.\t.\t.\t.\t.\t.\t.\t.\n",
+                            "3\t.\t.\t.\t.\t.\t.\t.\t.\n",
+                            "2\t♙\t♙\t♙\t♙\t♙\t♙\t♙\t♙\n",
+                            "1\t♖\t♘\t♗\t♕\t♔\t♗\t♘\t♖\n\n",
+                            "\tA\tB\tC\tD\tE\tF\tG\tH\n"
+                        );
         println!("Base Board:\n{}", output);
         assert_eq!(output, expected);
     }
