@@ -8,14 +8,18 @@ use std::{fmt, ops::BitAnd};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-/// Least significant bit is A1, and most significant bit is H8
-/// Therefore the white row of pawns in the starting position would be:
-///   63   47   31   15  0
-/// 0x0000_0000_0000_FF00
-/// And the black row of pawns in the starting position would be:
-///   63   47   31   15 0
-/// 0x00FF_0000_0000_0000
-// TODO: figure out if this is optimal for x86 or should be flipped
+/// Least significant bit is A1, and most significant bit is H8:
+/// 
+/// 8 | 56 57 58 59 60 61 62 63
+/// 7 | 48 49 50 51 52 53 54 55
+/// 6 | 40 41 42 43 44 45 46 47
+/// 5 | 32 33 34 35 36 37 38 39
+/// 4 | 24 25 26 27 28 29 30 31
+/// 3 | 16 17 18 19 20 21 22 23
+/// 2 | 8  9  10 11 12 13 14 15
+/// 1 | 0  1  2  3  4  5  6  7
+///   -------------------------
+///     a  b  c  d  e  f  g  h
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct BitBoard(pub u64);
 

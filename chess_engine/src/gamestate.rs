@@ -752,6 +752,50 @@ mod tests {
         assert_eq!(output, expected);
     }
 
+    // En passant square can't be occupied
+    #[test]
+    fn test_gamestate_try_from_invalid_en_passant_square_occupied() {
+        let input = "rn1qkbnr/ppp2ppp/3pb3/3Pp3/8/8/PPPQPPPP/RNB1KBNR w KQkq e6 2 4";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::EnPassantFENParseError(
+            EnPassantFENParseError::NonEmptySquares
+        ));
+        assert_eq!(output, expected);
+    }
+
+    // Square behind en passant square can't be occupied
+    #[test]
+    fn test_gamestate_try_from_invalid_en_passant_square_behind_occupied() {
+        let input = "rnbqk1nr/ppp1bppp/3p4/3Pp3/8/8/PPPQPPPP/RNB1KBNR w KQkq e6 2 4";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::EnPassantFENParseError(
+            EnPassantFENParseError::NonEmptySquares
+        ));
+        assert_eq!(output, expected);
+    }
+
+    // Pawn has to be in front of en passant square
+    #[test]
+    fn test_gamestate_try_from_invalid_en_passant_no_pawn_in_front() {
+        let input = "rnbqkbnr/ppp2ppp/3p4/3P4/4p3/8/PPPQPPPP/RNB1KBNR w KQkq e6 0 4";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::EnPassantFENParseError(
+            EnPassantFENParseError::CorrectPawnNotInFront(Color::Black, Square::E6)
+        ));
+        assert_eq!(output, expected);
+    }
+    
+    // Correct color pawn has to be in front of en passant square
+    #[test]
+    fn test_gamestate_try_from_invalid_en_passant_wrong_pawn_in_front() {
+        let input = "rnbqkbnr/pp1p1ppp/2p5/4P3/8/8/PPP1PPPP/RNBQKBNR w KQkq e6 0 3";
+        let output = Gamestate::try_from(input);
+        let expected = Err(GamestateFENParseError::EnPassantFENParseError(
+            EnPassantFENParseError::CorrectPawnNotInFront(Color::Black, Square::E6)
+        ));
+        assert_eq!(output, expected);
+    }
+
     // Halfmove and Fullmove
     #[test]
     fn test_gamestate_try_from_invalid_halfmove_exceeds_max() {

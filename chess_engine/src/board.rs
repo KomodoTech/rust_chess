@@ -67,8 +67,11 @@ impl Board {
         BitBoard((self.pawns[0]).0 | (self.pawns[1]).0)
     }
 
+    
+
     // TODO: Look for bishops trapped behind non-enemy pawns (or behind any 3 pawns)
     // TODO: Check for non-jumpers in impossible positions
+    /// Generates a Board instance corresponding to the board section of a FEN string
     fn gen_board_from_fen(value: &str) -> Result<Self, BoardFENParseError> {
         let mut board = Board::new();
         let mut freq_counter: HashMap<char, usize> = HashMap::with_capacity(Piece::COUNT);
@@ -79,7 +82,7 @@ impl Board {
                // NOTE: FEN is in reverse order compared with our internal board representation
                // with regards to rank (chars within rank are in correct order)
                 for (rank, rank_str) in ranks.iter().rev().enumerate() {
-                    // do rank validation in separate function that will return Some(Piece)s or Nones in an array if valid
+                    // does rank validation in separate function that will return Some(Piece)s or Nones in an array if valid
                     // use ? to convert from RankFENParseError to BoardFENParseError automatically and throw Err if not Ok
                     let rank_pieces = Self::gen_rank_from_fen(rank_str)?;
                     // if the rank is valid update the board
@@ -239,7 +242,7 @@ impl Board {
 
                     match Piece::try_from(char) {
                         Ok(piece) => {
-                            // push Some(piece) onto rank if space
+                            // push Some(piece) onto rank if there is space
                             match square_counter {
                                 sq_count if sq_count < File::COUNT as u8 => {
                                     rank[sq_count as usize] = Some(piece)
