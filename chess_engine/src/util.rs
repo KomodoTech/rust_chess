@@ -1,9 +1,15 @@
-use crate::squares::{Square, Square64};
+use crate::{
+    error::{FileConversionError, RankConversionError},
+    gamestate::NUM_BOARD_SQUARES,
+    pieces::Piece,
+    squares::{Square, Square64},
+};
+use strum::{EnumCount, IntoEnumIterator};
+use strum_macros::{Display, EnumCount as EnumCountMacro, EnumIter, EnumString};
 
-use strum::IntoEnumIterator;
-use strum_macros::EnumIter;
+// CONSTANTS:
 
-#[derive(EnumIter, Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(EnumIter, Debug, Copy, Clone, PartialEq, Eq, Display, EnumCountMacro)]
 pub enum File {
     FileA,
     FileB,
@@ -15,7 +21,31 @@ pub enum File {
     FileH,
 }
 
-#[derive(EnumIter, Debug, Copy, Clone, PartialEq, Eq)]
+impl TryFrom<usize> for File {
+    type Error = FileConversionError;
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        Self::iter()
+            .find(|r| *r as usize == value)
+            .ok_or(FileConversionError::FromUsize(value))
+    }
+}
+
+impl From<File> for char {
+    fn from(value: File) -> Self {
+        match value {
+            File::FileA => 'A',
+            File::FileB => 'B',
+            File::FileC => 'C',
+            File::FileD => 'D',
+            File::FileE => 'E',
+            File::FileF => 'F',
+            File::FileG => 'G',
+            File::FileH => 'H',
+        }
+    }
+}
+
+#[derive(EnumIter, Debug, Copy, Clone, PartialEq, Eq, Display, EnumCountMacro)]
 pub enum Rank {
     Rank1,
     Rank2,
@@ -27,29 +57,53 @@ pub enum Rank {
     Rank8,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+impl TryFrom<usize> for Rank {
+    type Error = RankConversionError;
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        Self::iter()
+            .find(|r| *r as usize == value)
+            .ok_or(RankConversionError::FromUsize(value))
+    }
+}
+
+impl From<Rank> for u8 {
+    fn from(value: Rank) -> Self {
+        match value {
+            Rank::Rank1 => 1,
+            Rank::Rank2 => 2,
+            Rank::Rank3 => 3,
+            Rank::Rank4 => 4,
+            Rank::Rank5 => 5,
+            Rank::Rank6 => 6,
+            Rank::Rank7 => 7,
+            Rank::Rank8 => 8,
+        }
+    }
+}
+
+// impl Add<usize> for Rank {
+//     type Output = Result<Self, ConversionError>;
+//     fn add(self, rhs: usize) -> Self::Output {
+//         let result: Result<Self, ConversionError> = (self as usize + rhs).try_into();
+//         result
+//     }
+// }
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, EnumString, EnumCountMacro, Display)]
 pub enum Color {
     White,
     Black,
 }
 
-pub const NUM_BOARD_SQUARES: usize = 120;
+impl From<Color> for char {
+    fn from(value: Color) -> Self {
+        match value {
+            Color::White => 'w',
+            Color::Black => 'b',
+        }
+    }
+}
 
-// 120 to 64
-// [
-//     64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
-//     64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
-//     64,  0,  1,  2,  3,  4,  5,  6,  7, 64,
-//     64,  8,  9, 10, 11, 12, 13, 14, 15, 64,
-//     64, 16, 17, 18, 19, 20, 21, 22, 23, 64,
-//     64, 24, 25, 26, 27, 28, 29, 30, 31, 64,
-//     64, 32, 33, 34, 35, 36, 37, 38, 39, 64,
-//     64, 40, 41, 42, 43, 44, 45, 46, 47, 64,
-//     64, 48, 49, 50, 51, 52, 53, 54, 55, 64,
-//     64, 56, 57, 58, 59, 60, 61, 62, 63, 64,
-//     64, 64, 64, 64, 64, 64, 64, 64, 64, 64,
-//     64, 64, 64, 64, 64, 64, 64, 64, 64, 64
-// ];
 #[rustfmt::skip]
 pub const SQUARE_120_TO_64: [Option<Square64>; NUM_BOARD_SQUARES] = [
     None, None,                None,                None,                None,                None,                None,                None,                None,               None,
@@ -66,27 +120,6 @@ pub const SQUARE_120_TO_64: [Option<Square64>; NUM_BOARD_SQUARES] = [
     None, None,                None,                None,                None,                None,                None,                None,                None,               None,
 ];
 
-// 64 to 120
-// [
-//     21, 22, 23, 24, 25, 26, 27, 28,
-//     31, 32, 33, 34, 35, 36, 37, 38,
-//     41, 42, 43, 44, 45, 46, 47, 48,
-//     51, 52, 53, 54, 55, 56, 57, 58,
-//     61, 62, 63, 64, 65, 66, 67, 68,
-//     71, 72, 73, 74, 75, 76, 77, 78,
-//     81, 82, 83, 84, 85, 86, 87, 88,
-//     91, 92, 93, 94, 95, 96, 97, 98
-// ];
-// [
-//     Square::A1, Square::B1, Square::C1, Square::D1, Square::E1, Square::F1, Square::G1, Square::H1,
-//     Square::A2, Square::B2, Square::C2, Square::D2, Square::E2, Square::F2, Square::G2, Square::H2,
-//     Square::A3, Square::B3, Square::C3, Square::D3, Square::E3, Square::F3, Square::G3, Square::H3,
-//     Square::A4, Square::B4, Square::C4, Square::D4, Square::E4, Square::F4, Square::G4, Square::H4,
-//     Square::A5, Square::B5, Square::C5, Square::D5, Square::E5, Square::F5, Square::G5, Square::H5,
-//     Square::A6, Square::B6, Square::C6, Square::D6, Square::E6, Square::F6, Square::G6, Square::H6,
-//     Square::A7, Square::B7, Square::C7, Square::D7, Square::E7, Square::F7, Square::G7, Square::H7,
-//     Square::A8, Square::B8, Square::C8, Square::D8, Square::E8, Square::F8, Square::G8, Square::H8
-// ];
 #[rustfmt::skip]
 pub const SQUARE_64_TO_120: [Option<Square>; 64] = [
     Some(Square::A1), Some(Square::B1), Some(Square::C1), Some(Square::D1), Some(Square::E1), Some(Square::F1), Some(Square::G1), Some(Square::H1),
@@ -99,21 +132,6 @@ pub const SQUARE_64_TO_120: [Option<Square>; 64] = [
     Some(Square::A8), Some(Square::B8), Some(Square::C8), Some(Square::D8), Some(Square::E8), Some(Square::F8), Some(Square::G8), Some(Square::H8)
 ];
 
-// Files
-// [
-//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
-//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
-//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,
-//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,
-//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,
-//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,
-//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,
-//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,
-//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,
-//    99,  0,  1,  2,  3,  4,  5,  6,  7, 99,
-//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
-//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99
-// ];
 #[rustfmt::skip]
 pub const FILES_BOARD: [Option<File>; NUM_BOARD_SQUARES] = [
     None,  None,               None,               None,               None,               None,               None,               None,               None,              None,
@@ -129,21 +147,7 @@ pub const FILES_BOARD: [Option<File>; NUM_BOARD_SQUARES] = [
     None,  None,               None,               None,               None,               None,               None,               None,               None,              None,
     None,  None,               None,               None,               None,               None,               None,               None,               None,              None,
 ];
-// Ranks
-// [
-//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
-//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
-//    99,  0,  0,  0,  0,  0,  0,  0,  0, 99,
-//    99,  1,  1,  1,  1,  1,  1,  1,  1, 99,
-//    99,  2,  2,  2,  2,  2,  2,  2,  2, 99,
-//    99,  3,  3,  3,  3,  3,  3,  3,  3, 99,
-//    99,  4,  4,  4,  4,  4,  4,  4,  4, 99,
-//    99,  5,  5,  5,  5,  5,  5,  5,  5, 99,
-//    99,  6,  6,  6,  6,  6,  6,  6,  6, 99,
-//    99,  7,  7,  7,  7,  7,  7,  7,  7, 99,
-//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
-//    99, 99, 99, 99, 99, 99, 99, 99, 99, 99
-// ];
+
 #[rustfmt::skip]
 pub const RANKS_BOARD: [Option<Rank>; NUM_BOARD_SQUARES] = [
     None,  None,               None,               None,               None,               None,               None,               None,               None,              None,
@@ -159,31 +163,3 @@ pub const RANKS_BOARD: [Option<Rank>; NUM_BOARD_SQUARES] = [
     None,  None,               None,               None,               None,               None,               None,               None,               None,              None,
     None,  None,               None,               None,               None,               None,               None,               None,               None,              None,
 ];
-
-// TODO: potentially convert this code into a macro to generate the hardcoded
-// arrays above
-
-// Init square_120_to_64, square_64_to_120, files_board, ranks_board
-// let mut square = Square::A1;
-// let mut square_64 = Square64::A1;
-
-// let mut files_board = [None; NUM_BOARD_SQUARES];
-// let mut ranks_board = [None; NUM_BOARD_SQUARES];
-// let mut square_120_to_64 = [None; NUM_BOARD_SQUARES];
-// let mut square_64_to_120 = [None; 64];
-
-// for rank in Rank::iter() {
-//     for file in File::iter() {
-//         let square = Square::from_file_and_rank(file as u8, rank as u8).unwrap();
-//         square_120_to_64[square as usize] = Some(square_64);
-//         square_64_to_120[square_64 as usize] = Some(square);
-//         files_board[square as usize] = Some(file);
-//         ranks_board[square as usize] = Some(rank);
-
-//         if (square_64 as u8) < 63 {
-//             square_64 = (square_64 as u8 + 1)
-//                         .try_into()
-//                         .expect("square_64 should be between in range 0..=63");
-//         }
-//     }
-// }

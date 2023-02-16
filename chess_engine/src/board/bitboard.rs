@@ -8,8 +8,18 @@ use std::{fmt, ops::BitAnd};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-// TODO: figure out if this is optimal for x86 or should be flipped
-// LSB is A1, MSB H8
+/// Least significant bit is A1, and most significant bit is H8:
+/// 
+/// 8 | 56 57 58 59 60 61 62 63
+/// 7 | 48 49 50 51 52 53 54 55
+/// 6 | 40 41 42 43 44 45 46 47
+/// 5 | 32 33 34 35 36 37 38 39
+/// 4 | 24 25 26 27 28 29 30 31
+/// 3 | 16 17 18 19 20 21 22 23
+/// 2 | 8  9  10 11 12 13 14 15
+/// 1 | 0  1  2  3  4  5  6  7
+///   -------------------------
+///     a  b  c  d  e  f  g  h
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct BitBoard(pub u64);
 
@@ -51,7 +61,11 @@ impl BitBoard {
             _ => {
                 let mask: u64 = 1 << lsb_index;
                 self.0 ^= mask;
-                Some(lsb_index.try_into().expect("lsb_index should be in range 0..=63"))
+                Some(
+                    lsb_index
+                        .try_into()
+                        .expect("lsb_index should be in range 0..=63"),
+                )
             }
         }
     }
@@ -66,12 +80,12 @@ impl BitBoard {
     // }
 
     /// Check if bit at index is set
-    fn check_bit(&self, index: Square64) -> bool {
+    pub fn check_bit(&self, index: Square64) -> bool {
         self.0 & (1 << (index as u8)) != 0
     }
 
     /// Sets bit at index
-    fn set_bit(&mut self, index: Square64) {
+    pub fn set_bit(&mut self, index: Square64) {
         self.0 |= 1 << (index as u8);
     }
 
@@ -110,7 +124,6 @@ impl fmt::Display for BitBoard {
         for rank in Rank::iter() {
             for file in File::iter() {
                 let square_64 = Square64::from_file_and_rank(file, rank);
-                // TODO: explore converting squares to bitboards and implementing bit operations
                 match self.check_bit(square_64) {
                     true => {
                         write!(f, "1");
@@ -120,9 +133,11 @@ impl fmt::Display for BitBoard {
                     }
                 }
             }
-            write!(f, "\n");
+            if rank != Rank::Rank8 {
+                writeln!(f);
+            }
         }
-        write!(f, "")
+        writeln!(f)
     }
 }
 
