@@ -76,7 +76,7 @@ impl BitBoard {
     // }
 
     /// Check if bit at index is set
-    fn check_bit(&self, index: Square64) -> bool {
+    pub fn check_bit(&self, index: Square64) -> bool {
         self.0 & (1 << (index as u8)) != 0
     }
 

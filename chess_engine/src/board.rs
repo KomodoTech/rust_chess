@@ -61,6 +61,12 @@ impl Board {
         }
     }
 
+    /// Combines white and black pawn positions into one BitBoard. Assumes that you never
+    /// have a black and a white pawn occupying the same position
+    pub fn get_all_pawns(&self) -> BitBoard {
+        BitBoard((self.pawns[0]).0 | (self.pawns[1]).0)
+    }
+
     // TODO: Look for bishops trapped behind non-enemy pawns (or behind any 3 pawns)
     // TODO: Check for non-jumpers in impossible positions
     fn gen_board_from_fen(value: &str) -> Result<Self, BoardFENParseError> {
@@ -70,8 +76,8 @@ impl Board {
         // Check that we have the right number of ranks and for each valid rank update board accordingly
         match ranks.len() {
             Rank::COUNT => {
-                // NOTE: FEN is in reverse order compared with our internal board representation
-                // with regards to rank (chars within rank are in correct order)
+               // NOTE: FEN is in reverse order compared with our internal board representation
+               // with regards to rank (chars within rank are in correct order)
                 for (rank, rank_str) in ranks.iter().rev().enumerate() {
                     // do rank validation in separate function that will return Some(Piece)s or Nones in an array if valid
                     // use ? to convert from RankFENParseError to BoardFENParseError automatically and throw Err if not Ok
@@ -328,8 +334,8 @@ impl fmt::Display for Board {
                         Some(p) => {
                             write!(f, "{}", p);
                         }
-                        _ => {
-                            write!(f, ".");
+                       _ => {
+                           write!(f, ".");
                         }
                     },
                     _ => match piece {
@@ -372,6 +378,70 @@ mod tests {
     // NOTE: we can consider this board invalid since there are no kings. Might be useful later
     // if we allow editing the board, so we'll keep it for now
     const EMPTY_BOARD_FEN: &str = "8/8/8/8/8/8/8/8";
+
+    #[rustfmt::skip]
+    #[test]
+    fn test_board_display() {
+        let input = DEFAULT_BOARD;
+        let output = input.to_string();
+        let expected = format!("{}{}{}{}{}{}{}{}{}",
+                            "8\t♜\t♞\t♝\t♛\t♚\t♝\t♞\t♜\n",
+                            "7\t♟\t♟\t♟\t♟\t♟\t♟\t♟\t♟\n",
+                            "6\t.\t.\t.\t.\t.\t.\t.\t.\n",
+                            "5\t.\t.\t.\t.\t.\t.\t.\t.\n",
+                            "4\t.\t.\t.\t.\t.\t.\t.\t.\n",
+                            "3\t.\t.\t.\t.\t.\t.\t.\t.\n",
+                            "2\t♙\t♙\t♙\t♙\t♙\t♙\t♙\t♙\n",
+                            "1\t♖\t♘\t♗\t♕\t♔\t♗\t♘\t♖\n\n",
+                            "\tA\tB\tC\tD\tE\tF\tG\tH\n"
+                        );
+        println!("Base Board:\n{}", output);
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_clear_board() {
+        let mut input = DEFAULT_BOARD;
+        input.clear_board();
+        let expected = EMPTY_BOARD;
+        assert_eq!(input, expected);
+    }
+
+    #[test]
+    fn test_get_all_pawns() {
+        let board_str = "5k2/1p2p3/8/1p1p2p1/5P2/3P4/P7/2K5";
+        let board = Board::try_from(board_str).unwrap();
+        let output = board.get_all_pawns();
+
+        // let mut white_pawns = BitBoard(0);
+        // white_pawns.set_bit(Square64::A2);
+        // white_pawns.set_bit(Square64::D3);
+        // white_pawns.set_bit(Square64::F4);
+
+        // let mut black_pawns = BitBoard(0);
+        // black_pawns.set_bit(Square64::B7);
+        // black_pawns.set_bit(Square64::E7);
+        // black_pawns.set_bit(Square64::B5);
+        // black_pawns.set_bit(Square64::D5);
+        // black_pawns.set_bit(Square64::G5);
+
+        // println!("white pawns:\n{}\nblack pawns:\n{}", white_pawns, black_pawns);
+
+        let mut expected = BitBoard(0);
+        expected.set_bit(Square64::A2);
+        expected.set_bit(Square64::D3);
+        expected.set_bit(Square64::F4);
+        expected.set_bit(Square64::B7);
+        expected.set_bit(Square64::E7);
+        expected.set_bit(Square64::B5);
+        expected.set_bit(Square64::D5);
+        expected.set_bit(Square64::G5);
+
+        println!("output:\n{}\nexpected:\n{}", output, expected);
+
+        assert_eq!(output, expected);
+    }
+
     #[rustfmt::skip]
     const EMPTY_BOARD: Board = Board {
         pieces: [
@@ -891,35 +961,6 @@ mod tests {
         ));
         assert_eq!(output, expected);
     }
-
-    #[rustfmt::skip]
-    #[test]
-    fn test_board_display() {
-        let input = DEFAULT_BOARD;
-        let output = input.to_string();
-        let expected = format!("{}{}{}{}{}{}{}{}{}",
-                            "8\t♜\t♞\t♝\t♛\t♚\t♝\t♞\t♜\n",
-                            "7\t♟\t♟\t♟\t♟\t♟\t♟\t♟\t♟\n",
-                            "6\t.\t.\t.\t.\t.\t.\t.\t.\n",
-                            "5\t.\t.\t.\t.\t.\t.\t.\t.\n",
-                            "4\t.\t.\t.\t.\t.\t.\t.\t.\n",
-                            "3\t.\t.\t.\t.\t.\t.\t.\t.\n",
-                            "2\t♙\t♙\t♙\t♙\t♙\t♙\t♙\t♙\n",
-                            "1\t♖\t♘\t♗\t♕\t♔\t♗\t♘\t♖\n\n",
-                            "\tA\tB\tC\tD\tE\tF\tG\tH\n"
-                        );
-        println!("Base Board:\n{}", output);
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_clear_board() {
-        let mut input = DEFAULT_BOARD;
-        input.clear_board();
-        let expected = EMPTY_BOARD;
-        assert_eq!(input, expected);
-    }
-
     // Tests that check that Rank FEN Errors are properly converted to BoardFENParseErrors:
     #[test]
     fn test_board_try_from_valid_board_fen_untrimmed() {

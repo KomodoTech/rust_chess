@@ -12,12 +12,13 @@ use crate::{
     board::Board,
     castle_perms::{self, CastlePerm, NUM_CASTLE_PERM},
     error::{
-        BoardFENParseError, CastlePermConversionError, FullmoveCounterFENParseError,
-        GamestateFENParseError, HalfmoveClockFENParseError, RankFENParseError,
+        BoardFENParseError, CastlePermConversionError, EnPassantFENParseError,
+        FullmoveCounterFENParseError, GamestateFENParseError, HalfmoveClockFENParseError,
+        RankFENParseError, SquareConversionError,
     },
     pieces::Piece,
-    squares::Square,
-    util::Color,
+    squares::{Square, Square64},
+    util::{Color, Rank},
 };
 
 // CONSTANTS:
@@ -139,7 +140,7 @@ impl fmt::Display for Gamestate {
                 writeln!(f, "{}", ep);
             }
             None => {
-                writeln!(f, "-");
+                writeln!(f, "None");
             }
         }
         writeln!(f, "Castle Permissions: {}", self.castle_permissions);
@@ -219,22 +220,87 @@ impl Gamestate {
                     }
                 };
 
-                // TODO: Check if en_passant makes sense (x3 or x6 rank, must be a pawn of the correct color in front,
-                // en passant square and the one behind it are empty since pawn just moved up two spaces)
                 let en_passant_str = remaining_sections[2];
                 let en_passant = match Square::try_from(en_passant_str.to_uppercase().as_str()) {
                     // en_passant_str must be lowercase
                     Ok(ep) => match en_passant_str {
                         uppercase if uppercase == en_passant_str.to_uppercase() => {
-                            return Err(GamestateFENParseError::EnPassantUppercase)
+                            return Err(GamestateFENParseError::EnPassantFENParseError(
+                                EnPassantFENParseError::EnPassantUppercase,
+                            ))
                         }
-                        _ => Some(ep),
+                        _ => {
+                            // If active color is black then en_passant rank has to be 3.
+                            let ep_rank = ep.get_rank();
+                            match ep_rank {
+                                Rank::Rank3 => match active_color {
+                                    Color::Black => {
+                                        // check that the en passant square and the one behind it are empty
+                                        let ep_empty = board.pieces[ep as usize].is_none();
+                                        let square_behind = Square::from_file_and_rank(ep.get_file(), Rank::Rank2);
+                                        let square_behind_empty = board.pieces[square_behind as usize].is_none();
+                                        let square_ahead = Square::from_file_and_rank(ep.get_file(), Rank::Rank4);
+                                        match (ep_empty & square_behind_empty) {
+                                            // check that white pawn is in front of en passant square
+                                            true => match board.pawns[0].check_bit(Square64::from(square_ahead)) {
+                                                true => Some(ep),
+                                                false => return Err(GamestateFENParseError::EnPassantFENParseError(EnPassantFENParseError::CorrectPawnNotInFront(Color::White, ep)))
+                                            },
+                                            false => return Err(GamestateFENParseError::EnPassantFENParseError(EnPassantFENParseError::NonEmptySquares)),
+                                        }
+                                    }
+                                    Color::White => {
+                                        return Err(GamestateFENParseError::EnPassantFENParseError(
+                                            EnPassantFENParseError::ColorRankMismatch(
+                                                active_color,
+                                                ep_rank,
+                                            ),
+                                        ))
+                                    }
+                                },
+                                // If active color is white then en_passant rank has to be 6.
+                                Rank::Rank6 => match active_color {
+                                    Color::White => {
+                                        // check that the en passant square and the one behind it are empty
+                                        let ep_empty = board.pieces[ep as usize].is_none();
+                                        let square_behind = Square::from_file_and_rank(ep.get_file(), Rank::Rank7);
+                                        let square_behind_empty = board.pieces[square_behind as usize].is_none();
+                                        let square_ahead = Square::from_file_and_rank(ep.get_file(), Rank::Rank5);
+                                        match (ep_empty & square_behind_empty) {
+                                            // check that black pawn is in front of en passant square
+                                            true => match board.pawns[1].check_bit(Square64::from(square_ahead)) {
+                                                true => Some(ep),
+                                                false => return Err(GamestateFENParseError::EnPassantFENParseError(EnPassantFENParseError::CorrectPawnNotInFront(Color::Black, ep)))
+                                            },
+                                            false => return Err(GamestateFENParseError::EnPassantFENParseError(EnPassantFENParseError::NonEmptySquares)),
+                                        }
+                                    },
+                                    Color::Black => {
+                                        return Err(GamestateFENParseError::EnPassantFENParseError(
+                                            EnPassantFENParseError::ColorRankMismatch(
+                                                active_color,
+                                                ep_rank,
+                                            ),
+                                        ))
+                                    }
+                                },
+                                _ => {
+                                    return Err(GamestateFENParseError::EnPassantFENParseError(
+                                        EnPassantFENParseError::Rank(ep_rank),
+                                    ))
+                                }
+                            }
+                        }
                     },
                     Err(_) => match en_passant_str {
                         "-" => None,
                         _ => {
-                            return Err(GamestateFENParseError::EnPassant(
-                                en_passant_str.to_string(),
+                            return Err(GamestateFENParseError::EnPassantFENParseError(
+                                EnPassantFENParseError::SquareConversionError(
+                                    SquareConversionError::FromStr(
+                                        strum::ParseError::VariantNotFound,
+                                    ),
+                                ),
                             ))
                         }
                     },
@@ -248,7 +314,7 @@ impl Gamestate {
                             // if there is an en passant square, the half move clock must equal 0 (pawn must have moved for en passant to be active)
                             match (n != 0) && en_passant.is_some() {
                                 true => {
-                                    return Err(GamestateFENParseError::from(
+                                    return Err(GamestateFENParseError::HalfmoveClockFENParseError(
                                         HalfmoveClockFENParseError::NonZeroWhileEnPassant,
                                     ))
                                 }
@@ -256,14 +322,14 @@ impl Gamestate {
                             }
                         }
                         _ => {
-                            return Err(GamestateFENParseError::from(
+                            return Err(GamestateFENParseError::HalfmoveClockFENParseError(
                                 HalfmoveClockFENParseError::ExceedsMax(num),
                             ))
                         }
                     },
                     Err(e) => {
-                        return Err(GamestateFENParseError::from(
-                            HalfmoveClockFENParseError::from(e),
+                        return Err(GamestateFENParseError::HalfmoveClockFENParseError(
+                            HalfmoveClockFENParseError::ParseIntError(e),
                         ))
                     }
                 };
@@ -284,18 +350,18 @@ impl Gamestate {
                             };
                             match n {
                                 plausible if ((2*(plausible - 1) + offset) >= halfmove_clock) => plausible,
-                                _ => return Err(GamestateFENParseError::from(FullmoveCounterFENParseError::SmallerThanHalfmoveClockDividedByTwo(n, halfmove_clock)))
+                                _ => return Err(GamestateFENParseError::FullmoveCounterFENParseError(FullmoveCounterFENParseError::SmallerThanHalfmoveClockDividedByTwo(n, halfmove_clock)))
                             }
                         }
                         _ => {
-                            return Err(GamestateFENParseError::from(
+                            return Err(GamestateFENParseError::FullmoveCounterFENParseError(
                                 FullmoveCounterFENParseError::NotInRange(num),
                             ))
                         }
                     },
                     Err(e) => {
-                        return Err(GamestateFENParseError::from(
-                            FullmoveCounterFENParseError::from(e),
+                        return Err(GamestateFENParseError::FullmoveCounterFENParseError(
+                            FullmoveCounterFENParseError::ParseIntError(e),
                         ))
                     }
                 };
@@ -519,7 +585,7 @@ mod tests {
                             "\tA\tB\tC\tD\tE\tF\tG\tH\n"
                         );
         let expected_active_color_start = "White";
-        let expected_en_passant_start = "-";
+        let expected_en_passant_start = "None";
         let expected_castle_permissions_start = "KQkq";
         let expected_position_key_start = gs_start.gen_position_key();
         let expected_start = format!(
@@ -592,7 +658,7 @@ mod tests {
                             "\tA\tB\tC\tD\tE\tF\tG\tH\n"
                         );
         let expected_active_color_wnf3 = "Black";
-        let expected_en_passant_wnf3 = "-";
+        let expected_en_passant_wnf3 = "None";
         let expected_castle_permissions_wnf3 = "KQkq";
         let expected_position_key_wnf3 = gs_wnf3.gen_position_key();
         let expected_wnf3 = format!(
@@ -653,9 +719,11 @@ mod tests {
     fn test_gamestate_try_from_invalid_fen_spaces_in_board_section_end() {
         let input = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQK BNR w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::from(BoardFENParseError::from(
-            RankFENParseError::InvalidNumSquares("RNBQK".to_string()),
-        )));
+        let expected = Err(GamestateFENParseError::BoardFENParseError(
+            BoardFENParseError::RankFENParseError(RankFENParseError::InvalidNumSquares(
+                "RNBQK".to_string(),
+            )),
+        ));
         assert_eq!(output, expected);
     }
 
@@ -665,7 +733,9 @@ mod tests {
         let en_passant_str = "E6";
         let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq E6 0 3";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::EnPassantUppercase);
+        let expected = Err(GamestateFENParseError::EnPassantFENParseError(
+            EnPassantFENParseError::EnPassantUppercase,
+        ));
         assert_eq!(output, expected);
     }
 
@@ -674,8 +744,10 @@ mod tests {
         let en_passant_str = "e9";
         let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq e9 0 3";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::EnPassant(
-            en_passant_str.to_string(),
+        let expected = Err(GamestateFENParseError::EnPassantFENParseError(
+            EnPassantFENParseError::SquareConversionError(SquareConversionError::FromStr(
+                strum::ParseError::VariantNotFound,
+            )),
         ));
         assert_eq!(output, expected);
     }
@@ -686,7 +758,7 @@ mod tests {
         let halfmove: u32 = 100;
         let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq - 100 1024";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::from(
+        let expected = Err(GamestateFENParseError::HalfmoveClockFENParseError(
             HalfmoveClockFENParseError::ExceedsMax(halfmove),
         ));
         assert_eq!(output, expected);
@@ -697,7 +769,7 @@ mod tests {
         let fullmove: u32 = 1025;
         let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq - 0 1025";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::from(
+        let expected = Err(GamestateFENParseError::FullmoveCounterFENParseError(
             FullmoveCounterFENParseError::NotInRange(fullmove),
         ));
         assert_eq!(output, expected);
@@ -708,7 +780,7 @@ mod tests {
         let fullmove: u32 = 0;
         let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq - 0 0";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::from(
+        let expected = Err(GamestateFENParseError::FullmoveCounterFENParseError(
             FullmoveCounterFENParseError::NotInRange(fullmove),
         ));
         assert_eq!(output, expected);

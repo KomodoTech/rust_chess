@@ -5,7 +5,7 @@ use crate::{
     gamestate::{HALF_MOVE_MAX, MAX_GAME_MOVES, NUM_FEN_SECTIONS},
     moves::Move,
     squares::{Square, Square64},
-    util::{File, Rank},
+    util::{Color, File, Rank},
 };
 use strum::{EnumCount, ParseError as StrumParseError};
 
@@ -66,6 +66,9 @@ pub enum GamestateFENParseError {
     #[error("Fullmove Counter is invalid")]
     FullmoveCounterFENParseError(#[from] FullmoveCounterFENParseError),
 
+    #[error("En Passant Square is invalid")]
+    EnPassantFENParseError(#[from] EnPassantFENParseError),
+
     #[error("FEN is invalid because it is empty")]
     Empty,
 
@@ -80,18 +83,33 @@ pub enum GamestateFENParseError {
 
     #[error("castle permissions {0} are invalid")]
     CastlePerm(String),
+}
 
+#[derive(Error, Debug, PartialEq)]
+pub enum EnPassantFENParseError {
     #[error("en passant square {0} is invalid")]
-    EnPassant(String),
+    SquareConversionError(#[from] SquareConversionError),
 
     #[error("en passant square is invalid. It should be lowercase.")]
     EnPassantUppercase,
+
+    #[error("en passant square has rank {0} which is impossible given color {1}. Only valid combinations are (White, 6) and (Black, 3)")]
+    ColorRankMismatch(Color, Rank),
+
+    #[error("en passant has rank {0} which is not possible (can only be 3 or 6)")]
+    Rank(Rank),
+
+    #[error("for en passant square to exist, both it and the square behind it must be empty")]
+    NonEmptySquares,
+
+    #[error("the correct colored pawn ({0}) is not in front of the en passant square {1}")]
+    CorrectPawnNotInFront(Color, Square) 
 }
 
 #[derive(Error, Debug, PartialEq)]
 pub enum FullmoveCounterFENParseError {
     #[error("full moves is not a valid u32")]
-    Parse(#[from] ParseIntError),
+    ParseIntError(#[from] ParseIntError),
 
     #[error("full moves {0} must be in range 1..={}", MAX_GAME_MOVES)]
     NotInRange(u32),
@@ -103,7 +121,7 @@ pub enum FullmoveCounterFENParseError {
 #[derive(Error, Debug, PartialEq)]
 pub enum HalfmoveClockFENParseError {
     #[error("half moves is not a valid u32")]
-    Parse(#[from] ParseIntError),
+    ParseIntError(#[from] ParseIntError),
 
     #[error(
         "half moves {0} exceeds maximum number of half moves before a tie is called {}",
