@@ -1,4 +1,4 @@
-use chess_app::types::PlayerColor;
+use chess_client::types::PlayerColor;
 use quad_net::quad_socket::client::QuadSocket;
 
 mod connect;

@@ -1,5 +1,5 @@
 [package]
-name = "chess_app"
+name = "chess_client"
 version = "0.1.0"
 edition = "2021"
 

@@ -137,7 +137,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
-name = "chess_app"
+name = "chess_client"
 version = "0.1.0"
 dependencies = [
  "chess_engine",
@@ -161,7 +161,7 @@ dependencies = [
 name = "chess_server"
 version = "0.1.0"
 dependencies = [
- "chess_app",
+ "chess_client",
  "chess_engine",
  "config",
  "env_logger",

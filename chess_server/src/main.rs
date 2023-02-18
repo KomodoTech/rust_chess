@@ -1,6 +1,6 @@
 use config::Config;
 use log::{debug, info};
-use nanoserde::{DeBin, SerBin};
+use nanoserde::{DeBin, DeBinErr, SerBin};
 use rand::{thread_rng, Rng};
 use std::io::Error;
 use std::sync::Arc;
@@ -13,7 +13,7 @@ use tokio::{
 };
 use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
 
-use chess_app::types::{PlayerColor, WebSocketResponse, WebsocketMessage};
+use chess_client::types::{PlayerColor, WebSocketResponse, WebsocketMessage};
 use chess_engine::gamestate::Gamestate;
 
 #[tokio::main]
@@ -76,8 +76,8 @@ async fn process_socket(
     mut socket: WebSocketStream<TcpStream>,
     queue_tx: Arc<UnboundedSender<WebSocketStream<TcpStream>>>,
 ) {
-    let msg = socket.next().await.unwrap();
-    let msg: WebsocketMessage = DeBin::deserialize_bin(&msg.unwrap().into_data()).unwrap();
+    let msg: Message = socket.next().await.unwrap().unwrap();
+    let msg: WebsocketMessage = try_decode_msg(msg).unwrap();
     match msg {
         WebsocketMessage::GameVsComputer => {
             start_game_with_computer(socket).await;
@@ -93,24 +93,24 @@ async fn start_game_with_computer(mut socket: WebSocketStream<TcpStream>) {
 }
 
 async fn start_game_with_human(
-    left_stream: WebSocketStream<TcpStream>,
-    right_stream: WebSocketStream<TcpStream>,
+    left_socket: WebSocketStream<TcpStream>,
+    right_socket: WebSocketStream<TcpStream>,
 ) {
-    let (white_stream, black_stream) = {
+    let (white_socket, black_socket) = {
         let mut rng = thread_rng();
         if rng.gen_bool(0.5) {
-            (left_stream, right_stream)
+            (left_socket, right_socket)
         } else {
-            (right_stream, left_stream)
+            (right_socket, left_socket)
         }
     };
-    let (mut white_write, white_read) = white_stream.split();
-    let (mut black_write, black_read) = black_stream.split();
+    let (mut white_write, white_read) = white_socket.split();
+    let (mut black_write, black_read) = black_socket.split();
 
-    let msg = Message::Binary(WebSocketResponse::GameStarted(PlayerColor::White).serialize_bin());
+    let msg = encode_resp(WebSocketResponse::GameStarted(PlayerColor::White));
     white_write.send(msg).await.unwrap();
 
-    let msg = Message::Binary(WebSocketResponse::GameStarted(PlayerColor::Black).serialize_bin());
+    let msg = encode_resp(WebSocketResponse::GameStarted(PlayerColor::Black));
     black_write.send(msg).await.unwrap();
 
     let (x, y) = join!(
@@ -119,4 +119,12 @@ async fn start_game_with_human(
     );
     x.unwrap();
     y.unwrap();
+}
+
+fn try_decode_msg(msg: Message) -> Result<WebsocketMessage, DeBinErr> {
+    DeBin::deserialize_bin(&msg.into_data())
+}
+
+fn encode_resp(msg: WebSocketResponse) -> Message {
+    Message::Binary(msg.serialize_bin())
 }

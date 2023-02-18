@@ -1,5 +1,5 @@
 use super::Scene;
-use chess_app::types::PlayerColor;
+use chess_client::types::PlayerColor;
 use chess_engine::pieces::Piece;
 use macroquad::{
     color::{BLACK, LIGHTGRAY, WHITE},

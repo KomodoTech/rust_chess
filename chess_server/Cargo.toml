@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 chess_engine = { path = "../chess_engine" }
-chess_app = { path = "../chess_app" }
+chess_client = { path = "../chess_client" }
 tokio = { version = "1.25", features = ["full"] }
 nanoserde = "0.1"
 tokio-tungstenite = "0.18"

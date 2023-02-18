@@ -1,5 +1,5 @@
 use super::Scene;
-use chess_app::types::{WebSocketResponse, WebsocketMessage};
+use chess_client::types::{WebSocketResponse, WebsocketMessage};
 use macroquad::{
     color::{BLACK, WHITE},
     prelude::{get_time, info},
