@@ -1,5 +1,5 @@
 use super::Scene;
-use chess_client::types::{WebSocketResponse, WebsocketMessage};
+use chess_client::types::{PlayerMessage, ServerResponse};
 use macroquad::{
     color::{BLACK, WHITE},
     prelude::{get_time, info},
@@ -18,10 +18,10 @@ pub async fn connect() -> Scene {
         }
     }
     info!("socket connection accepted");
-    socket.send_bin(&WebsocketMessage::GameVsHuman);
+    socket.send_bin(&PlayerMessage::GameVsHuman);
 
     loop {
-        if let Some(WebSocketResponse::GameStarted(color)) = socket.try_recv_bin() {
+        if let Some(ServerResponse::GameStarted(color)) = socket.try_recv_bin() {
             return Scene::QuickGame(color, socket);
         } else {
             draw_loading_screen("Searching for opponent");
