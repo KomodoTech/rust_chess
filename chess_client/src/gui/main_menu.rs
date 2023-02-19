@@ -34,10 +34,10 @@ pub async fn main_menu() -> Scene {
             .ui(&mut root_ui())
         {
             root_ui().pop_skin();
-            return Scene::QuickGame;
+            return Scene::Connect;
         }
 
-        if widgets::Button::new("Login")
+        if widgets::Button::new("Human")
             .size(vec2(BUTTON_WIDTH, BUTTON_HEIGHT))
             .position(vec2(
                 screen_width() / 2. + HALF_MARGIN,
@@ -46,7 +46,7 @@ pub async fn main_menu() -> Scene {
             .ui(&mut root_ui())
         {
             root_ui().pop_skin();
-            return Scene::Login;
+            return Scene::Connect;
         }
 
         root_ui().pop_skin();

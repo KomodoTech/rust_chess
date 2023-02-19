@@ -1,6 +1,7 @@
 [workspace]
 
 members = [
-    "chess_app",
+    "chess_client",
+    "chess_server",
     "chess_engine",
 ]
