@@ -1,12 +1,12 @@
 use crate::{
     board::bitboard::BitBoard,
     error::{Square64ConversionError, SquareConversionError},
-    util::{File, Rank, FILES_BOARD, RANKS_BOARD, SQUARE_120_TO_64, SQUARE_64_TO_120},
+    util::{Color, File, Rank, FILES_BOARD, RANKS_BOARD, SQUARE_120_TO_64, SQUARE_64_TO_120},
 };
 use num::Integer;
 use std::{
     fmt,
-    ops::{Add, AddAssign},
+    ops::{Add, AddAssign, Sub},
     str::FromStr,
 };
 use strum::{EnumCount, IntoEnumIterator};
@@ -86,6 +86,20 @@ impl Square64 {
     pub fn get_rank(&self) -> Rank {
         RANKS_BOARD[*self as usize].expect("should return valid File since every Square64 has one")
     }
+
+    pub fn get_color(&self) -> Color {
+        // NOTE: Rank1's value as u8 is 0
+        // XOR relationship:
+        // (rank_even, index_even) -> black
+        // (rank_even, index_odd) -> white
+        // (rank_odd, index_even) -> white
+        // (rank_odd, index_odd) -> black
+        let parity_xor = (self.get_rank() as u8).is_even() ^ (*self as u8).is_even();
+        match parity_xor {
+            true => Color::White,
+            false => Color::Black,
+        }
+    }
 }
 
 #[derive(Display, Debug, Clone, Copy, PartialEq, Eq, EnumIter, EnumString, EnumCountMacro)]
@@ -106,6 +120,32 @@ impl From<Square64> for Square {
     fn from(square_64: Square64) -> Self {
         SQUARE_64_TO_120[square_64 as usize]
             .expect("8x8 Square64 should have a corresponding 10x12 Square")
+    }
+}
+
+impl Add<i8> for Square {
+    type Output = Result<Self, SquareConversionError>;
+    fn add(self, rhs: i8) -> Self::Output {
+        let result = (self as i8 + rhs).try_into();
+        result
+    }
+}
+
+impl Sub<i8> for Square {
+    type Output = Result<Self, SquareConversionError>;
+    fn sub(self, rhs: i8) -> Self::Output {
+        let result = (self as i8 - rhs).try_into();
+        result
+    }
+}
+
+impl TryFrom<i8> for Square {
+    type Error = SquareConversionError;
+
+    fn try_from(value: i8) -> Result<Self, Self::Error> {
+        Self::iter()
+            .find(|s| *s as i8 == value)
+            .ok_or(SquareConversionError::FromI8(value))
     }
 }
 
@@ -153,6 +193,20 @@ impl Square {
 
     pub fn get_rank(&self) -> Rank {
         RANKS_BOARD[*self as usize].expect("should return valid Rank since every Square has one")
+    }
+
+    pub fn get_color(&self) -> Color {
+        // NOTE: Rank1's value as u8 is 0
+        // XOR relationship:
+        // (rank_even, index_even) -> white
+        // (rank_even, index_odd) -> black
+        // (rank_odd, index_even) -> black
+        // (rank_odd, index_odd) -> white
+        let parity_xor = (self.get_rank() as u8).is_even() ^ (*self as u8).is_even();
+        match parity_xor {
+            true => Color::Black,
+            false => Color::White,
+        }
     }
 }
 
@@ -237,7 +291,7 @@ mod tests {
     fn test_square_120_to_string() {
         let input = Square::D2;
         let output: String = input.to_string();
-        let expected = "D2".to_string();
+        let expected = "D2".to_owned();
         assert_eq!(output, expected);
     }
 
@@ -273,7 +327,7 @@ mod tests {
     fn test_square_64_to_string() {
         let input = Square64::D2;
         let output: String = input.to_string();
-        let expected = "D2".to_string();
+        let expected = "D2".to_owned();
         assert_eq!(output, expected);
     }
 

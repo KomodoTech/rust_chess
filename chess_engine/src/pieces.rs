@@ -18,10 +18,16 @@ const PIECE_MINOR: [bool; Piece::COUNT] = [
     // wp  wn    wb    wr     wq     wk     bp     bn    bb    br     bq     bk
     false, true, true, false, false, false, false, true, true, false, false, false,
 ];
+const PIECE_SLIDING: [bool; Piece::COUNT] = [
+    // wp  wn     wb    wr    wq    wk     bp     bn     bb    br    bq    bk
+    false, false, true, true, true, false, false, false, true, true, true, false,
+];
 const PIECE_VALUE: [u32; Piece::COUNT] = [
     //wp wn   wb   wr   wq     wk      bp   bn   bb   br   bq     bk
     100, 325, 325, 550, 1_000, 50_000, 100, 325, 325, 550, 1_000, 50_000,
 ];
+
+/// Allows us to associate a color with a piece
 const PIECE_COLOR: [Color; Piece::COUNT] = [
     Color::White, // wp
     Color::White, // wn
@@ -36,11 +42,134 @@ const PIECE_COLOR: [Color; Piece::COUNT] = [
     Color::Black, // bq
     Color::Black, // bk
 ];
+
+/// Allows us to determine piece type
+const PIECE_TYPE: [PieceType; Piece::COUNT] = [
+    PieceType::Pawn,   // wp
+    PieceType::Knight, // wn
+    PieceType::Bishop, // wb
+    PieceType::Rook,   // wr
+    PieceType::Queen,  // wq
+    PieceType::King,   // wk
+    PieceType::Pawn,   // bp
+    PieceType::Knight, // bn
+    PieceType::Bishop, // bb
+    PieceType::Rook,   // br
+    PieceType::Queen,  // bq
+    PieceType::King,   // bk
+];
+
+/// Allows us to know if a piece is a Pawn
+const PIECE_PAWN: [bool; Piece::COUNT] = [
+    // wp wn     wb     wr     wq     wk     bp    bn     bb     br     bq     bk
+    true, false, false, false, false, false, true, false, false, false, false, false,
+];
+
+/// Allows us to know if a piece is a Knight
+const PIECE_KNIGHT: [bool; Piece::COUNT] = [
+    // wp  wn    wb     wr     wq     wk     bp     bn    bb     br     bq     bk
+    false, true, false, false, false, false, false, true, false, false, false, false,
+];
+
+/// Allows us to know if a piece is a Bishop
+const PIECE_BISHOP: [bool; Piece::COUNT] = [
+    // wp  wn     wb    wr     wq     wk     bp     bn     bb    br     bq     bk
+    false, false, true, false, false, false, false, false, true, false, false, false,
+];
+
+/// Allows us to know if a piece is a Rook
+const PIECE_ROOK: [bool; Piece::COUNT] = [
+    // wp  wn     wb     wr    wq     wk     bp     bn     bb     br    bq     bk
+    false, false, false, true, false, false, false, false, false, true, false, false,
+];
+
+/// Allows us to know if a piece is a Queen
+const PIECE_QUEEN: [bool; Piece::COUNT] = [
+    // wp  wn     wb     wr     wq    wk     bp     bn     bb     br     bq    bk
+    false, false, false, false, true, false, false, false, false, false, true, false,
+];
+
+/// Allows us to know if a piece is a King
+const PIECE_KING: [bool; Piece::COUNT] = [
+    // wp  wn     wb     wr     wq     wk    bp     bn     bb     br     bq     bk
+    false, false, false, false, false, true, false, false, false, false, false, true,
+];
+
 /// For regular chess these are the max number of pieces that you could imagineably get per type
 const MAX_NUM_PIECES_ALLOWED: [u8; Piece::COUNT] = [
     //wp wn wb wr  wq wk bp bn  bb  br  bq bk
     8, 10, 10, 10, 9, 1, 8, 10, 10, 10, 9, 1,
 ];
+
+// ATTACKING
+
+/// Given a starting Square (10x12) index, these values are all the offsets where a White Pawn could move
+/// NOTE: for pawns when checking whether or not a square is being attacked, you have to SUBTRACT these values
+const WHITE_PAWN_ATTACK_DIRECTIONS: [i8; 2] = [
+    -9,  // Up Right
+    -11, // Up Left
+];
+
+/// Given a starting Square (10x12) index, these values are all the offsets where a Black Pawn could move
+/// NOTE: for pawns when checking whether or not a square is being attacked, you have to SUBTRACT these values
+const BLACK_PAWN_ATTACK_DIRECTIONS: [i8; 2] = [
+    9,  // Down Left
+    11, // Down Right
+];
+
+/// Given a starting Square (10x12) index, these values are all the offsets where a Knight could move
+const KNIGHT_DIRECTIONS: [i8; 8] = [
+    -8,  // 1 Down 2 Right
+    -19, // 2 Down 1 Right
+    -21, // 2 Down 1 Left
+    -12, // 1 Down 2 Left
+    8,   // 1 Up   2 Left
+    19,  // 2 Up   1 Left
+    21,  // 2 Up   1 Right
+    12,  // 1 Up   2 Right
+];
+
+// NOTE: Queen is a combination of Bishop and Rook
+
+/// Given a starting Square (10x12) index, these values are the offsets that correspond to a legal
+/// direction where a Bishop can move (mutliply by a constant to move than one space at a time)
+const BISHOP_DIRECTIONS: [i8; 4] = [
+    -9,  // Up Right Direction
+    -11, // Up Left Direction
+    9,   // Down Right Direction
+    11,  // Down Left Direction
+];
+
+/// Given a starting Square (10x12) index, these values are the offsets that correspond to a legal
+/// direction where a Rook can move (mutliply by a constant to move than one space at a time)
+const ROOK_DIRECTIONS: [i8; 4] = [
+    -1,  // Left Direction
+    -10, // Up Direction
+    1,   // Right Direction
+    10,  // Down Direction
+];
+
+/// Given a starting Square (10x12) index, these values are all the offsets where a King could move
+const KING_DIRECTIONS: [i8; 8] = [
+    -1,  // Right
+    -9,  // Up Right
+    -10, // Up
+    -11, // Up Left
+    1,   // Left
+    9,   // Down Left
+    10,  // Down
+    11,  // Down Right
+];
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum PieceType {
+    Pawn,
+    Knight,
+    Bishop,
+    Rook,
+    Queen,
+    King,
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, EnumCountMacro)]
 pub enum Piece {
@@ -68,6 +197,9 @@ impl Piece {
     pub fn is_minor(&self) -> bool {
         PIECE_MINOR[*self as usize]
     }
+    pub fn is_sliding(&self) -> bool {
+        PIECE_SLIDING[*self as usize]
+    }
     pub fn get_value(&self) -> u32 {
         PIECE_VALUE[*self as usize]
     }
@@ -76,6 +208,48 @@ impl Piece {
     }
     pub fn get_max_num_allowed(&self) -> u8 {
         MAX_NUM_PIECES_ALLOWED[*self as usize]
+    }
+
+    pub fn is_pawn(&self) -> bool {
+        PIECE_PAWN[*self as usize]
+    }
+    pub fn is_knight(&self) -> bool {
+        PIECE_KNIGHT[*self as usize]
+    }
+    pub fn is_bishop(&self) -> bool {
+        PIECE_BISHOP[*self as usize]
+    }
+    pub fn is_rook(&self) -> bool {
+        PIECE_ROOK[*self as usize]
+    }
+    pub fn is_queen(&self) -> bool {
+        PIECE_QUEEN[*self as usize]
+    }
+    pub fn is_king(&self) -> bool {
+        PIECE_KING[*self as usize]
+    }
+    pub fn get_piece_type(&self) -> PieceType {
+        PIECE_TYPE[*self as usize]
+    }
+
+    // TODO: Test performance
+    pub fn get_attack_directions(&self) -> Vec<i8> {
+        let mut attack_directions: Vec<i8> = vec![];
+        match self.get_piece_type() {
+            PieceType::Pawn => match self.get_color() {
+                Color::White => attack_directions.extend_from_slice(&WHITE_PAWN_ATTACK_DIRECTIONS),
+                Color::Black => attack_directions.extend_from_slice(&BLACK_PAWN_ATTACK_DIRECTIONS),
+            },
+            PieceType::Knight => attack_directions.extend_from_slice(&KNIGHT_DIRECTIONS),
+            PieceType::Bishop => attack_directions.extend_from_slice(&BISHOP_DIRECTIONS),
+            PieceType::Rook => attack_directions.extend_from_slice(&ROOK_DIRECTIONS),
+            PieceType::Queen => {
+                attack_directions.extend_from_slice(&BISHOP_DIRECTIONS);
+                attack_directions.extend_from_slice(&ROOK_DIRECTIONS)
+            }
+            PieceType::King => attack_directions.extend_from_slice(&KING_DIRECTIONS),
+        }
+        attack_directions
     }
 }
 
@@ -235,7 +409,7 @@ mod test {
     fn test_piece_display() {
         let input = Piece::BlackRook;
         let output = input.to_string();
-        let expected = "♜".to_string();
+        let expected = "♜".to_owned();
         assert_eq!(output, expected);
     }
 }

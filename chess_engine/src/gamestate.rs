@@ -16,7 +16,7 @@ use crate::{
         FullmoveCounterFENParseError, GamestateFENParseError, HalfmoveClockFENParseError,
         RankFENParseError, SquareConversionError,
     },
-    pieces::Piece,
+    pieces::{self, Piece, PieceType},
     squares::{Square, Square64},
     util::{Color, Rank},
 };
@@ -101,6 +101,7 @@ impl Default for Zobrist {
     }
 }
 
+// TODO: consider making the Gamestate with the builder pattern
 // TODO: make Zobrist generate at compile time with proc macro
 #[derive(Debug, PartialEq, Eq)]
 pub struct Gamestate {
@@ -173,7 +174,85 @@ impl Gamestate {
         }
     }
 
+    /// Determine if the provided square is currently under attack
+    fn is_square_attacked(&self, square: Square) -> bool {
+        // depending on active_color determine which pieces to check
+        let mut pieces_to_check: [Piece; 6];
+        match self.active_color {
+            Color::White => {
+                pieces_to_check = [
+                    Piece::WhitePawn,
+                    Piece::WhiteKnight,
+                    Piece::WhiteBishop,
+                    Piece::WhiteRook,
+                    Piece::WhiteQueen,
+                    Piece::WhiteKing,
+                ]
+            }
+            Color::Black => {
+                pieces_to_check = [
+                    Piece::BlackPawn,
+                    Piece::BlackKnight,
+                    Piece::BlackBishop,
+                    Piece::BlackRook,
+                    Piece::BlackQueen,
+                    Piece::BlackKing,
+                ]
+            }
+        }
+        // Going through each type of piece that could be attacking the given square
+        // check each square an attacker could be occupying and see if there is in fact
+        // the corresponding piece on that attacking square
+        for piece in pieces_to_check {
+            let directions = piece.get_attack_directions();
+            match piece {
+                // To check sliding pieces we need to check squares offset by multiples
+                // of the direction offset, and early out of a direction when we hit a blocking piece
+                // and early out entirely if we find an attacking piece
+                sliding if piece.is_sliding() => {
+                    // Optimization: bishops can never attack a square that is a different color than they are
+                    if (sliding.is_bishop() && (square.get_color() != sliding.get_color())) {
+                        continue;
+                    }
+
+                    for direction in directions {
+                        let mut offset = direction;
+                        while let Ok(next_square) = square + offset {
+                            match self.board.pieces[next_square as usize] {
+                                Some(p) => match p {
+                                    attacker if p == piece => return true,
+                                    blocker => break,
+                                },
+                                None => offset += direction,
+                            }
+                        }
+                    }
+                }
+                // Non-sliding pieces only need to check the squares offset by each direction (no need
+                // to check multiples of offset or blocking pieces)
+                non_sliding => {
+                    for direction in directions {
+                        // check if moving in direction places you on a valid square
+                        if let Ok(valid_square) = square + direction {
+                            // check if the type of piece that could attack our square from the current evaluated square
+                            // is present or not.
+                            if let Some(p) = self.board.pieces[valid_square as usize] {
+                                match p {
+                                    attacker if p == piece => return true,
+                                    _ => (),
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // if we never early returned true, then our square is not under attack
+        false
+    }
+
     // TODO: make sure that on the frontend the number of characters that can be passed is limited to something reasonable
+    // TODO: check that bishops are on squares that have the same color as them
     /// Validate full FEN string and generate valid Gamestate object if validation succeeds
     fn gen_gamestate_from_fen(fen: &str) -> Result<Self, GamestateFENParseError> {
         let fen_sections: Vec<&str> = fen.trim().split(' ').collect();
@@ -188,6 +267,7 @@ impl Gamestate {
         // go through rest of FEN sections and clean up any empty sections aka extra spaces
         let mut remaining_sections: Vec<&str> = vec![]; // will not include any empty sections
         for &section in fen_sections_iterator {
+            // TODO: get rid of is_empty and use patten matching if let [first, ..]
             // Check if current fen section is empty (if so just a space that we can ignore)
             if !section.is_empty() {
                 remaining_sections.push(section);
@@ -237,9 +317,12 @@ impl Gamestate {
                                     Color::Black => {
                                         // check that the en passant square and the one behind it are empty
                                         let ep_empty = board.pieces[ep as usize].is_none();
-                                        let square_behind = Square::from_file_and_rank(ep.get_file(), Rank::Rank2);
-                                        let square_behind_empty = board.pieces[square_behind as usize].is_none();
-                                        let square_ahead = Square::from_file_and_rank(ep.get_file(), Rank::Rank4);
+                                        let square_behind =
+                                            Square::from_file_and_rank(ep.get_file(), Rank::Rank2);
+                                        let square_behind_empty =
+                                            board.pieces[square_behind as usize].is_none();
+                                        let square_ahead =
+                                            Square::from_file_and_rank(ep.get_file(), Rank::Rank4);
                                         match (ep_empty & square_behind_empty) {
                                             // check that white pawn is in front of en passant square
                                             true => match board.pawns[0].check_bit(Square64::from(square_ahead)) {
@@ -263,9 +346,12 @@ impl Gamestate {
                                     Color::White => {
                                         // check that the en passant square and the one behind it are empty
                                         let ep_empty = board.pieces[ep as usize].is_none();
-                                        let square_behind = Square::from_file_and_rank(ep.get_file(), Rank::Rank7);
-                                        let square_behind_empty = board.pieces[square_behind as usize].is_none();
-                                        let square_ahead = Square::from_file_and_rank(ep.get_file(), Rank::Rank5);
+                                        let square_behind =
+                                            Square::from_file_and_rank(ep.get_file(), Rank::Rank7);
+                                        let square_behind_empty =
+                                            board.pieces[square_behind as usize].is_none();
+                                        let square_ahead =
+                                            Square::from_file_and_rank(ep.get_file(), Rank::Rank5);
                                         match (ep_empty & square_behind_empty) {
                                             // check that black pawn is in front of en passant square
                                             true => match board.pawns[1].check_bit(Square64::from(square_ahead)) {
@@ -274,7 +360,7 @@ impl Gamestate {
                                             },
                                             false => return Err(GamestateFENParseError::EnPassantFENParseError(EnPassantFENParseError::NonEmptySquares)),
                                         }
-                                    },
+                                    }
                                     Color::Black => {
                                         return Err(GamestateFENParseError::EnPassantFENParseError(
                                             EnPassantFENParseError::ColorRankMismatch(
@@ -312,6 +398,7 @@ impl Gamestate {
                         // if this num was 100 the game would immediately tie, so this is considered invalid
                         n if (0..HALF_MOVE_MAX).contains(&(n as usize)) => {
                             // if there is an en passant square, the half move clock must equal 0 (pawn must have moved for en passant to be active)
+                            // TODO: get rid of is_some
                             match (n != 0) && en_passant.is_some() {
                                 true => {
                                     return Err(GamestateFENParseError::HalfmoveClockFENParseError(
@@ -415,8 +502,16 @@ impl Gamestate {
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Borrow;
+
+    use strum::IntoEnumIterator;
+
     use super::*;
-    use crate::board::bitboard::BitBoard;
+    use crate::{
+        board::{bitboard::BitBoard, MAX_NUM_PIECE_TYPE_INSTANCES},
+        gamestate,
+        util::File,
+    };
 
     // TODO: properly seed and test Zobrist key gen to check for collision rate in norm
     #[test]
@@ -548,6 +643,322 @@ mod tests {
         // println!("output zobrist:{:?}\nexpected zobrist:{:?}", output.as_ref().unwrap().zobrist, output.as_ref().unwrap().zobrist);
         assert_eq!(output, expected);
         assert_eq!(default, expected.unwrap());
+    }
+
+    // Square Attacks
+    #[test]
+    fn test_square_attacked_queen_no_blockers() {
+        // const FEN_1: &str = "8/3q4/8/8/4Q3/8/8/8 w - - 0 2";
+        #[rustfmt::skip]
+        let board = Board {
+            pieces: [
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    Some(Piece::WhiteQueen), None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     Some(Piece::BlackQueen), None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+            ],      
+            pawns: [BitBoard(0), BitBoard(0)],
+            kings_square: [None; Color::COUNT],
+            piece_count: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0],
+            big_piece_count: [1, 1],
+            // NOTE: King considered major piece for us
+            major_piece_count: [1, 1],
+            minor_piece_count: [0, 0],
+            piece_list: [
+                // WhitePawns
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // WhiteKnights
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // WhiteBishops
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // WhiteRooks
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // WhiteQueens
+                [Some(Square::E4), None, None, None, None, None, None, None, None, None],
+                // WhiteKing
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // BlackPawns
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // BlackKnights
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // BlackBishops
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // BlackRooks
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // BlackQueens
+                [Some(Square::D7), None, None, None, None, None, None, None, None, None],
+                // BlackKing
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+            ]
+        };
+        let active_color = Color::White;
+        let castle_permissions = CastlePerm::try_from(0).unwrap();
+        let en_passant = None;
+        let halfmove_clock = 0;
+        let fullmove_number = 2;
+        let history = Vec::new();
+        let zobrist = Zobrist::default();
+
+        let gamestate = Gamestate {
+            board,
+            active_color,
+            castle_permissions,
+            en_passant,
+            halfmove_clock,
+            fullmove_number,
+            history,
+            zobrist,
+        };
+
+        let mut output = [[false; File::COUNT]; Rank::COUNT];
+        for rank in Rank::iter() {
+            for file in File::iter() {
+                let square = Square::from_file_and_rank(file, rank);
+                output[rank as usize][file as usize] = gamestate.is_square_attacked(square);
+            }
+        }
+
+        #[rustfmt::skip]
+        let expected = [
+            [false, true,  false, false, true,  false, false, true],
+            [false, false, true,  false, true,  false, true,  false],
+            [false, false, false, true,  true,  true,  false, false],
+            [true,  true,  true,  true,  false, true,  true,  true],
+            [false, false, false, true,  true,  true,  false, false],
+            [false, false, true,  false, true,  false, true,  false],
+            [false, true,  false, false, true,  false, false, true],
+            [true,  false, false, false, true,  false, false, false]
+        ];
+
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_square_attacked_queen_with_blocker() {
+        // const FEN_1: &str = "8/3q4/8/8/4Q3/8/2P5/8 w - - 0 2";
+        #[rustfmt::skip]
+        let board = Board {
+            pieces: [
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     Some(Piece::WhitePawn),   None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    Some(Piece::WhiteQueen), None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     Some(Piece::BlackQueen), None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+            ],      
+            pawns: [BitBoard(0x00_00_00_00_00_00_04_00), BitBoard(0)],
+            kings_square: [None; Color::COUNT],
+            piece_count: [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0],
+            big_piece_count: [1, 1],
+            // NOTE: King considered major piece for us
+            major_piece_count: [1, 1],
+            minor_piece_count: [0, 0],
+            piece_list: [
+                // WhitePawns
+                [Some(Square::C2), None, None, None, None, None, None, None, None, None],
+                // WhiteKnights
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // WhiteBishops
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // WhiteRooks
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // WhiteQueens
+                [Some(Square::E4), None, None, None, None, None, None, None, None, None],
+                // WhiteKing
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // BlackPawns
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // BlackKnights
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // BlackBishops
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // BlackRooks
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // BlackQueens
+                [Some(Square::D7), None, None, None, None, None, None, None, None, None],
+                // BlackKing
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+            ]
+        };
+
+        println!("{}", board);
+
+        let active_color = Color::White;
+        let castle_permissions = CastlePerm::try_from(0).unwrap();
+        let en_passant = None;
+        let halfmove_clock = 0;
+        let fullmove_number = 2;
+        let history = Vec::new();
+        let zobrist = Zobrist::default();
+
+        let gamestate = Gamestate {
+            board,
+            active_color,
+            castle_permissions,
+            en_passant,
+            halfmove_clock,
+            fullmove_number,
+            history,
+            zobrist,
+        };
+
+        let mut output = [[false; File::COUNT]; Rank::COUNT];
+        for rank in Rank::iter() {
+            for file in File::iter() {
+                let square = Square::from_file_and_rank(file, rank);
+                output[rank as usize][file as usize] = gamestate.is_square_attacked(square);
+            }
+        }
+
+        #[rustfmt::skip]
+        let expected = [
+            [false, false, false, false, true,  false, false, true],
+            [false, false, true,  false, true,  false, true,  false],
+            [false, true,  false, true,  true,  true,  false, false],
+            [true,  true,  true,  true,  false, true,  true,  true],
+            [false, false, false, true,  true,  true,  false, false],
+            [false, false, true,  false, true,  false, true,  false],
+            [false, true,  false, false, true,  false, false, true],
+            [true,  false, false, false, true,  false, false, false]
+        ];
+
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_square_attacked_white_bishop_on_black_square() {
+        // const FEN: &str = "8/8/8/8/8/2B4K/8/k7 w - - 0 1";
+        #[rustfmt::skip]
+        let board = Board {
+            pieces: [
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, Some(Piece::BlackKing), None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     Some(Piece::WhiteBishop), None,                    None,                    None,                     None,                     Some(Piece::WhiteKing), None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+            ],      
+            pawns: [BitBoard(0), BitBoard(0)],
+            kings_square: [Some(Square::H3), Some(Square::A1)],
+            piece_count: [0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0],
+            big_piece_count: [2, 1],
+            // NOTE: King considered major piece for us
+            major_piece_count: [1, 1],
+            minor_piece_count: [1, 0],
+            piece_list: [
+                // WhitePawns
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // WhiteKnights
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // WhiteBishops
+                [Some(Square::C3), None, None, None, None, None, None, None, None, None],
+                // WhiteRooks
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // WhiteQueens
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // WhiteKing
+                [Some(Square::H3), None, None, None, None, None, None, None, None, None],
+                // BlackPawns
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // BlackKnights
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // BlackBishops
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // BlackRooks
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // BlackQueens
+                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                // BlackKing
+                [Some(Square::A1), None, None, None, None, None, None, None, None, None],
+            ]
+        };
+        let active_color = Color::White;
+        let castle_permissions = CastlePerm::try_from(0).unwrap();
+        let en_passant = None;
+        let halfmove_clock = 0;
+        let fullmove_number = 1;
+        let history = Vec::new();
+        let zobrist = Zobrist::default();
+
+        let gamestate = Gamestate {
+            board,
+            active_color,
+            castle_permissions,
+            en_passant,
+            halfmove_clock,
+            fullmove_number,
+            history,
+            zobrist,
+        };
+
+        let mut output = [[false; File::COUNT]; Rank::COUNT];
+        for rank in Rank::iter() {
+            for file in File::iter() {
+                let square = Square::from_file_and_rank(file, rank);
+                output[rank as usize][file as usize] = gamestate.is_square_attacked(square);
+            }
+        }
+
+        #[rustfmt::skip]
+        let expected = [
+            [false, false, false, false, false, false, false, false],
+            [false, false, false, false, false, false, true,  true],
+            [false, false, false, false, false, false, true,  false],
+            [false, false, false, false, false, false, true,  true],
+            [false, false, false, false, false, false, false, false],
+            [false, false, false, false, false, false, false, false],
+            [false, false, false, false, false, false, false, false],
+            [false, false, false, false, false, false, false, false],
+        ];
+
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_square_attacked_visual_inspection() {
+        const FEN_0: &str = "4k3/pppppppp/8/8/8/8/PPPPPPPP/3K4 w - - 0 1";
+        const FEN_1: &str = "rnbqkbnr/1p1ppppp/8/2p5/4p3/8/PPPP1PPP/RNBQKBNR w KQkq c6 0 2";
+        const FEN_2: &str = "rnbqkbnr/1p1ppppp/8/2p5/4p3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2";
+        const FEN_3: &str = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
+        let fens = [FEN_0, FEN_1, FEN_2, FEN_3];
+
+        for fen in fens {
+            let gamestate = Gamestate::try_from(fen).unwrap();
+            println!("FEN: {}", fen);
+            println!("Board:\n{}", gamestate.board);
+            println!("All squares attacked by {}:", gamestate.active_color);
+            for rank in Rank::iter().rev() {
+                for file in File::iter() {
+                    let square = Square::from_file_and_rank(file, rank);
+                    match gamestate.is_square_attacked(square) {
+                        true => print!("X"),
+                        false => print!("-"),
+                    }
+                }
+                println!()
+            }
+            println!()
+        }
     }
 
     // Display
@@ -758,7 +1169,7 @@ mod tests {
         let input = "rn1qkbnr/ppp2ppp/3pb3/3Pp3/8/8/PPPQPPPP/RNB1KBNR w KQkq e6 2 4";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::EnPassantFENParseError(
-            EnPassantFENParseError::NonEmptySquares
+            EnPassantFENParseError::NonEmptySquares,
         ));
         assert_eq!(output, expected);
     }
@@ -769,7 +1180,7 @@ mod tests {
         let input = "rnbqk1nr/ppp1bppp/3p4/3Pp3/8/8/PPPQPPPP/RNB1KBNR w KQkq e6 2 4";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::EnPassantFENParseError(
-            EnPassantFENParseError::NonEmptySquares
+            EnPassantFENParseError::NonEmptySquares,
         ));
         assert_eq!(output, expected);
     }
@@ -780,18 +1191,18 @@ mod tests {
         let input = "rnbqkbnr/ppp2ppp/3p4/3P4/4p3/8/PPPQPPPP/RNB1KBNR w KQkq e6 0 4";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::EnPassantFENParseError(
-            EnPassantFENParseError::CorrectPawnNotInFront(Color::Black, Square::E6)
+            EnPassantFENParseError::CorrectPawnNotInFront(Color::Black, Square::E6),
         ));
         assert_eq!(output, expected);
     }
-    
+
     // Correct color pawn has to be in front of en passant square
     #[test]
     fn test_gamestate_try_from_invalid_en_passant_wrong_pawn_in_front() {
         let input = "rnbqkbnr/pp1p1ppp/2p5/4P3/8/8/PPP1PPPP/RNBQKBNR w KQkq e6 0 3";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::EnPassantFENParseError(
-            EnPassantFENParseError::CorrectPawnNotInFront(Color::Black, Square::E6)
+            EnPassantFENParseError::CorrectPawnNotInFront(Color::Black, Square::E6),
         ));
         assert_eq!(output, expected);
     }
