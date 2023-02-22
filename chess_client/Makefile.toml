@@ -7,11 +7,11 @@ args = ["build",
 ]
 
 [tasks.linux_copy]
-script = ["cp ../target/wasm32-unknown-unknown/release/chess_app.wasm web/chess_app.wasm"]
+script = ["cp ../target/wasm32-unknown-unknown/release/chess_client.wasm web/chess_client.wasm"]
 dependencies = ["build"]
 
 [tasks.windows_copy]
-script = ["copy ../target/wasm32-unknown-unknown/release/chess_app.wasm web/chess_app.wasm"]
+script = ["copy ../target/wasm32-unknown-unknown/release/chess_client.wasm web/chess_client.wasm"]
 dependencies = ["build"]
 
 [tasks.copy]

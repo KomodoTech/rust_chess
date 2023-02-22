@@ -1,5 +1,5 @@
 [package]
-name = "chess_app"
+name = "chess_client"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,5 +7,8 @@ edition = "2021"
 
 [dependencies]
 chess_engine = { path = "../chess_engine" }
+console_log = { version = "0.2", features = ["color"] }
+log = "0.4"
 macroquad = "0.3"
-# web-sys = {version = "0.3.60", features = ["WebSocket"]}
+quad-net = { git = "https://github.com/escobar-west/quad-net.git" }
+nanoserde = "0.1"

@@ -1,14 +1,10 @@
-use chess_engine::board::Board;
 use macroquad::experimental::collections::storage;
-//use web_sys::WebSocket;
 
 mod gui;
 use gui::Scene;
 
 #[macroquad::main("Chess")]
 async fn main() {
-    let _b = Board::new();
-
     let gui_resources = gui::GuiResources::new();
     storage::store(gui_resources);
 
@@ -18,10 +14,12 @@ async fn main() {
             Scene::MainMenu => {
                 next_scene = gui::main_menu().await;
             }
-            Scene::QuickGame => {
-                next_scene = gui::game_scene().await;
+            Scene::Connect => {
+                next_scene = gui::connect().await;
             }
-            _ => todo!(),
+            Scene::QuickGame(color, socket) => {
+                next_scene = gui::game_scene(color, socket).await;
+            }
         }
     }
 }
