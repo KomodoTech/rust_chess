@@ -66,21 +66,6 @@ impl TryFrom<usize> for Rank {
     }
 }
 
-impl From<Rank> for u8 {
-    fn from(value: Rank) -> Self {
-        match value {
-            Rank::Rank1 => 1,
-            Rank::Rank2 => 2,
-            Rank::Rank3 => 3,
-            Rank::Rank4 => 4,
-            Rank::Rank5 => 5,
-            Rank::Rank6 => 6,
-            Rank::Rank7 => 7,
-            Rank::Rank8 => 8,
-        }
-    }
-}
-
 // impl Add<usize> for Rank {
 //     type Output = Result<Self, ConversionError>;
 //     fn add(self, rhs: usize) -> Self::Output {

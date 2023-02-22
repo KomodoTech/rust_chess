@@ -103,7 +103,7 @@ pub enum EnPassantFENParseError {
     NonEmptySquares,
 
     #[error("the correct colored pawn ({0}) is not in front of the en passant square {1}")]
-    CorrectPawnNotInFront(Color, Square) 
+    CorrectPawnNotInFront(Color, Square),
 }
 
 #[derive(Error, Debug, PartialEq)]
@@ -171,6 +171,9 @@ pub enum CastlePermConversionError {
 pub enum SquareConversionError {
     #[error("could not convert &str {0} into a Square")]
     FromStr(#[from] StrumParseError),
+
+    #[error("could not convert i8 {0} into a Square")]
+    FromI8(i8),
 
     #[error("could not convert u8 {0} into a Square")]
     FromU8(u8),
