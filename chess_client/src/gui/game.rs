@@ -1,6 +1,6 @@
 use super::Scene;
 use chess_client::types::{Move, PlayerColor, PlayerMessage, ServerResponse, Square};
-use chess_engine::pieces::Piece;
+use chess_engine::piece::Piece;
 use macroquad::{
     color::{LIGHTGRAY, WHITE},
     input::{is_mouse_button_down, is_mouse_button_pressed, mouse_position, MouseButton},

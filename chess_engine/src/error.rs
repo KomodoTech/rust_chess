@@ -2,10 +2,12 @@ use std::num::ParseIntError;
 
 use crate::{
     board::bitboard::BitBoard,
+    color::Color,
+    file::File,
     gamestate::{HALF_MOVE_MAX, MAX_GAME_MOVES, NUM_FEN_SECTIONS},
     moves::Move,
-    squares::{Square, Square64},
-    util::{Color, File, Rank},
+    rank::Rank,
+    square::{Square, Square64},
 };
 use strum::{EnumCount, ParseError as StrumParseError};
 

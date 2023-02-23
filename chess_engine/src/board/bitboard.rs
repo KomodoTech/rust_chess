@@ -1,7 +1,9 @@
 use crate::{
     error::ChessError as Error,
-    squares::{Square, Square64},
-    util::{File, Rank, SQUARE_120_TO_64, SQUARE_64_TO_120},
+    file::File,
+    rank::Rank,
+    square::{Square, Square64},
+    square::{SQUARE_120_TO_64, SQUARE_64_TO_120},
 };
 use std::{fmt, ops::BitAnd};
 

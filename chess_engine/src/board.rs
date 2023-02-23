@@ -1,11 +1,12 @@
 // TODO: when bitboard errors are removed, remove pub keyword
 pub mod bitboard;
 use crate::{
+    color::Color,
     error::{BoardFENParseError, RankFENParseError},
-    gamestate::NUM_BOARD_SQUARES,
-    pieces::Piece,
-    squares::{Square, Square64},
-    util::{Color, File, Rank},
+    file::File,
+    piece::Piece,
+    rank::Rank,
+    square::{Square, Square64},
 };
 use bitboard::BitBoard;
 use std::{
@@ -18,6 +19,8 @@ use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 /// There can be a max of 10 pieces (not king obviously) for each type of
 /// piece if all 8 pawns were to somehow promote to the same piece
 pub const MAX_NUM_PIECE_TYPE_INSTANCES: usize = 10;
+/// Number of squares for the internal board (10x12)
+pub const NUM_BOARD_SQUARES: usize = 120;
 
 // TODO: redo testing setup so that inner fields can stay private
 #[derive(Debug, PartialEq, Eq)]

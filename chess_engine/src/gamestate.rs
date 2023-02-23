@@ -1,5 +1,3 @@
-use rand::prelude::*;
-use rand_pcg::Lcg128Xsl64;
 use std::{
     default,
     fmt::{self, write},
@@ -9,16 +7,18 @@ use strum::EnumCount;
 use strum_macros::{Display as EnumDisplay, EnumCount as EnumCountMacro};
 
 use crate::{
-    board::Board,
-    castle_perms::{self, CastlePerm, NUM_CASTLE_PERM},
+    board::{Board, NUM_BOARD_SQUARES},
+    castle_perm::{self, CastlePerm, NUM_CASTLE_PERM},
+    color::Color,
     error::{
         BoardFENParseError, CastlePermConversionError, EnPassantFENParseError,
         FullmoveCounterFENParseError, GamestateFENParseError, HalfmoveClockFENParseError,
         RankFENParseError, SquareConversionError,
     },
-    pieces::{self, Piece, PieceType},
-    squares::{Square, Square64},
-    util::{Color, Rank},
+    piece::{self, Piece, PieceType},
+    rank::Rank,
+    square::{Square, Square64},
+    zobrist::Zobrist,
 };
 
 // CONSTANTS:
@@ -28,17 +28,7 @@ pub const MAX_GAME_MOVES: usize = 1024;
 /// immediately in a tie
 pub const HALF_MOVE_MAX: usize = 100;
 pub const NUM_FEN_SECTIONS: usize = 6;
-/// Number of squares for the internal board (10x12)
-pub const NUM_BOARD_SQUARES: usize = 120;
 const DEFAULT_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-// TODO: test to make sure seed is a good choice
-/// Seed used for Zobrist Hashing. Note that many PRNG implementations will behave poorly
-/// if the seed is poorly distributed (it should have roughly equal number of 0s and 1s)
-// NOTE: the seed data comes from this article: https://www.pcg-random.org/posts/simple-portable-cpp-seed-entropy.html
-const ZOBRIST_SEED: [u8; 32] = [
-    0x67, 0x0e, 0x5a, 0x45, 0x9a, 0xc9, 0xea, 0x9c, 0x88, 0x85, 0x36, 0x20, 0xc4, 0xc8, 0x36, 0xf9,
-    0x07, 0xab, 0x56, 0x40, 0xb2, 0x0b, 0x31, 0x3e, 0x7b, 0x94, 0x50, 0x51, 0x37, 0xf5, 0x0e, 0x84,
-];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Undo {
@@ -47,58 +37,6 @@ struct Undo {
     en_passant: Option<Square>,
     halfmove_clock: u32,
     position_key: u64,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-struct Zobrist {
-    color_key: u64,
-    piece_keys: [[u64; NUM_BOARD_SQUARES]; Piece::COUNT],
-    en_passant_keys: [u64; NUM_BOARD_SQUARES],
-    castle_keys: [u64; NUM_CASTLE_PERM],
-}
-
-// NOTE: https://craftychess.com/hyatt/collisions.html
-// NOTE: https://www.unf.edu/~cwinton/html/cop4300/s09/class.notes/LCGinfo.pdf
-// NOTE: https://www.stmintz.com/ccc/index.php?id=29863
-// NOTE: https://www.pcg-random.org/index.html
-// NOTE: https://rust-random.github.io/book/portability.html
-// NOTE: https://rust-random.github.io/book/guide-rngs.html
-// NOTE: https://www.pcg-random.org/posts/cpp-seeding-surprises.html
-/// Zobrist hashing using rand_pcg variant that should work decently well on 32bit and 64bit machines
-/// We don't require cryptographically secure PRNG's, but there have historically been
-/// many truly terribly implemented random number generators, so we're doing our best to choose
-/// a decent one, even though the effect of collisions seems to be fairly minimal for Zobrist
-/// hashing.
-impl Zobrist {
-    fn new() -> Self {
-        // declare seed deterministically from const we declared
-        let mut seed: <Lcg128Xsl64 as SeedableRng>::Seed = ZOBRIST_SEED;
-        // build Permuted Congruential Generator to do pseudo random number generation
-        let mut rng: Lcg128Xsl64 = Lcg128Xsl64::from_seed(seed);
-        // initialize Zobrist keys we want to fill with pseudo random values
-        let mut color_key: u64 = rng.gen();
-        let mut piece_keys = [[0u64; NUM_BOARD_SQUARES]; Piece::COUNT];
-        for square_array in &mut piece_keys {
-            rng.fill(square_array)
-        }
-        let mut en_passant_keys = [0u64; NUM_BOARD_SQUARES];
-        rng.fill(&mut en_passant_keys);
-        let mut castle_keys = [0u64; NUM_CASTLE_PERM];
-        rng.fill(&mut castle_keys);
-
-        Zobrist {
-            color_key,
-            piece_keys,
-            en_passant_keys,
-            castle_keys,
-        }
-    }
-}
-
-impl Default for Zobrist {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 // TODO: consider making the Gamestate with the builder pattern
@@ -502,26 +440,14 @@ impl Gamestate {
 
 #[cfg(test)]
 mod tests {
-    use std::borrow::Borrow;
-
     use strum::IntoEnumIterator;
 
     use super::*;
     use crate::{
         board::{bitboard::BitBoard, MAX_NUM_PIECE_TYPE_INSTANCES},
+        file::File,
         gamestate,
-        util::File,
     };
-
-    // TODO: properly seed and test Zobrist key gen to check for collision rate in norm
-    #[test]
-    fn test_gen_position_key_deterministic() {
-        let gamestate = Gamestate::default();
-        let output = gamestate.gen_position_key();
-        let expected = gamestate.gen_position_key();
-        println!("output: {}, expected: {}", output, expected);
-        assert_eq!(output, expected);
-    }
 
     // FEN parsing tests
     // Full FEN parsing

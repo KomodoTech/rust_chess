@@ -1,4 +1,4 @@
-use crate::{error::PieceConversionError, util::Color};
+use crate::{color::Color, error::PieceConversionError};
 
 use std::fmt::{self, write};
 use strum::EnumCount;
