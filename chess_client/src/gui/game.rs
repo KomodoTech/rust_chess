@@ -34,6 +34,9 @@ pub async fn game_scene(color: PlayerColor, mut socket: QuadSocket) -> Scene {
                     gamestate.move_piece(move_);
                     gamestate.turn = !player;
                 }
+                ServerResponse::GameWon(color) => {
+                    info!("Game over: {:#?} won", color);
+                }
                 _ => {}
             }
         }
@@ -60,8 +63,8 @@ pub async fn game_scene(color: PlayerColor, mut socket: QuadSocket) -> Scene {
             draw_piece_from_square(piece_texture, piece, square, &dimensions);
         }
 
-        if let Some(square) = mouse_state.last_clicked {
-            let _ = gamestate.get_square(square).map(|p| {
+        mouse_state.last_clicked.and_then(|square| {
+            gamestate.get_square(square).map(|p| {
                 draw_piece(
                     piece_texture,
                     p,
@@ -69,8 +72,8 @@ pub async fn game_scene(color: PlayerColor, mut socket: QuadSocket) -> Scene {
                     mouse_state.coords.1 - dimensions.square_size / 2.0,
                     mouse_state.coords.0 - dimensions.square_size / 2.0,
                 );
-            });
-        };
+            })
+        });
         next_frame().await
     }
 }
