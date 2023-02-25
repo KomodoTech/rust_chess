@@ -126,6 +126,7 @@ async fn start_game_with_human(
     let mut player_msg_stream = select(white_read, black_read);
 
     while let Some(msg) = player_msg_stream.next().await {
+        debug!("Recieved message: {:#?}", msg);
         match msg {
             (color, PlayerMessage::MovePiece(move_)) => {
                 if color == game.active_color {
