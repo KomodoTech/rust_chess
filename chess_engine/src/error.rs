@@ -103,7 +103,7 @@ pub enum EnPassantFENParseError {
     NonEmptySquares,
 
     #[error("the correct colored pawn ({0}) is not in front of the en passant square {1}")]
-    CorrectPawnNotInFront(Color, Square) 
+    CorrectPawnNotInFront(Color, Square),
 }
 
 #[derive(Error, Debug, PartialEq)]

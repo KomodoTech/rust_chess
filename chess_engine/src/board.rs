@@ -67,8 +67,6 @@ impl Board {
         BitBoard((self.pawns[0]).0 | (self.pawns[1]).0)
     }
 
-    
-
     // TODO: Look for bishops trapped behind non-enemy pawns (or behind any 3 pawns)
     // TODO: Check for non-jumpers in impossible positions
     /// Generates a Board instance corresponding to the board section of a FEN string
@@ -79,8 +77,8 @@ impl Board {
         // Check that we have the right number of ranks and for each valid rank update board accordingly
         match ranks.len() {
             Rank::COUNT => {
-               // NOTE: FEN is in reverse order compared with our internal board representation
-               // with regards to rank (chars within rank are in correct order)
+                // NOTE: FEN is in reverse order compared with our internal board representation
+                // with regards to rank (chars within rank are in correct order)
                 for (rank, rank_str) in ranks.iter().rev().enumerate() {
                     // does rank validation in separate function that will return Some(Piece)s or Nones in an array if valid
                     // use ? to convert from RankFENParseError to BoardFENParseError automatically and throw Err if not Ok
@@ -337,8 +335,8 @@ impl fmt::Display for Board {
                         Some(p) => {
                             write!(f, "{}", p);
                         }
-                       _ => {
-                           write!(f, ".");
+                        _ => {
+                            write!(f, ".");
                         }
                     },
                     _ => match piece {

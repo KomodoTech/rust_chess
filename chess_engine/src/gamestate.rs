@@ -237,9 +237,12 @@ impl Gamestate {
                                     Color::Black => {
                                         // check that the en passant square and the one behind it are empty
                                         let ep_empty = board.pieces[ep as usize].is_none();
-                                        let square_behind = Square::from_file_and_rank(ep.get_file(), Rank::Rank2);
-                                        let square_behind_empty = board.pieces[square_behind as usize].is_none();
-                                        let square_ahead = Square::from_file_and_rank(ep.get_file(), Rank::Rank4);
+                                        let square_behind =
+                                            Square::from_file_and_rank(ep.get_file(), Rank::Rank2);
+                                        let square_behind_empty =
+                                            board.pieces[square_behind as usize].is_none();
+                                        let square_ahead =
+                                            Square::from_file_and_rank(ep.get_file(), Rank::Rank4);
                                         match (ep_empty & square_behind_empty) {
                                             // check that white pawn is in front of en passant square
                                             true => match board.pawns[0].check_bit(Square64::from(square_ahead)) {
@@ -263,9 +266,12 @@ impl Gamestate {
                                     Color::White => {
                                         // check that the en passant square and the one behind it are empty
                                         let ep_empty = board.pieces[ep as usize].is_none();
-                                        let square_behind = Square::from_file_and_rank(ep.get_file(), Rank::Rank7);
-                                        let square_behind_empty = board.pieces[square_behind as usize].is_none();
-                                        let square_ahead = Square::from_file_and_rank(ep.get_file(), Rank::Rank5);
+                                        let square_behind =
+                                            Square::from_file_and_rank(ep.get_file(), Rank::Rank7);
+                                        let square_behind_empty =
+                                            board.pieces[square_behind as usize].is_none();
+                                        let square_ahead =
+                                            Square::from_file_and_rank(ep.get_file(), Rank::Rank5);
                                         match (ep_empty & square_behind_empty) {
                                             // check that black pawn is in front of en passant square
                                             true => match board.pawns[1].check_bit(Square64::from(square_ahead)) {
@@ -274,7 +280,7 @@ impl Gamestate {
                                             },
                                             false => return Err(GamestateFENParseError::EnPassantFENParseError(EnPassantFENParseError::NonEmptySquares)),
                                         }
-                                    },
+                                    }
                                     Color::Black => {
                                         return Err(GamestateFENParseError::EnPassantFENParseError(
                                             EnPassantFENParseError::ColorRankMismatch(
@@ -758,7 +764,7 @@ mod tests {
         let input = "rn1qkbnr/ppp2ppp/3pb3/3Pp3/8/8/PPPQPPPP/RNB1KBNR w KQkq e6 2 4";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::EnPassantFENParseError(
-            EnPassantFENParseError::NonEmptySquares
+            EnPassantFENParseError::NonEmptySquares,
         ));
         assert_eq!(output, expected);
     }
@@ -769,7 +775,7 @@ mod tests {
         let input = "rnbqk1nr/ppp1bppp/3p4/3Pp3/8/8/PPPQPPPP/RNB1KBNR w KQkq e6 2 4";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::EnPassantFENParseError(
-            EnPassantFENParseError::NonEmptySquares
+            EnPassantFENParseError::NonEmptySquares,
         ));
         assert_eq!(output, expected);
     }
@@ -780,18 +786,18 @@ mod tests {
         let input = "rnbqkbnr/ppp2ppp/3p4/3P4/4p3/8/PPPQPPPP/RNB1KBNR w KQkq e6 0 4";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::EnPassantFENParseError(
-            EnPassantFENParseError::CorrectPawnNotInFront(Color::Black, Square::E6)
+            EnPassantFENParseError::CorrectPawnNotInFront(Color::Black, Square::E6),
         ));
         assert_eq!(output, expected);
     }
-    
+
     // Correct color pawn has to be in front of en passant square
     #[test]
     fn test_gamestate_try_from_invalid_en_passant_wrong_pawn_in_front() {
         let input = "rnbqkbnr/pp1p1ppp/2p5/4P3/8/8/PPP1PPPP/RNBQKBNR w KQkq e6 0 3";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::EnPassantFENParseError(
-            EnPassantFENParseError::CorrectPawnNotInFront(Color::Black, Square::E6)
+            EnPassantFENParseError::CorrectPawnNotInFront(Color::Black, Square::E6),
         ));
         assert_eq!(output, expected);
     }
