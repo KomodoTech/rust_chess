@@ -78,6 +78,18 @@ pub async fn game_scene(color: PlayerColor, mut socket: QuadSocket) -> Scene {
     }
 }
 
+fn draw_piece_from_square(
+    texture: Texture2D,
+    piece: Piece,
+    square: Square,
+    dimensions: &ScreenDimensions,
+) {
+    let x_coord = dimensions.hor_margin + dimensions.square_size * square.file as f32;
+    let y_coord = dimensions.vert_margin + dimensions.square_size * square.rank as f32;
+
+    draw_piece(texture, piece, dimensions.square_size, y_coord, x_coord);
+}
+
 fn draw_piece(texture: Texture2D, piece: Piece, size: f32, y_coord: f32, x_coord: f32) {
     let rectangle = match piece {
         Piece::WhiteKing => WK_RECTANGLE,
@@ -100,43 +112,6 @@ fn draw_piece(texture: Texture2D, piece: Piece, size: f32, y_coord: f32, x_coord
         WHITE,
         DrawTextureParams {
             dest_size: Some(Vec2::splat(size)),
-            source: Some(rectangle),
-            ..Default::default()
-        },
-    );
-}
-
-fn draw_piece_from_square(
-    texture: Texture2D,
-    piece: Piece,
-    square: Square,
-    dimensions: &ScreenDimensions,
-) {
-    let rectangle = match piece {
-        Piece::WhiteKing => WK_RECTANGLE,
-        Piece::WhiteQueen => WQ_RECTANGLE,
-        Piece::WhiteBishop => WB_RECTANGLE,
-        Piece::WhiteKnight => WN_RECTANGLE,
-        Piece::WhiteRook => WR_RECTANGLE,
-        Piece::WhitePawn => WP_RECTANGLE,
-        Piece::BlackKing => BK_RECTANGLE,
-        Piece::BlackQueen => BQ_RECTANGLE,
-        Piece::BlackBishop => BB_RECTANGLE,
-        Piece::BlackKnight => BN_RECTANGLE,
-        Piece::BlackRook => BR_RECTANGLE,
-        Piece::BlackPawn => BP_RECTANGLE,
-    };
-
-    let x_coord = dimensions.hor_margin + dimensions.square_size * square.file as f32;
-    let y_coord = dimensions.vert_margin + dimensions.square_size * square.rank as f32;
-
-    draw_texture_ex(
-        texture,
-        x_coord,
-        y_coord,
-        WHITE,
-        DrawTextureParams {
-            dest_size: Some(Vec2::splat(dimensions.square_size)),
             source: Some(rectangle),
             ..Default::default()
         },
