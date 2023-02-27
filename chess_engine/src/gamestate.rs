@@ -443,7 +443,12 @@ mod tests {
     use strum::IntoEnumIterator;
 
     use super::*;
-    use crate::{board::bitboard::BitBoard, error::BoardBuildError, file::File, gamestate};
+    use crate::{
+        board::bitboard::BitBoard,
+        error::{BoardBuildError, BoardValidityError, PieceConversionError},
+        file::File,
+        gamestate,
+    };
 
     // FEN parsing tests
     // Full FEN parsing
@@ -1173,9 +1178,9 @@ mod tests {
         let input = "8/8/8/8/8/8/8/8 w KQkq - 0 1";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::BoardBuildError(
-            BoardBuildError::BoardFENParseError(BoardFENParseError::InvalidKingNum(
-                invalid_board_str.to_string(),
-            )),
+            BoardBuildError::BoardValidityError(
+                BoardValidityError::StrictOneBlackKingOneWhiteKing(0, 0),
+            ),
         ));
         assert_eq!(output, expected);
     }
@@ -1200,9 +1205,11 @@ mod tests {
         let input = "8/8/rbkqn2p/8/8/8/PPKPP1PP/8/ w KQkq - 0 1";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::BoardBuildError(
-            BoardBuildError::BoardFENParseError(
-            BoardFENParseError::WrongNumRanks(invalid_board_str.to_string(), 9),
-        )));
+            BoardBuildError::BoardFENParseError(BoardFENParseError::WrongNumRanks(
+                invalid_board_str.to_string(),
+                9,
+            )),
+        ));
         assert_eq!(output, expected);
     }
 
@@ -1212,9 +1219,10 @@ mod tests {
         let input = "8/8/rbkqn2p//8/8/PPKPP1PP/8 w KQkq - 0 1";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::BoardBuildError(
-            BoardBuildError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::Empty),
-        )));
+            BoardBuildError::BoardFENParseError(BoardFENParseError::RankFENParseError(
+                RankFENParseError::Empty,
+            )),
+        ));
         assert_eq!(output, expected);
     }
 
@@ -1224,9 +1232,10 @@ mod tests {
         let input = "8/8/rbqn3p/8/8/8/PPKPP1PP/8 w KQkq - 0 1";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::BoardBuildError(
-            BoardBuildError::BoardFENParseError(
-            BoardFENParseError::InvalidKingNum(invalid_board_str.to_string()),
-        )));
+            BoardBuildError::BoardValidityError(
+                BoardValidityError::StrictOneBlackKingOneWhiteKing(1, 0),
+            ),
+        ));
         assert_eq!(output, expected);
     }
 
@@ -1236,9 +1245,10 @@ mod tests {
         let input = "8/8/rbqnkkpr/8/8/8/PPKPP1PP/8 w KQkq - 0 1";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::BoardBuildError(
-            BoardBuildError::BoardFENParseError(
-            BoardFENParseError::InvalidNumOfPiece(invalid_board_str.to_string(), 'k'),
-        )));
+            BoardBuildError::BoardValidityError(
+                BoardValidityError::StrictOneBlackKingOneWhiteKing(1, 2),
+            ),
+        ));
         assert_eq!(output, expected);
     }
 
@@ -1248,9 +1258,10 @@ mod tests {
         let input = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/QQQQQQQQ w KQkq - 0 1";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::BoardBuildError(
-            BoardBuildError::BoardFENParseError(
-            BoardFENParseError::InvalidNumOfPiece(invalid_board_str.to_string(), 'Q'),
-        )));
+            BoardBuildError::BoardValidityError(
+                BoardValidityError::StrictExceedsMaxNumForPieceType(10, Piece::WhiteQueen, 9)
+            )
+        ));
         assert_eq!(output, expected);
     }
 
@@ -1260,9 +1271,10 @@ mod tests {
         let input = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/PPPPPPPP w KQkq - 0 1";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::BoardBuildError(
-            BoardBuildError::BoardFENParseError(
-            BoardFENParseError::InvalidNumOfPiece(invalid_board_str.to_string(), 'P'),
-        )));
+            BoardBuildError::BoardValidityError(
+                BoardValidityError::StrictExceedsMaxNumForPieceType(12, Piece::WhitePawn, 8)
+            )
+        ));
         assert_eq!(output, expected);
     }
 
@@ -1273,9 +1285,10 @@ mod tests {
         let input = "/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::BoardBuildError(
-            BoardBuildError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::Empty),
-        )));
+            BoardBuildError::BoardFENParseError(BoardFENParseError::RankFENParseError(
+                RankFENParseError::Empty,
+            )),
+        ));
         assert_eq!(output, expected);
     }
 
@@ -1285,12 +1298,10 @@ mod tests {
         let input = "rn2Xb1r/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::BoardBuildError(
-            BoardBuildError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::InvalidChar(
-                invalid_rank_str.to_string(),
-                'X',
+            BoardBuildError::BoardFENParseError(BoardFENParseError::RankFENParseError(
+                RankFENParseError::PieceConversionError(PieceConversionError::FromChar('X')),
             )),
-        )));
+        ));
         assert_eq!(output, expected);
     }
 
@@ -1300,12 +1311,10 @@ mod tests {
         let input = "rn0kb1rqN/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::BoardBuildError(
-            BoardBuildError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::InvalidDigit(
-                invalid_rank_str.to_string(),
-                0,
+            BoardBuildError::BoardFENParseError(BoardFENParseError::RankFENParseError(
+                RankFENParseError::InvalidDigit(invalid_rank_str.to_string(), 0),
             )),
-        )));
+        ));
         assert_eq!(output, expected);
     }
 
@@ -1315,11 +1324,10 @@ mod tests {
         let input = "rn2kb1rqN/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::BoardBuildError(
-            BoardBuildError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::InvalidNumSquares(
-                invalid_rank_str.to_string(),
+            BoardBuildError::BoardFENParseError(BoardFENParseError::RankFENParseError(
+                RankFENParseError::InvalidNumSquares(invalid_rank_str.to_string()),
             )),
-        )));
+        ));
         assert_eq!(output, expected);
     }
 
@@ -1329,11 +1337,10 @@ mod tests {
         let input = "rn2kb/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::BoardBuildError(
-            BoardBuildError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::InvalidNumSquares(
-                invalid_rank_str.to_string(),
+            BoardBuildError::BoardFENParseError(BoardFENParseError::RankFENParseError(
+                RankFENParseError::InvalidNumSquares(invalid_rank_str.to_string()),
             )),
-        )));
+        ));
         assert_eq!(output, expected);
     }
 

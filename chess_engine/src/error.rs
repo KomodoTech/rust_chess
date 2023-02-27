@@ -36,9 +36,8 @@ pub enum RankFENParseError {
     )]
     InvalidDigit(String, usize),
 
-    #[error("Rank FEN {0} includes invalid char {1}")]
-    InvalidChar(String, char),
-
+    // #[error("Rank FEN {0} includes invalid char {1}")]
+    // InvalidChar(String, char),
     #[error("Rank FEN {0} includes two consecutive digits")]
     TwoConsecutiveDigits(String),
 }
@@ -53,12 +52,6 @@ pub enum BoardFENParseError {
         Rank::COUNT
     )]
     WrongNumRanks(String, usize),
-
-    #[error("FEN {0} includes too many {1}s")]
-    InvalidNumOfPiece(String, char),
-
-    #[error("FEN {0} must have exactly one white king and exactly one black king")]
-    InvalidKingNum(String),
 }
 
 #[derive(Error, Debug, PartialEq)]
@@ -93,7 +86,7 @@ pub enum BoardValidityError {
 #[derive(Error, Debug, PartialEq)]
 pub enum BoardBuildError {
     #[error("Found Piece on invalid square index {0}")]
-    PieceOnInvalidSquare(#[from] SquareConversionError),
+    SquareConversionError(#[from] SquareConversionError),
 
     #[error("Failed to parse FEN while building board")]
     BoardFENParseError(#[from] BoardFENParseError),
