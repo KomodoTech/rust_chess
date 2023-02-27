@@ -39,7 +39,7 @@ pub struct BitBoard(pub u64);
 
 impl BitBoard {
     /// Counts number of set bits
-    fn count_bits(&self) -> u8 {
+    pub fn count_bits(&self) -> u8 {
         let mut count: u8 = 0;
         let mut b = self.0;
         while b > 0 {

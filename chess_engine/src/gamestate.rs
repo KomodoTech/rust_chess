@@ -443,11 +443,7 @@ mod tests {
     use strum::IntoEnumIterator;
 
     use super::*;
-    use crate::{
-        board::{bitboard::BitBoard, MAX_NUM_PIECE_TYPE_INSTANCES},
-        file::File,
-        gamestate,
-    };
+    use crate::{board::bitboard::BitBoard, error::BoardBuildError, file::File, gamestate};
 
     // FEN parsing tests
     // Full FEN parsing
@@ -479,32 +475,32 @@ mod tests {
             // NOTE: King considered major piece for us
             major_piece_count: [4, 4],
             minor_piece_count: [4, 4],
-            piece_list: [
-                // WhitePawns
-                [Some(Square::A2), Some(Square::B2), Some(Square::C2), Some(Square::D2), Some(Square::E2), Some(Square::F2), Some(Square::G2), Some(Square::H2), None, None],
-                // WhiteKnights
-                [Some(Square::B1), Some(Square::G1), None, None, None, None, None, None, None, None],
-                // WhiteBishops
-                [Some(Square::C1), Some(Square::F1), None, None, None, None, None, None, None, None],
-                // WhiteRooks
-                [Some(Square::A1), Some(Square::H1), None, None, None, None, None, None, None, None],
-                // WhiteQueens
-                [Some(Square::D1), None, None, None, None, None, None, None, None, None],
-                // WhiteKing
-                [Some(Square::E1), None, None, None, None, None, None, None, None, None],
-                // BlackPawns
-                [Some(Square::A7), Some(Square::B7), Some(Square::C7), Some(Square::D7), Some(Square::E7), Some(Square::F7), Some(Square::G7), Some(Square::H7), None, None],
-                // BlackKnights
-                [Some(Square::B8), Some(Square::G8), None, None, None, None, None, None, None, None],
-                // BlackBishops
-                [Some(Square::C8), Some(Square::F8), None, None, None, None, None, None, None, None],
-                // BlackRooks
-                [Some(Square::A8), Some(Square::H8), None, None, None, None, None, None, None, None],
-                // BlackQueens
-                [Some(Square::D8), None, None, None, None, None, None, None, None, None],
-                // BlackKing
-                [Some(Square::E8), None, None, None, None, None, None, None, None, None],
-            ]
+        piece_list: [
+            // WhitePawns
+            vec![Square::A2, Square::B2, Square::C2, Square::D2, Square::E2, Square::F2, Square::G2, Square::H2],
+            // WhiteKnights
+            vec![Square::B1, Square::G1],
+            // WhiteBishops
+            vec![Square::C1, Square::F1],
+            // WhiteRooks
+            vec![Square::A1, Square::H1],
+            // WhiteQueens
+            vec![Square::D1],
+            // WhiteKing
+            vec![Square::E1],
+            // BlackPawns
+            vec![Square::A7, Square::B7, Square::C7, Square::D7, Square::E7, Square::F7, Square::G7, Square::H7],
+            // BlackKnights
+            vec![Square::B8, Square::G8],
+            // BlackBishops
+            vec![Square::C8, Square::F8],
+            // BlackRooks
+            vec![Square::A8, Square::H8],
+            // BlackQueens
+            vec![Square::D8],
+            // BlackKing
+            vec![Square::E8],
+        ]
         };
 
         let active_color = Color::White;
@@ -600,29 +596,29 @@ mod tests {
             minor_piece_count: [0, 0],
             piece_list: [
                 // WhitePawns
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // WhiteKnights
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // WhiteBishops
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // WhiteRooks
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // WhiteQueens
-                [Some(Square::E4), None, None, None, None, None, None, None, None, None],
+                vec![Square::E4],
                 // WhiteKing
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // BlackPawns
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // BlackKnights
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // BlackBishops
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // BlackRooks
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // BlackQueens
-                [Some(Square::D7), None, None, None, None, None, None, None, None, None],
+                vec![Square::D7],
                 // BlackKing
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![]
             ]
         };
         let active_color = Color::White;
@@ -695,29 +691,29 @@ mod tests {
             minor_piece_count: [0, 0],
             piece_list: [
                 // WhitePawns
-                [Some(Square::C2), None, None, None, None, None, None, None, None, None],
+                vec![Square::C2],
                 // WhiteKnights
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // WhiteBishops
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // WhiteRooks
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // WhiteQueens
-                [Some(Square::E4), None, None, None, None, None, None, None, None, None],
+                vec![Square::E4],
                 // WhiteKing
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // BlackPawns
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // BlackKnights
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // BlackBishops
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // BlackRooks
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // BlackQueens
-                [Some(Square::D7), None, None, None, None, None, None, None, None, None],
+                vec![Square::D7],
                 // BlackKing
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![]
             ]
         };
 
@@ -793,29 +789,29 @@ mod tests {
             minor_piece_count: [1, 0],
             piece_list: [
                 // WhitePawns
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // WhiteKnights
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // WhiteBishops
-                [Some(Square::C3), None, None, None, None, None, None, None, None, None],
+                vec![Square::C3],
                 // WhiteRooks
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // WhiteQueens
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // WhiteKing
-                [Some(Square::H3), None, None, None, None, None, None, None, None, None],
+                vec![Square::H3],
                 // BlackPawns
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // BlackKnights
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // BlackBishops
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // BlackRooks
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // BlackQueens
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
+                vec![],
                 // BlackKing
-                [Some(Square::A1), None, None, None, None, None, None, None, None, None],
+                vec![Square::A1],
             ]
         };
         let active_color = Color::White;
@@ -1046,8 +1042,11 @@ mod tests {
         let invalid_board_section = "rnbqkbnr/pppppppp/";
         let input = "rnbqkbnr/pppppppp/ 8/8/8/8/PPPPPPPP/RNBQK BNR w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::from(
-            BoardFENParseError::WrongNumRanks(invalid_board_section.to_string(), 3),
+        let expected = Err(GamestateFENParseError::BoardBuildError(
+            BoardBuildError::BoardFENParseError(BoardFENParseError::WrongNumRanks(
+                invalid_board_section.to_string(),
+                3,
+            )),
         ));
         assert_eq!(output, expected);
     }
@@ -1056,9 +1055,9 @@ mod tests {
     fn test_gamestate_try_from_invalid_fen_spaces_in_board_section_end() {
         let input = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQK BNR w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::InvalidNumSquares(
-                "RNBQK".to_string(),
+        let expected = Err(GamestateFENParseError::BoardBuildError(
+            BoardBuildError::BoardFENParseError(BoardFENParseError::RankFENParseError(
+                RankFENParseError::InvalidNumSquares("RNBQK".to_string()),
             )),
         ));
         assert_eq!(output, expected);
@@ -1173,8 +1172,10 @@ mod tests {
         let invalid_board_str = "8/8/8/8/8/8/8/8";
         let input = "8/8/8/8/8/8/8/8 w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
-            BoardFENParseError::InvalidKingNum(invalid_board_str.to_string()),
+        let expected = Err(GamestateFENParseError::BoardBuildError(
+            BoardBuildError::BoardFENParseError(BoardFENParseError::InvalidKingNum(
+                invalid_board_str.to_string(),
+            )),
         ));
         assert_eq!(output, expected);
     }
@@ -1184,8 +1185,11 @@ mod tests {
         let invalid_board_str = "8/8/rbkqn2p/8/8/8/PPKPP1PP";
         let input = "8/8/rbkqn2p/8/8/8/PPKPP1PP w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
-            BoardFENParseError::WrongNumRanks(invalid_board_str.to_string(), 7),
+        let expected = Err(GamestateFENParseError::BoardBuildError(
+            BoardBuildError::BoardFENParseError(BoardFENParseError::WrongNumRanks(
+                invalid_board_str.to_string(),
+                7,
+            )),
         ));
         assert_eq!(output, expected);
     }
@@ -1195,9 +1199,10 @@ mod tests {
         let invalid_board_str = "8/8/rbkqn2p/8/8/8/PPKPP1PP/8/";
         let input = "8/8/rbkqn2p/8/8/8/PPKPP1PP/8/ w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
+        let expected = Err(GamestateFENParseError::BoardBuildError(
+            BoardBuildError::BoardFENParseError(
             BoardFENParseError::WrongNumRanks(invalid_board_str.to_string(), 9),
-        ));
+        )));
         assert_eq!(output, expected);
     }
 
@@ -1206,9 +1211,10 @@ mod tests {
         let invalid_board_str = "8/8/rbkqn2p//8/8/PPKPP1PP/8";
         let input = "8/8/rbkqn2p//8/8/PPKPP1PP/8 w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
+        let expected = Err(GamestateFENParseError::BoardBuildError(
+            BoardBuildError::BoardFENParseError(
             BoardFENParseError::RankFENParseError(RankFENParseError::Empty),
-        ));
+        )));
         assert_eq!(output, expected);
     }
 
@@ -1217,9 +1223,10 @@ mod tests {
         let invalid_board_str = "8/8/rbqn3p/8/8/8/PPKPP1PP/8";
         let input = "8/8/rbqn3p/8/8/8/PPKPP1PP/8 w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
+        let expected = Err(GamestateFENParseError::BoardBuildError(
+            BoardBuildError::BoardFENParseError(
             BoardFENParseError::InvalidKingNum(invalid_board_str.to_string()),
-        ));
+        )));
         assert_eq!(output, expected);
     }
 
@@ -1228,9 +1235,10 @@ mod tests {
         let invalid_board_str = "8/8/rbqnkkpr/8/8/8/PPKPP1PP/8";
         let input = "8/8/rbqnkkpr/8/8/8/PPKPP1PP/8 w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
+        let expected = Err(GamestateFENParseError::BoardBuildError(
+            BoardBuildError::BoardFENParseError(
             BoardFENParseError::InvalidNumOfPiece(invalid_board_str.to_string(), 'k'),
-        ));
+        )));
         assert_eq!(output, expected);
     }
 
@@ -1239,9 +1247,10 @@ mod tests {
         let invalid_board_str = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/QQQQQQQQ";
         let input = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/QQQQQQQQ w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
+        let expected = Err(GamestateFENParseError::BoardBuildError(
+            BoardBuildError::BoardFENParseError(
             BoardFENParseError::InvalidNumOfPiece(invalid_board_str.to_string(), 'Q'),
-        ));
+        )));
         assert_eq!(output, expected);
     }
 
@@ -1250,9 +1259,10 @@ mod tests {
         let invalid_board_str = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/PPPPPPPP";
         let input = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/PPPPPPPP w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
+        let expected = Err(GamestateFENParseError::BoardBuildError(
+            BoardBuildError::BoardFENParseError(
             BoardFENParseError::InvalidNumOfPiece(invalid_board_str.to_string(), 'P'),
-        ));
+        )));
         assert_eq!(output, expected);
     }
 
@@ -1262,9 +1272,10 @@ mod tests {
         let invalid_board_str = "";
         let input = "/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
+        let expected = Err(GamestateFENParseError::BoardBuildError(
+            BoardBuildError::BoardFENParseError(
             BoardFENParseError::RankFENParseError(RankFENParseError::Empty),
-        ));
+        )));
         assert_eq!(output, expected);
     }
 
@@ -1273,12 +1284,13 @@ mod tests {
         let invalid_rank_str = "rn2Xb1r";
         let input = "rn2Xb1r/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
+        let expected = Err(GamestateFENParseError::BoardBuildError(
+            BoardBuildError::BoardFENParseError(
             BoardFENParseError::RankFENParseError(RankFENParseError::InvalidChar(
                 invalid_rank_str.to_string(),
                 'X',
             )),
-        ));
+        )));
         assert_eq!(output, expected);
     }
 
@@ -1287,12 +1299,13 @@ mod tests {
         let invalid_rank_str = "rn0kb1rqN"; // num squares would be valid
         let input = "rn0kb1rqN/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
+        let expected = Err(GamestateFENParseError::BoardBuildError(
+            BoardBuildError::BoardFENParseError(
             BoardFENParseError::RankFENParseError(RankFENParseError::InvalidDigit(
                 invalid_rank_str.to_string(),
                 0,
             )),
-        ));
+        )));
         assert_eq!(output, expected);
     }
 
@@ -1301,11 +1314,12 @@ mod tests {
         let invalid_rank_str = "rn2kb1rqN";
         let input = "rn2kb1rqN/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
+        let expected = Err(GamestateFENParseError::BoardBuildError(
+            BoardBuildError::BoardFENParseError(
             BoardFENParseError::RankFENParseError(RankFENParseError::InvalidNumSquares(
                 invalid_rank_str.to_string(),
             )),
-        ));
+        )));
         assert_eq!(output, expected);
     }
 
@@ -1314,11 +1328,12 @@ mod tests {
         let invalid_rank_str = "rn2kb";
         let input = "rn2kb/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
+        let expected = Err(GamestateFENParseError::BoardBuildError(
+            BoardBuildError::BoardFENParseError(
             BoardFENParseError::RankFENParseError(RankFENParseError::InvalidNumSquares(
                 invalid_rank_str.to_string(),
             )),
-        ));
+        )));
         assert_eq!(output, expected);
     }
 
@@ -1327,9 +1342,9 @@ mod tests {
         let invalid_rank_str = "pppp12p"; // adds up to 8 squares but isn't valid
         let input = "pppp12p/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
         let ouput = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::TwoConsecutiveDigits(
-                invalid_rank_str.to_string(),
+        let expected = Err(GamestateFENParseError::BoardBuildError(
+            BoardBuildError::BoardFENParseError(BoardFENParseError::RankFENParseError(
+                RankFENParseError::TwoConsecutiveDigits(invalid_rank_str.to_string()),
             )),
         ));
         assert_eq!(ouput, expected);
@@ -1340,9 +1355,9 @@ mod tests {
         let invalid_rank_str = "pppp18p"; // adds up to more than 8 squares but gets caught for consecutive digits
         let input = "pppp18p/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
         let ouput = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::TwoConsecutiveDigits(
-                invalid_rank_str.to_string(),
+        let expected = Err(GamestateFENParseError::BoardBuildError(
+            BoardBuildError::BoardFENParseError(BoardFENParseError::RankFENParseError(
+                RankFENParseError::TwoConsecutiveDigits(invalid_rank_str.to_string()),
             )),
         ));
         assert_eq!(ouput, expected);

@@ -6,6 +6,7 @@ use crate::{
     file::File,
     gamestate::{HALF_MOVE_MAX, MAX_GAME_MOVES, NUM_FEN_SECTIONS},
     moves::Move,
+    piece::Piece,
     rank::Rank,
     square::{Square, Square64},
 };
@@ -21,6 +22,9 @@ pub enum ChessError {
 
 #[derive(Error, Debug, PartialEq)]
 pub enum RankFENParseError {
+    #[error("Failed to build Rank due to invalid char")]
+    PieceConversionError(#[from] PieceConversionError),
+
     #[error("Rank FEN is empty")]
     Empty,
 
@@ -58,9 +62,50 @@ pub enum BoardFENParseError {
 }
 
 #[derive(Error, Debug, PartialEq)]
-pub enum GamestateFENParseError {
-    #[error("board FEN is invalid")]
+pub enum BoardValidityError {
+    #[error("Board has {0} WhiteKings and {1} BlackKings, but should have exactly one of each")]
+    StrictOneBlackKingOneWhiteKing(u8, u8),
+
+    #[error("Board has {0} {1}s, which exceeds {2} which is the maximum allowed number for that piece type")]
+    StrictExceedsMaxNumForPieceType(u8, Piece, u8),
+
+    #[error(
+        "A player has more promoted pieces than missing pawns which is not allowed:
+            \nWhite:
+            \nNumber of promoted pieces: {0}
+            \nNumber of missing pawns: {1}
+            \nBlack:
+            \nNumber of promoted pieces: {2}
+            \nNumber of missing pawns: {3}"
+    )]
+    StrictMorePromotedPiecesThanMissingPawns(u8, u8, u8, u8),
+
+    #[error("Board has a WhitePawn in Rank1 which is not a valid position")]
+    StrictWhitePawnInFirstRank,
+
+    #[error("Board has a BlackPawn in Rank8 which is not a valid position")]
+    StrictBlackPawnInLastRank,
+
+    #[error("Board has Kings less than 2 squares apart from each other which is not allowed. WhiteKing is at Square {0}, BlackKing is at Square{1} and the distance between them is {2}")]
+    StrictKingsLessThanTwoSquaresApart(Square, Square, u8),
+}
+
+#[derive(Error, Debug, PartialEq)]
+pub enum BoardBuildError {
+    #[error("Found Piece on invalid square index {0}")]
+    PieceOnInvalidSquare(#[from] SquareConversionError),
+
+    #[error("Failed to parse FEN while building board")]
     BoardFENParseError(#[from] BoardFENParseError),
+
+    #[error("Board failed validity checks")]
+    BoardValidityError(#[from] BoardValidityError),
+}
+
+#[derive(Error, Debug, PartialEq)]
+pub enum GamestateFENParseError {
+    #[error("board failed to build")]
+    BoardBuildError(#[from] BoardBuildError),
 
     #[error("Halfmove Clock is invalid")]
     HalfmoveClockFENParseError(#[from] HalfmoveClockFENParseError),
@@ -151,6 +196,9 @@ pub enum BitBoardError {
 pub enum PieceConversionError {
     #[error("could not convert char {0} into a Piece")]
     FromChar(char),
+
+    #[error("could not convert usize {0} into a Piece")]
+    FromUsize(usize),
 }
 
 #[derive(Error, Debug, PartialEq)]

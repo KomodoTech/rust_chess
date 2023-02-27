@@ -101,6 +101,12 @@ const MAX_NUM_PIECES_ALLOWED: [u8; Piece::COUNT] = [
     8, 10, 10, 10, 9, 1, 8, 10, 10, 10, 9, 1,
 ];
 
+/// For regular chess these are the starting number of pieces per type
+const STARTING_NUM_PIECES: [u8; Piece::COUNT] = [
+    //wp wn wb wr wq wk bp bn bb br bq bk
+    8, 2, 2, 2, 1, 1, 8, 2, 2, 2, 1, 1,
+];
+
 // ATTACKING
 
 /// Given a starting Square (10x12) index, these values are all the offsets where a White Pawn could move
@@ -209,6 +215,9 @@ impl Piece {
     pub fn get_max_num_allowed(&self) -> u8 {
         MAX_NUM_PIECES_ALLOWED[*self as usize]
     }
+    pub fn get_starting_num(&self) -> u8 {
+        STARTING_NUM_PIECES[*self as usize]
+    }
 
     pub fn is_pawn(&self) -> bool {
         PIECE_PAWN[*self as usize]
@@ -290,6 +299,28 @@ impl From<Piece> for char {
             Piece::BlackRook => 'r',
             Piece::BlackQueen => 'q',
             Piece::BlackKing => 'k',
+        }
+    }
+}
+
+impl TryFrom<usize> for Piece {
+    type Error = PieceConversionError;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Piece::WhitePawn),
+            1 => Ok(Piece::WhiteKnight),
+            2 => Ok(Piece::WhiteBishop),
+            3 => Ok(Piece::WhiteRook),
+            4 => Ok(Piece::WhiteQueen),
+            5 => Ok(Piece::WhiteKing),
+            6 => Ok(Piece::BlackPawn),
+            7 => Ok(Piece::BlackKnight),
+            8 => Ok(Piece::BlackBishop),
+            9 => Ok(Piece::BlackRook),
+            10 => Ok(Piece::BlackQueen),
+            11 => Ok(Piece::BlackKing),
+            _ => Err(PieceConversionError::FromUsize(value)),
         }
     }
 }

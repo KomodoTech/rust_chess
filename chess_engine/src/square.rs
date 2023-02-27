@@ -7,6 +7,7 @@ use crate::{
 };
 use num::Integer;
 use std::{
+    cmp::max,
     fmt,
     ops::{Add, AddAssign, Sub},
     str::FromStr,
@@ -236,6 +237,28 @@ impl Square {
             true => Color::Black,
             false => Color::White,
         }
+    }
+
+    /// Get the chess/kings distance between two squares
+    pub fn get_chebyshev_distance(square_1: Square, square_2: Square) -> u8 {
+        // https://www.youtube.com/watch?v=bfV4XhpzpBE&t=178s
+        let file_1 = square_1.get_file() as i8;
+        let rank_1 = square_1.get_rank() as i8;
+        let file_2 = square_2.get_file() as i8;
+        let rank_2 = square_2.get_file() as i8;
+
+        // NOTE:
+        // normally you would think of Chebyshev Distance as max(rank_distance, file_distance)
+        // but applying Chebyshev transformation allows us to get rid of max function call
+        let x_1 = file_1 + rank_1;
+        let y_1 = file_1 - rank_1;
+        let x_2 = file_2 + rank_2;
+        let y_2 = file_2 - rank_2;
+
+        let rank_distance = (x_2 - x_1).abs();
+        let file_distance = (y_2 - y_1).abs();
+        // will always be divisible by 2
+        u8::try_from((rank_distance + file_distance) / 2).expect("should always be positive")
     }
 }
 
@@ -473,6 +496,33 @@ mod tests {
     fn test_get_rank() {
         let output = Square::H7.get_rank();
         let expected = Rank::Rank7;
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_get_chebyshev_distance() {
+        let square_1 = Square::B4;
+        let square_2 = Square::F6;
+        let output = Square::get_chebyshev_distance(square_1, square_2);
+        let expected = 4;
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_get_chebyshev_distance_same_square() {
+        let square_1 = Square::F6;
+        let square_2 = Square::F6;
+        let output = Square::get_chebyshev_distance(square_1, square_2);
+        let expected = 0;
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_get_chebyshev_distance_diagonal() {
+        let square_1 = Square::A1;
+        let square_2 = Square::H8;
+        let output = Square::get_chebyshev_distance(square_1, square_2);
+        let expected = 7;
         assert_eq!(output, expected);
     }
 }
