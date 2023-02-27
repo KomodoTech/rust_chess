@@ -128,7 +128,7 @@ async fn start_game_with_human(
     while let Some(msg) = player_msg_stream.next().await {
         debug!("Recieved message: {:#?}", msg);
         match msg {
-            (color, PlayerMessage::MovePiece(move_)) => {
+            (color, PlayerMessage::MakeMove(move_)) => {
                 if color == game.active_color {
                     game.history.push(move_);
                     game.active_color = !color;

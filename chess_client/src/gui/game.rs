@@ -3,8 +3,8 @@ mod mouse;
 mod screen;
 
 use super::Scene;
-use chess_client::types::{Piece, PlayerColor, PlayerMessage, ServerResponse, Square};
-use gamestate::GameState;
+use chess_client::types::{PlayerColor, PlayerMessage, ServerResponse, Square};
+use gamestate::{GameState, Piece};
 use macroquad::{
     color::{LIGHTGRAY, WHITE},
     math::{Rect, Vec2},
@@ -30,9 +30,10 @@ pub async fn game_scene(color: PlayerColor, mut socket: QuadSocket) -> Scene {
     loop {
         while let Some(resp) = socket.try_recv_bin::<ServerResponse>() {
             match resp {
-                ServerResponse::MoveMade { player, move_ } => {
-                    gamestate.move_piece(move_);
-                    gamestate.turn = !player;
+                ServerResponse::MoveMade { player: _, move_ } => {
+                    if gamestate.is_legal_move(move_) && gamestate.turn != gamestate.player_color {
+                        gamestate.move_piece(move_);
+                    }
                 }
                 ServerResponse::GameWon(color) => {
                     info!("Game over: {:#?} won", color);
@@ -42,8 +43,9 @@ pub async fn game_scene(color: PlayerColor, mut socket: QuadSocket) -> Scene {
         }
         dimensions.update();
         if let Some(move_) = mouse_state.update_gamestate(&dimensions, &mut gamestate) {
-            if gamestate.player_color == gamestate.turn {
-                let msg = PlayerMessage::MovePiece(move_);
+            if gamestate.is_legal_move(move_) && gamestate.turn == gamestate.player_color {
+                gamestate.move_piece(move_);
+                let msg = PlayerMessage::MakeMove(move_);
                 socket.send_bin(&msg);
             }
         }
@@ -60,7 +62,13 @@ pub async fn game_scene(color: PlayerColor, mut socket: QuadSocket) -> Scene {
         );
 
         for (square, piece) in gamestate.into_iter() {
-            draw_piece_from_square(piece_texture, piece, square, &dimensions);
+            draw_piece_from_square(
+                piece_texture,
+                piece,
+                square,
+                &dimensions,
+                gamestate.player_color,
+            );
         }
 
         mouse_state.last_clicked.and_then(|square| {
@@ -83,7 +91,16 @@ fn draw_piece_from_square(
     piece: Piece,
     square: Square,
     dimensions: &ScreenDimensions,
+    player: PlayerColor,
 ) {
+    let square = if player == PlayerColor::Black {
+        Square {
+            rank: 7 - square.rank,
+            file: 7 - square.file,
+        }
+    } else {
+        square
+    };
     let x_coord = dimensions.hor_margin + dimensions.square_size * square.file as f32;
     let y_coord = dimensions.vert_margin + dimensions.square_size * square.rank as f32;
 

@@ -23,7 +23,7 @@ impl MouseState {
                 None
             } else {
                 let move_ = dimensions
-                    .get_square(self.coords.0, self.coords.1)
+                    .get_square(self.coords.0, self.coords.1, gamestate.player_color)
                     .and_then(|s| {
                         gamestate.get_square(clicked_square).map(|_| Move {
                             from: clicked_square,
@@ -37,7 +37,7 @@ impl MouseState {
         } else {
             if is_mouse_button_pressed(MouseButton::Left) {
                 self.last_clicked = dimensions
-                    .get_square(self.coords.0, self.coords.1)
+                    .get_square(self.coords.0, self.coords.1, gamestate.player_color)
                     .and_then(|s| {
                         gamestate.get_square(s).map(|_| {
                             gamestate.set_visibility(s, false);

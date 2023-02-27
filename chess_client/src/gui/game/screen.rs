@@ -1,4 +1,4 @@
-use chess_client::types::Square;
+use chess_client::types::{PlayerColor, Square};
 use macroquad::window::{screen_height, screen_width};
 
 #[derive(Default)]
@@ -22,7 +22,15 @@ impl ScreenDimensions {
         self.vert_margin = (self.height - self.game_size) / 2.0;
     }
 
-    pub fn get_square(&self, x_coord: f32, y_coord: f32) -> Option<Square> {
+    pub fn get_square(&self, x_coord: f32, y_coord: f32, player: PlayerColor) -> Option<Square> {
+        let (x_coord, y_coord) = if player == PlayerColor::Black {
+            (
+                2.0 * (self.hor_margin + self.game_size / 2.0) - x_coord,
+                2.0 * (self.vert_margin + self.game_size / 2.0) - y_coord,
+            )
+        } else {
+            (x_coord, y_coord)
+        };
         let rel_x_coord = x_coord - self.hor_margin;
         let rel_y_coord = y_coord - self.vert_margin;
         if rel_x_coord < 0.
