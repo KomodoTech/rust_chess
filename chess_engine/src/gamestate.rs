@@ -445,7 +445,7 @@ mod tests {
     use super::*;
     use crate::{
         board::bitboard::BitBoard,
-        error::{BoardBuildError, BoardValidityError, PieceConversionError},
+        error::{BoardBuildError, BoardValidityCheckError, PieceConversionError},
         file::File,
         gamestate,
     };
@@ -579,18 +579,18 @@ mod tests {
         #[rustfmt::skip]
         let board = Board {
             pieces: [
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    Some(Piece::WhiteQueen), None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     Some(Piece::BlackQueen), None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+                None, None, None, None, None,                    None,                    None, None, None, None,
+                None, None, None, None, None,                    None,                    None, None, None, None,
+                None, None, None, None, None,                    None,                    None, None, None, None,
+                None, None, None, None, None,                    None,                    None, None, None, None,
+                None, None, None, None, None,                    None,                    None, None, None, None,
+                None, None, None, None, None,                    Some(Piece::WhiteQueen), None, None, None, None,
+                None, None, None, None, None,                    None,                    None, None, None, None,
+                None, None, None, None, None,                    None,                    None, None, None, None,
+                None, None, None, None, Some(Piece::BlackQueen), None,                    None, None, None, None,
+                None, None, None, None, None,                    None,                    None, None, None, None,
+                None, None, None, None, None,                    None,                    None, None, None, None,
+                None, None, None, None, None,                    None,                    None, None, None, None,
             ],      
             pawns: [BitBoard(0), BitBoard(0)],
             kings_square: [None; Color::COUNT],
@@ -1178,8 +1178,8 @@ mod tests {
         let input = "8/8/8/8/8/8/8/8 w KQkq - 0 1";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::BoardBuildError(
-            BoardBuildError::BoardValidityError(
-                BoardValidityError::StrictOneBlackKingOneWhiteKing(0, 0),
+            BoardBuildError::BoardValidityCheckError(
+                BoardValidityCheckError::StrictOneBlackKingOneWhiteKing(0, 0),
             ),
         ));
         assert_eq!(output, expected);
@@ -1232,8 +1232,8 @@ mod tests {
         let input = "8/8/rbqn3p/8/8/8/PPKPP1PP/8 w KQkq - 0 1";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::BoardBuildError(
-            BoardBuildError::BoardValidityError(
-                BoardValidityError::StrictOneBlackKingOneWhiteKing(1, 0),
+            BoardBuildError::BoardValidityCheckError(
+                BoardValidityCheckError::StrictOneBlackKingOneWhiteKing(1, 0),
             ),
         ));
         assert_eq!(output, expected);
@@ -1245,8 +1245,8 @@ mod tests {
         let input = "8/8/rbqnkkpr/8/8/8/PPKPP1PP/8 w KQkq - 0 1";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::BoardBuildError(
-            BoardBuildError::BoardValidityError(
-                BoardValidityError::StrictOneBlackKingOneWhiteKing(1, 2),
+            BoardBuildError::BoardValidityCheckError(
+                BoardValidityCheckError::StrictOneBlackKingOneWhiteKing(1, 2),
             ),
         ));
         assert_eq!(output, expected);
@@ -1258,8 +1258,8 @@ mod tests {
         let input = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/QQQQQQQQ w KQkq - 0 1";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::BoardBuildError(
-            BoardBuildError::BoardValidityError(
-                BoardValidityError::StrictExceedsMaxNumForPieceType(10, Piece::WhiteQueen, 9)
+            BoardBuildError::BoardValidityCheckError(
+                BoardValidityCheckError::StrictExceedsMaxNumForPieceType(10, Piece::WhiteQueen, 9)
             )
         ));
         assert_eq!(output, expected);
@@ -1271,8 +1271,8 @@ mod tests {
         let input = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/PPPPPPPP w KQkq - 0 1";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateFENParseError::BoardBuildError(
-            BoardBuildError::BoardValidityError(
-                BoardValidityError::StrictExceedsMaxNumForPieceType(12, Piece::WhitePawn, 8)
+            BoardBuildError::BoardValidityCheckError(
+                BoardValidityCheckError::StrictExceedsMaxNumForPieceType(12, Piece::WhitePawn, 8)
             )
         ));
         assert_eq!(output, expected);

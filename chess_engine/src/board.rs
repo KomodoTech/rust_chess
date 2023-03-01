@@ -2,7 +2,7 @@
 pub mod bitboard;
 use crate::{
     color::Color,
-    error::{BoardBuildError, BoardFENParseError, BoardValidityError, RankFENParseError},
+    error::{BoardBuildError, BoardFENParseError, BoardValidityCheckError, RankFENParseError},
     file::File,
     piece::{Piece, PieceType},
     rank::Rank,
@@ -95,8 +95,8 @@ impl BoardBuilder {
     }
 
     /// Change one piece at a time
-    pub fn piece(&mut self, piece: Piece, square: Square) -> &mut Self {
-        self.pieces[square as usize] = Some(piece);
+    pub fn piece(&mut self, piece: Piece, square: Square64) -> &mut Self {
+        self.pieces[(Square::from(square)) as usize] = Some(piece);
         self
     }
 
@@ -330,14 +330,14 @@ impl Board {
 
     // TODO: add additional checks
     /// Checks the board to make sure that it is consistent with the ValidityCheck/mode
-    pub fn check_board(self, validity_check: &ValidityCheck) -> Result<Self, BoardValidityError> {
+    pub fn check_board(self, validity_check: &ValidityCheck) -> Result<Self, BoardValidityCheckError> {
         if let ValidityCheck::Strict = validity_check {
             // TODO: be sure that the piece counts can't go out of sync and don't need to be checked
             // check that there is exactly one BlackKing and one WhiteKing
             if !(self.piece_count[Piece::WhiteKing as usize] == 1
                 && self.piece_count[Piece::BlackKing as usize] == 1)
             {
-                return Err(BoardValidityError::StrictOneBlackKingOneWhiteKing(
+                return Err(BoardValidityCheckError::StrictOneBlackKingOneWhiteKing(
                     self.piece_count[Piece::WhiteKing as usize],
                     self.piece_count[Piece::BlackKing as usize],
                 ));
@@ -351,30 +351,30 @@ impl Board {
             let kings_distance =
                 Square::get_chebyshev_distance(white_king_square, black_king_square);
             if kings_distance < 2 {
-                return Err(BoardValidityError::StrictKingsLessThanTwoSquaresApart(
+                return Err(BoardValidityCheckError::StrictKingsLessThanTwoSquaresApart(
                     white_king_square,
                     black_king_square,
                     kings_distance,
                 ));
             }
 
-            let mut num_promoted_pieces = [0, 0];
+            let mut num_excess_big_pieces = [0, 0];
 
             for (index, piece_count) in self.piece_count.into_iter().enumerate() {
                 // check that the max amount of piece type leq max allowed for that piece
                 let piece = Piece::try_from(index).unwrap(); // index should always be in range 0..12
                 let max_allowed = piece.get_max_num_allowed();
                 if piece_count > max_allowed {
-                    return Err(BoardValidityError::StrictExceedsMaxNumForPieceType(
+                    return Err(BoardValidityCheckError::StrictExceedsMaxNumForPieceType(
                         piece_count,
                         piece,
                         max_allowed,
                     ));
                 }
 
-                let num_promoted = piece_count as i8 - piece.get_starting_num() as i8;
-                if num_promoted > 0 {
-                    num_promoted_pieces[piece.get_color() as usize] += num_promoted as u8;
+                let num_excess_big = piece_count as i8 - piece.get_starting_num() as i8;
+                if num_excess_big > 0 {
+                    num_excess_big_pieces[piece.get_color() as usize] += num_excess_big as u8;
                 }
             }
 
@@ -385,16 +385,19 @@ impl Board {
                 File::COUNT as u8 - self.pawns[1].count_bits(),
             ];
 
-            // check that there aren't more promoted pieces than missing pawns per color
-            if num_promoted_pieces[Color::White as usize] > num_missing_pawns[Color::White as usize]
-                || num_promoted_pieces[Color::Black as usize]
+            // NOTE: this check is trying to detect obvious promoted pieces in conflict with number of missing pawns
+            // but if you lost a piece and then promoted to the same piece type, that can't be detected from the board
+
+            // check that there aren't more excess big pieces than missing pawns per color
+            if num_excess_big_pieces[Color::White as usize] > num_missing_pawns[Color::White as usize]
+                || num_excess_big_pieces[Color::Black as usize]
                     > num_missing_pawns[Color::Black as usize]
             {
                 return Err(
-                    BoardValidityError::StrictMorePromotedPiecesThanMissingPawns(
-                        num_promoted_pieces[Color::White as usize],
+                    BoardValidityCheckError::StrictMorePromotedPiecesThanMissingPawns(
+                        num_excess_big_pieces[Color::White as usize],
                         num_missing_pawns[Color::White as usize],
-                        num_promoted_pieces[Color::Black as usize],
+                        num_excess_big_pieces[Color::Black as usize],
                         num_missing_pawns[Color::Black as usize],
                     ),
                 );
@@ -407,13 +410,13 @@ impl Board {
                         Piece::WhitePawn => {
                             // check that there aren't any WhitePawns in first rank
                             if let Rank::Rank1 = square.get_rank() {
-                                return Err(BoardValidityError::StrictWhitePawnInFirstRank);
+                                return Err(BoardValidityCheckError::StrictWhitePawnInFirstRank);
                             }
                         }
                         Piece::BlackPawn => {
                             // check that there aren't any BlackPawns in last rank
                             if let Rank::Rank8 = square.get_rank() {
-                                return Err(BoardValidityError::StrictBlackPawnInLastRank);
+                                return Err(BoardValidityCheckError::StrictBlackPawnInLastRank);
                             }
                         }
                         _ => (),
@@ -541,7 +544,7 @@ impl fmt::Display for Board {
 mod tests {
     use std::{default, fmt::format};
 
-    use crate::error::PieceConversionError;
+    use crate::error::{PieceConversionError, SquareConversionError};
 
     use super::*;
 
@@ -568,8 +571,35 @@ mod tests {
         big_piece_count: [0, 0],
         major_piece_count: [0, 0],
         minor_piece_count: [0, 0],
-        piece_list: [ vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], ]
+        piece_list: [ vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![]]
     };
+
+//-----------------------------------------------------------------------------
+//============================== Miscellaneous Tests ==========================
+
+//============================== Display ======================================
+    #[rustfmt::skip]
+    #[test]
+    fn test_board_display() {
+        let input = Board::default();
+        let output = input.to_string();
+        let expected = format!("{}{}{}{}{}{}{}{}{}",
+                            "8\t♜\t♞\t♝\t♛\t♚\t♝\t♞\t♜\n",
+                            "7\t♟\t♟\t♟\t♟\t♟\t♟\t♟\t♟\n",
+                            "6\t.\t.\t.\t.\t.\t.\t.\t.\n",
+                            "5\t.\t.\t.\t.\t.\t.\t.\t.\n",
+                            "4\t.\t.\t.\t.\t.\t.\t.\t.\n",
+                            "3\t.\t.\t.\t.\t.\t.\t.\t.\n",
+                            "2\t♙\t♙\t♙\t♙\t♙\t♙\t♙\t♙\n",
+                            "1\t♖\t♘\t♗\t♕\t♔\t♗\t♘\t♖\n\n",
+                            "\tA\tB\tC\tD\tE\tF\tG\tH\n"
+                        );
+        println!("Base Board:\n{}", output);
+        assert_eq!(output, expected);
+    }
+
+//-----------------------------------------------------------------------------
+//============================== Basic Board Building =========================
 
     #[test]
     fn test_board_build_empty() {
@@ -581,7 +611,7 @@ mod tests {
     }
 
     #[test]
-    fn test_board_default() {
+    fn test_board_build_default() {
         let output = Board::default();
         #[rustfmt::skip]
         let expected = Board {
@@ -637,73 +667,238 @@ mod tests {
         assert_eq!(output, expected);
     }
 
-    #[rustfmt::skip]
     #[test]
-    fn test_board_display() {
-        let input = Board::default();
-        let output = input.to_string();
-        let expected = format!("{}{}{}{}{}{}{}{}{}",
-                            "8\t♜\t♞\t♝\t♛\t♚\t♝\t♞\t♜\n",
-                            "7\t♟\t♟\t♟\t♟\t♟\t♟\t♟\t♟\n",
-                            "6\t.\t.\t.\t.\t.\t.\t.\t.\n",
-                            "5\t.\t.\t.\t.\t.\t.\t.\t.\n",
-                            "4\t.\t.\t.\t.\t.\t.\t.\t.\n",
-                            "3\t.\t.\t.\t.\t.\t.\t.\t.\n",
-                            "2\t♙\t♙\t♙\t♙\t♙\t♙\t♙\t♙\n",
-                            "1\t♖\t♘\t♗\t♕\t♔\t♗\t♘\t♖\n\n",
-                            "\tA\tB\tC\tD\tE\tF\tG\tH\n"
-                        );
-        println!("Base Board:\n{}", output);
+    fn test_board_build_piece_on_invalid_square() {
+
+        let pieces = [
+            Some(Piece::WhitePawn), None, None, None, None, None, None, None, None, None, 
+            None, None, None, None, None, None, None, None, None, None, 
+            None, None, None, None, None, None, None, None, None, None, 
+            None, None, None, None, None, None, None, None, None, None, 
+            None, None, None, None, None, None, None, None, None, None, 
+            None, None, None, None, None, None, None, None, None, None, 
+            None, None, None, None, None, None, None, None, None, None, 
+            None, None, None, None, None, None, None, None, None, None, 
+            None, None, None, None, None, None, None, None, None, None, 
+            None, None, None, None, None, None, None, None, None, None, 
+            None, None, None, None, None, None, None, None, None, None, 
+            None, None, None, None, None, None, None, None, None, None, 
+        ];
+
+        let output = BoardBuilder::new_with_pieces(pieces).build();
+        let expected = Err(BoardBuildError::PieceOnInvalidSquare(
+            SquareConversionError::FromUsize(0)
+        ));
         assert_eq!(output, expected);
     }
 
-    // ----------------------------------------------------------------------------------------------------------------------
-    // #[test]
-    // fn test_clear_board() {
-    //     let mut input = DEFAULT_BOARD;
-    //     input.clear_board();
-    //     let expected = EMPTY_BOARD;
-    //     assert_eq!(input, expected);
-    // }
+//-----------------------------------------------------------------------------
+//============================== Board Validity Checks ========================
+//============================== Strict Mode ==================================
 
-    // #[test]
-    // fn test_get_all_pawns() {
-    //     let board_str = "5k2/1p2p3/8/1p1p2p1/5P2/3P4/P7/2K5";
-    //     let board = Board::try_from(board_str).unwrap();
-    //     let output = board.get_all_pawns();
+    #[test]
+    fn test_board_build_strict_validity_check_invalid_no_pieces() {
+        // 8/8/8/8/8/8/8/8
+        let output = BoardBuilder::new().build();
+        let expected = Err(BoardBuildError::BoardValidityCheckError(
+            BoardValidityCheckError::StrictOneBlackKingOneWhiteKing(0, 0),
+        ));
+        assert_eq!(output, expected);
+    }
 
-    //     // let mut white_pawns = BitBoard(0);
-    //     // white_pawns.set_bit(Square64::A2);
-    //     // white_pawns.set_bit(Square64::D3);
-    //     // white_pawns.set_bit(Square64::F4);
+    #[test]
+    fn test_board_build_strict_validity_check_invalid_too_few_kings() {
+        // 8/8/8/8/8/8/2K5/8 
+        let output = BoardBuilder::new()
+        .piece(Piece::WhiteKing, Square64::C2)
+        .build();
+        let expected = Err(BoardBuildError::BoardValidityCheckError(
+            BoardValidityCheckError::StrictOneBlackKingOneWhiteKing(1, 0),
+        ));
+        assert_eq!(output, expected);
+    }
 
-    //     // let mut black_pawns = BitBoard(0);
-    //     // black_pawns.set_bit(Square64::B7);
-    //     // black_pawns.set_bit(Square64::E7);
-    //     // black_pawns.set_bit(Square64::B5);
-    //     // black_pawns.set_bit(Square64::D5);
-    //     // black_pawns.set_bit(Square64::G5);
+    #[test]
+    fn test_board_build_strict_validity_check_invalid_too_many_kings() {
+        // 8/2k5/8/8/8/8/2K1K3/8
+        let output = BoardBuilder::new()
+        .piece(Piece::WhiteKing, Square64::C2)
+        .piece(Piece::WhiteKing, Square64::E2)
+        .piece(Piece::BlackKing, Square64::C7)
+        .build();
+        let expected = Err(BoardBuildError::BoardValidityCheckError(
+            BoardValidityCheckError::StrictOneBlackKingOneWhiteKing(2, 1),
+        ));
+        assert_eq!(output, expected);
+    }
 
-    //     // println!("white pawns:\n{}\nblack pawns:\n{}", white_pawns, black_pawns);
+    #[test]
+    fn test_board_build_strict_validity_check_invalid_kings_too_close() {
+        // 8/8/8/4k3/4K3/8/8/8
+        let output = BoardBuilder::new()
+        .piece(Piece::WhiteKing, Square64::E4)
+        .piece(Piece::BlackKing, Square64::E5)
+        .build();
 
-    //     let mut expected = BitBoard(0);
-    //     expected.set_bit(Square64::A2);
-    //     expected.set_bit(Square64::D3);
-    //     expected.set_bit(Square64::F4);
-    //     expected.set_bit(Square64::B7);
-    //     expected.set_bit(Square64::E7);
-    //     expected.set_bit(Square64::B5);
-    //     expected.set_bit(Square64::D5);
-    //     expected.set_bit(Square64::G5);
+        let expected = Err(BoardBuildError::BoardValidityCheckError(
+            BoardValidityCheckError::StrictKingsLessThanTwoSquaresApart(Square::E4, Square::E5, 1)
+        ));
 
-    //     println!("output:\n{}\nexpected:\n{}", output, expected);
+        assert_eq!(output, expected);
+    }
 
-    //     assert_eq!(output, expected);
-    // }
-    // ----------------------------------------------------------------------------------------------------------------------
 
-    // FEN PARSING
-    // Rank Level FEN Parsing Tests:
+    #[test]
+    fn test_board_build_strict_validity_check_invalid_too_many_white_queens() {
+        // 6rk/6bp/8/8/8/8/QQQQQQQQ/3QKQ2 chosen in the hopes that it would be valid otherwise (bk is not in checkmate)
+
+        let mut output = BoardBuilder::new();
+        output.piece(Piece::WhiteQueen, Square64::D1)
+        .piece(Piece::WhiteKing, Square64::E1)
+        .piece(Piece::WhiteQueen, Square64::F1)
+        .piece(Piece::BlackBishop, Square64::G7)
+        .piece(Piece::BlackPawn, Square64::H7)
+        .piece(Piece::BlackRook, Square64::G8)
+        .piece(Piece::BlackKing, Square64::H8);
+
+        for i in 8u8..=15 {
+            output.piece(Piece::WhiteQueen, Square64::try_from(i).unwrap());
+        }
+        let output = output.build();
+
+        let expected = Err(BoardBuildError::BoardValidityCheckError(
+            BoardValidityCheckError::StrictExceedsMaxNumForPieceType(10, Piece::WhiteQueen, 9),
+        ));
+
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_board_build_strict_validity_check_invalid_too_many_white_pawns() {
+        // 4k3/8/8/8/8/P7/PPPPPPPP/4K3
+        let mut output = BoardBuilder::new();
+        output.piece(Piece::WhiteKing, Square64::E1)
+        .piece(Piece::BlackKing, Square64::E8);
+        
+        let mut square = Square64::A2;
+        for i in 0..9 {
+            output.piece(Piece::WhitePawn, square);
+            square = (square + 1).unwrap();
+        }
+
+        let output = output.build();
+        let expected = Err(BoardBuildError::BoardValidityCheckError(
+            BoardValidityCheckError::StrictExceedsMaxNumForPieceType(9, Piece::WhitePawn, 8),
+        ));
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_board_build_strict_validity_check_invalid_more_excess_big_pieces_than_missing_pawns() {
+        // 3k4/8/8/8/8/8/PPPPPPPP/1NNK2N1 
+        let mut output = BoardBuilder::new();
+        output.piece(Piece::WhiteKing, Square64::D1) 
+        .piece(Piece::WhiteKnight, Square64::B1)
+        .piece(Piece::WhiteKnight, Square64::C1)
+        .piece(Piece::WhiteKnight, Square64::G1);
+        
+        for i in 8u8..=15 {
+            output.piece(Piece::WhitePawn, Square64::try_from(i).unwrap());
+        }
+    }
+
+    #[test]
+    fn test_board_build_strict_validity_check_invalid_white_pawn_in_rank_1() {
+        let output = BoardBuilder::new()
+        .piece(Piece::WhitePawn, Square64::A1)
+        .piece(Piece::WhiteKing, Square64::B1)
+        .piece(Piece::BlackKing, Square64::B8)
+        .build();
+        let expected = Err(BoardBuildError::BoardValidityCheckError(
+            BoardValidityCheckError::StrictWhitePawnInFirstRank
+        ));
+        assert_eq!(output, expected);
+    }
+    
+    #[test]
+    fn test_board_build_strict_validity_check_invalid_black_pawn_in_rank_8() {
+        let output = BoardBuilder::new()
+        .piece(Piece::BlackPawn, Square64::A8)
+        .piece(Piece::WhiteKing, Square64::B1)
+        .piece(Piece::BlackKing, Square64::B8)
+        .build();
+        let expected = Err(BoardBuildError::BoardValidityCheckError(
+            BoardValidityCheckError::StrictBlackPawnInLastRank
+        ));
+        assert_eq!(output, expected);
+    }
+
+//============================== Basic Mode ===================================
+
+    #[test]
+    fn test_board_build_basic_validity_check_black_pawn_in_rank_8() {
+        let output = BoardBuilder::new()
+        .validity_check(ValidityCheck::Basic)
+        .piece(Piece::BlackPawn, Square64::A8)
+        .piece(Piece::WhiteKing, Square64::B1)
+        .piece(Piece::BlackKing, Square64::B8)
+        .build();
+
+        let expected = Ok(Board {
+            pieces: [
+                None, None,                   None,                     None,  None, None, None, None, None, None,
+                None, None,                   None,                     None,  None, None, None, None, None, None,
+                None, None,                   Some(Piece::WhiteKing),   None,  None, None, None, None, None, None,
+                None, None,                   None,                     None,  None, None, None, None, None, None,
+                None, None,                   None,                     None,  None, None, None, None, None, None,
+                None, None,                   None,                     None,  None, None, None, None, None, None,
+                None, None,                   None,                     None,  None, None, None, None, None, None,
+                None, None,                   None,                     None,  None, None, None, None, None, None,
+                None, None,                   None,                     None,  None, None, None, None, None, None,
+                None, Some(Piece::BlackPawn), Some(Piece::BlackKing),   None,  None, None, None, None, None, None,
+                None, None,                   None,                     None,  None, None, None, None, None, None,
+                None, None,                   None,                     None,  None, None, None, None, None, None,
+            ],
+            pawns: [BitBoard(0), BitBoard(0x01_00_00_00_00_00_00_00)],
+            kings_square: [Some(Square::B1), Some(Square::B8)],
+            piece_count: [0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1],
+            big_piece_count: [1, 1],
+            major_piece_count: [1, 1],
+            minor_piece_count: [0, 0],
+            piece_list: [
+                // WhitePawns
+                vec![],
+                // WhiteKnights
+                vec![],
+                // WhiteBishops
+                vec![],
+                // WhiteRooks
+                vec![],
+                // WhiteQueens
+                vec![],
+                // WhiteKing
+                vec![Square::B1],
+                // BlackPawns
+                vec![Square::A8],
+                // BlackKnights
+                vec![],
+                // BlackBishops
+                vec![],
+                // BlackRooks
+                vec![],
+                // BlackQueens
+                vec![],
+                // BlackKing
+                vec![Square::B8]
+            ]
+        });
+        assert_eq!(output, expected);
+    }
+
+
+//------------------------------------------------------------------------------
+//============================= FEN PARSING ====================================
+//======================== Rank Level FEN Parsing ==============================
     #[test]
     fn test_get_rank_from_fen_valid_black_back_row_starting_position() {
         let input = "rnbqkbnr";
@@ -739,7 +934,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_rank_from_fen_valid_empty() {
+    fn test_get_rank_from_fen_valid_no_pieces() {
         let input = "8";
         let output = BoardBuilder::rank_from_fen(input);
         let expected = Ok([None; 8]);
@@ -804,61 +999,13 @@ mod tests {
         assert_eq!(ouput, expected);
     }
 
-    // #[test]
-    // fn test_board_try_from_valid_board_fen_default() {
-    //     let input = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
-    //     let output = Board::try_from(input);
-    //     let expected: Result<Board, BoardBuildError> = Ok(DEFAULT_BOARD);
-    //     // pieces
-    //     assert_eq!(
-    //         output.as_ref().unwrap().pieces,
-    //         expected.as_ref().unwrap().pieces
-    //     );
-    //     // pawns
-    //     assert_eq!(
-    //         output.as_ref().unwrap().pawns,
-    //         expected.as_ref().unwrap().pawns
-    //     );
-    //     // kings_index
-    //     assert_eq!(
-    //         output.as_ref().unwrap().kings_square,
-    //         expected.as_ref().unwrap().kings_square
-    //     );
-    //     // piece_count
-    //     assert_eq!(
-    //         output.as_ref().unwrap().piece_count,
-    //         expected.as_ref().unwrap().piece_count
-    //     );
-    //     // big_piece_count
-    //     assert_eq!(
-    //         output.as_ref().unwrap().big_piece_count,
-    //         expected.as_ref().unwrap().big_piece_count
-    //     );
-    //     // major_piece_count
-    //     assert_eq!(
-    //         output.as_ref().unwrap().major_piece_count,
-    //         expected.as_ref().unwrap().major_piece_count
-    //     );
-    //     // minor_piece_count
-    //     assert_eq!(
-    //         output.as_ref().unwrap().minor_piece_count,
-    //         expected.as_ref().unwrap().minor_piece_count
-    //     );
-    //     // piece list
-    //     assert_eq!(
-    //         output.as_ref().unwrap().piece_list,
-    //         expected.as_ref().unwrap().piece_list
-    //     );
-    //     assert_eq!(output, expected);
-    // }
-
+//==================================== Board Level FEN Parsing  ================
     #[test]
     fn test_board_try_from_valid_board_fen_sliding_and_kings() {
         let input = "r6r/1b2k1bq/8/8/7B/8/8/R3K2R";
         let output = Board::try_from(input);
-        // TODO: pull this into utils it will be useful for testing later
         #[rustfmt::skip]
-        let expected: Result<Board, BoardFENParseError> = Ok(Board {
+        let expected = Ok(Board {
             pieces: [
                 None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                     None,
                 None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                     None,
@@ -906,47 +1053,48 @@ mod tests {
                 vec![Square::E7]
             ]
         });
-        // pieces
-        assert_eq!(
-            output.as_ref().unwrap().pieces,
-            expected.as_ref().unwrap().pieces
-        );
-        // pawns
-        assert_eq!(
-            output.as_ref().unwrap().pawns,
-            expected.as_ref().unwrap().pawns
-        );
-        // kings_index
-        assert_eq!(
-            output.as_ref().unwrap().kings_square,
-            expected.as_ref().unwrap().kings_square
-        );
-        // piece_count
-        assert_eq!(
-            output.as_ref().unwrap().piece_count,
-            expected.as_ref().unwrap().piece_count
-        );
-        // big_piece_count
-        assert_eq!(
-            output.as_ref().unwrap().big_piece_count,
-            expected.as_ref().unwrap().big_piece_count
-        );
-        // major_piece_count
-        assert_eq!(
-            output.as_ref().unwrap().major_piece_count,
-            expected.as_ref().unwrap().major_piece_count
-        );
-        // minor_piece_count
-        assert_eq!(
-            output.as_ref().unwrap().minor_piece_count,
-            expected.as_ref().unwrap().minor_piece_count
-        );
-        // piece list
-        assert_eq!(
-            output.as_ref().unwrap().piece_list,
-            expected.as_ref().unwrap().piece_list
-        );
-        // assert_eq!(output, expected);
+
+        // // pieces
+        // assert_eq!(
+        //     output.as_ref().unwrap().pieces,
+        //     expected.as_ref().unwrap().pieces
+        // );
+        // // pawns
+        // assert_eq!(
+        //     output.as_ref().unwrap().pawns,
+        //     expected.as_ref().unwrap().pawns
+        // );
+        // // kings_index
+        // assert_eq!(
+        //     output.as_ref().unwrap().kings_square,
+        //     expected.as_ref().unwrap().kings_square
+        // );
+        // // piece_count
+        // assert_eq!(
+        //     output.as_ref().unwrap().piece_count,
+        //     expected.as_ref().unwrap().piece_count
+        // );
+        // // big_piece_count
+        // assert_eq!(
+        //     output.as_ref().unwrap().big_piece_count,
+        //     expected.as_ref().unwrap().big_piece_count
+        // );
+        // // major_piece_count
+        // assert_eq!(
+        //     output.as_ref().unwrap().major_piece_count,
+        //     expected.as_ref().unwrap().major_piece_count
+        // );
+        // // minor_piece_count
+        // assert_eq!(
+        //     output.as_ref().unwrap().minor_piece_count,
+        //     expected.as_ref().unwrap().minor_piece_count
+        // );
+        // // piece list
+        // assert_eq!(
+        //     output.as_ref().unwrap().piece_list,
+        //     expected.as_ref().unwrap().piece_list
+        // );
+        assert_eq!(output, expected);
     }
 
     #[test]
@@ -954,7 +1102,7 @@ mod tests {
         let input = "r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1";
         let output = Board::try_from(input);
         #[rustfmt::skip]
-        let expected: Result<Board, BoardFENParseError> = Ok(Board {
+        let expected = Ok(Board {
             pieces: [
                 None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
                 None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
@@ -1003,58 +1151,49 @@ mod tests {
                 vec![Square::G8]
             ]
         });
-        // pieces
-        assert_eq!(
-            output.as_ref().unwrap().pieces,
-            expected.as_ref().unwrap().pieces
-        );
-        // pawns
-        assert_eq!(
-            output.as_ref().unwrap().pawns,
-            expected.as_ref().unwrap().pawns
-        );
-        // kings_index
-        assert_eq!(
-            output.as_ref().unwrap().kings_square,
-            expected.as_ref().unwrap().kings_square
-        );
-        // piece_count
-        assert_eq!(
-            output.as_ref().unwrap().piece_count,
-            expected.as_ref().unwrap().piece_count
-        );
-        // big_piece_count
-        assert_eq!(
-            output.as_ref().unwrap().big_piece_count,
-            expected.as_ref().unwrap().big_piece_count
-        );
-        // major_piece_count
-        assert_eq!(
-            output.as_ref().unwrap().major_piece_count,
-            expected.as_ref().unwrap().major_piece_count
-        );
-        // minor_piece_count
-        assert_eq!(
-            output.as_ref().unwrap().minor_piece_count,
-            expected.as_ref().unwrap().minor_piece_count
-        );
-        // piece list
-        assert_eq!(
-            output.as_ref().unwrap().piece_list,
-            expected.as_ref().unwrap().piece_list
-        );
-        // assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_board_try_from_invalid_board_fen_all_8() {
-        let input = "8/8/8/8/8/8/8/8";
-        let output = Board::try_from(input);
-        let expected = Err(BoardBuildError::BoardValidityError(
-            BoardValidityError::StrictOneBlackKingOneWhiteKing(0, 0),
-        ));
+        // // pieces
+        // assert_eq!(
+        //     output.as_ref().unwrap().pieces,
+        //     expected.as_ref().unwrap().pieces
+        // );
+        // // pawns
+        // assert_eq!(
+        //     output.as_ref().unwrap().pawns,
+        //     expected.as_ref().unwrap().pawns
+        // );
+        // // kings_index
+        // assert_eq!(
+        //     output.as_ref().unwrap().kings_square,
+        //     expected.as_ref().unwrap().kings_square
+        // );
+        // // piece_count
+        // assert_eq!(
+        //     output.as_ref().unwrap().piece_count,
+        //     expected.as_ref().unwrap().piece_count
+        // );
+        // // big_piece_count
+        // assert_eq!(
+        //     output.as_ref().unwrap().big_piece_count,
+        //     expected.as_ref().unwrap().big_piece_count
+        // );
+        // // major_piece_count
+        // assert_eq!(
+        //     output.as_ref().unwrap().major_piece_count,
+        //     expected.as_ref().unwrap().major_piece_count
+        // );
+        // // minor_piece_count
+        // assert_eq!(
+        //     output.as_ref().unwrap().minor_piece_count,
+        //     expected.as_ref().unwrap().minor_piece_count
+        // );
+        // // piece list
+        // assert_eq!(
+        //     output.as_ref().unwrap().piece_list,
+        //     expected.as_ref().unwrap().piece_list
+        // );
         assert_eq!(output, expected);
     }
+
 
     #[test]
     fn test_board_try_from_invalid_board_fen_too_few_ranks() {
@@ -1087,46 +1226,6 @@ mod tests {
     }
 
     #[test]
-    fn test_board_try_from_invalid_board_fen_too_few_kings() {
-        let input = "8/8/rbqn3p/8/8/8/PPKPP1PP/8";
-        let output = Board::try_from(input);
-        let expected = Err(BoardBuildError::BoardValidityError(
-            BoardValidityError::StrictOneBlackKingOneWhiteKing(1, 0),
-        ));
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_board_try_from_invalid_board_fen_too_many_kings() {
-        let input = "8/8/rbqnkkpr/8/8/8/PPKPP1PP/8";
-        let output = Board::try_from(input);
-        let expected = Err(BoardBuildError::BoardValidityError(
-            BoardValidityError::StrictOneBlackKingOneWhiteKing(1, 2),
-        ));
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_board_try_from_invalid_board_fen_too_many_white_queens() {
-        let input = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/QQQQQQQQ";
-        let output = Board::try_from(input);
-        let expected = Err(BoardBuildError::BoardValidityError(
-            BoardValidityError::StrictExceedsMaxNumForPieceType(10, Piece::WhiteQueen, 9),
-        ));
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_board_try_from_invalid_board_fen_too_many_white_pawns() {
-        let input = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/PPPPPPPP";
-        let output = Board::try_from(input);
-        let expected = Err(BoardBuildError::BoardValidityError(
-            BoardValidityError::StrictExceedsMaxNumForPieceType(12, Piece::WhitePawn, 8),
-        ));
-        assert_eq!(output, expected);
-    }
-    // Tests that check that Rank FEN Errors are properly converted to BoardFENParseErrors:
-    #[test]
     fn test_board_try_from_valid_board_fen_untrimmed() {
         // NOTE: Gamestate will be responsible for trimming
         let input = "  rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR ";
@@ -1137,94 +1236,5 @@ mod tests {
             )),
         ));
         assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_board_invalid_empty() {
-        let input = "/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
-        let output = Board::try_from(input);
-        let expected = Err(BoardBuildError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::Empty),
-        ));
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_board_invalid_char() {
-        let invalid_rank_str = "rn2Xb1r";
-        let input = "rn2Xb1r/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
-        let output = Board::try_from(input);
-        let expected = Err(BoardBuildError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::PieceConversionError(
-                PieceConversionError::FromChar('X'),
-            )),
-        ));
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_board_invalid_digit() {
-        let invalid_rank_str = "rn0kb1rqN"; // num squares would be valid
-        let input = "rn0kb1rqN/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
-        let output = Board::try_from(input);
-        let expected = Err(BoardBuildError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::InvalidDigit(
-                invalid_rank_str.to_owned(),
-                0,
-            )),
-        ));
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_board_invalid_too_many_squares() {
-        let invalid_rank_str = "rn2kb1rqN";
-        let input = "rn2kb1rqN/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
-        let output = Board::try_from(input);
-        let expected = Err(BoardBuildError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::InvalidNumSquares(
-                invalid_rank_str.to_owned(),
-            )),
-        ));
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_board_invalid_too_few_squares() {
-        let invalid_rank_str = "rn2kb";
-        let input = "rn2kb/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
-        let output = Board::try_from(input);
-        let expected = Err(BoardBuildError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::InvalidNumSquares(
-                invalid_rank_str.to_owned(),
-            )),
-        ));
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_board_invalid_two_consecutive_digits() {
-        let invalid_rank_str = "pppp12p"; // adds up to 8 squares but isn't valid
-        let input = "pppp12p/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
-        let ouput = Board::try_from(input);
-        let expected = Err(BoardBuildError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::TwoConsecutiveDigits(
-                invalid_rank_str.to_owned(),
-            )),
-        ));
-        assert_eq!(ouput, expected);
-    }
-
-    #[test]
-    fn test_board_invalid_two_consecutive_digits_invalid_num_squares() {
-        let invalid_rank_str = "pppp18p"; // adds up to more than 8 squares but gets caught for consecutive digits
-        let input = "pppp18p/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR";
-        let ouput = Board::try_from(input);
-        let expected = Err(BoardBuildError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::TwoConsecutiveDigits(
-                invalid_rank_str.to_owned(),
-            )),
-        ));
-        assert_eq!(ouput, expected);
     }
 }

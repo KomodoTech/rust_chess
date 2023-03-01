@@ -55,7 +55,7 @@ pub enum BoardFENParseError {
 }
 
 #[derive(Error, Debug, PartialEq)]
-pub enum BoardValidityError {
+pub enum BoardValidityCheckError {
     #[error("Board has {0} WhiteKings and {1} BlackKings, but should have exactly one of each")]
     StrictOneBlackKingOneWhiteKing(u8, u8),
 
@@ -85,14 +85,14 @@ pub enum BoardValidityError {
 
 #[derive(Error, Debug, PartialEq)]
 pub enum BoardBuildError {
-    #[error("Found Piece on invalid square index {0}")]
-    SquareConversionError(#[from] SquareConversionError),
-
     #[error("Failed to parse FEN while building board")]
     BoardFENParseError(#[from] BoardFENParseError),
 
     #[error("Board failed validity checks")]
-    BoardValidityError(#[from] BoardValidityError),
+    BoardValidityCheckError(#[from] BoardValidityCheckError),
+
+    #[error("Found Piece on invalid square index {0}")]
+    PieceOnInvalidSquare(#[from] SquareConversionError),
 }
 
 #[derive(Error, Debug, PartialEq)]
