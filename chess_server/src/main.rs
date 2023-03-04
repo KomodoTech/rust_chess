@@ -1,5 +1,7 @@
+#![feature(never_type)]
+
 use config::Config;
-use log::{debug, info};
+use log::{debug, error, info};
 use nanoserde::{DeBin, DeBinErr, SerBin};
 use rand::{thread_rng, Rng};
 use std::io::Error;
@@ -16,7 +18,7 @@ use tokio_tungstenite::{tungstenite::Message, WebSocketStream};
 use chess_client::types::{Move, PlayerColor, PlayerMessage, ServerResponse};
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> Result<!, Error> {
     let settings = Config::builder()
         .add_source(config::File::with_name("configs/default"))
         .build()
@@ -34,23 +36,27 @@ async fn main() -> Result<(), Error> {
     run_server(&websocket_url).await
 }
 
-async fn run_server(url: &str) -> Result<(), Error> {
+async fn run_server(url: &str) -> Result<!, Error> {
     let (queue_tx, queue_rx) = mpsc::unbounded_channel::<WebSocketStream<TcpStream>>();
     let queue_tx = Arc::new(queue_tx);
 
     tokio::spawn(run_match_making(queue_rx));
 
-    let listener = TcpListener::bind(url).await.expect("Failed to bind");
+    let listener = TcpListener::bind(url).await?;
     info!("Listening on {}", url);
 
-    while let Ok((stream, addr)) = listener.accept().await {
+    loop {
+        let (stream, addr) = listener.accept().await?;
         debug!("received new stream from {:#?}", addr);
-        let socket = tokio_tungstenite::accept_async(stream)
-            .await
-            .expect("Error during the websocket handshake occurred");
-        tokio::spawn(process_socket(socket, Arc::clone(&queue_tx)));
+        match tokio_tungstenite::accept_async(stream).await {
+            Ok(socket) => {
+                tokio::spawn(process_socket(socket, Arc::clone(&queue_tx)));
+            }
+            Err(e) => {
+                error!("Error accepting websocket connection: {}", e);
+            }
+        }
     }
-    Ok(())
 }
 
 async fn run_match_making(mut queue_rx: UnboundedReceiver<WebSocketStream<TcpStream>>) {
