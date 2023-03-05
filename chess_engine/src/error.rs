@@ -146,6 +146,9 @@ pub enum GamestateBuildError {
 
 #[derive(Error, Debug, PartialEq)]
 pub enum GamestateValidityCheckError {
+    #[error("Board is invalid")]
+    BoardValidityCheck(#[from] BoardValidityCheckError),
+
     #[error("En passant square exists so the halfmove clock: {halfmove_clock} should be 0")]
     StrictEnPassantHalfmoveClockNotZero { halfmove_clock: u8 },
 

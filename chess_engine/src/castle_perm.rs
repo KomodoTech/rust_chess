@@ -81,6 +81,31 @@ impl CastlePerm {
             }),
         }
     }
+
+    pub fn to_castle_perm_fen(&self) -> String {
+        let mut castle_perms_fen = String::with_capacity(MAX_CASTLE_PERM_FEN_LEN);
+        for perm in self.0.into_iter().flatten() {
+            match perm.to_string().as_str() {
+                "WhiteKing" => {
+                    castle_perms_fen.push('K');
+                }
+                "WhiteQueen" => castle_perms_fen.push('Q'),
+                "BlackKing" => {
+                    castle_perms_fen.push('k');
+                }
+                "BlackQueen" => {
+                    castle_perms_fen.push('q');
+                }
+                _ => {
+                    panic!()
+                }
+            }
+        }
+        match castle_perms_fen.len() {
+            0 => "-".to_owned(),
+            _ => castle_perms_fen,
+        }
+    }
 }
 
 impl From<CastlePerm> for u8 {
@@ -124,28 +149,7 @@ impl TryFrom<&str> for CastlePerm {
 /// Display in FEN style
 impl fmt::Display for CastlePerm {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut castle_perms_fen = String::with_capacity(MAX_CASTLE_PERM_FEN_LEN);
-        for perm in self.0.into_iter().flatten() {
-            match perm.to_string().as_str() {
-                "WhiteKing" => {
-                    castle_perms_fen.push('K');
-                }
-                "WhiteQueen" => castle_perms_fen.push('Q'),
-                "BlackKing" => {
-                    castle_perms_fen.push('k');
-                }
-                "BlackQueen" => {
-                    castle_perms_fen.push('q');
-                }
-                _ => {
-                    panic!()
-                }
-            }
-        }
-        match castle_perms_fen.len() {
-            0 => write!(f, "-"),
-            _ => write!(f, "{}", castle_perms_fen.as_str()),
-        }
+        write!(f, "{}", self.to_castle_perm_fen().as_str())
     }
 }
 
