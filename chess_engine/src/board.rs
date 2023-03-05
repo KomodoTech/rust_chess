@@ -2,11 +2,12 @@
 pub mod bitboard;
 use crate::{
     color::Color,
-    error::{BoardBuildError, BoardFENParseError, BoardValidityCheckError, RankFENParseError},
+    error::{BoardBuildError, BoardFenDeserializeError, BoardValidityCheckError, RankFenDeserializeError},
     file::File,
     piece::{Piece, PieceType},
     rank::Rank,
     square::{Square, Square64},
+    gamestate::ValidityCheck,
 };
 use bitboard::BitBoard;
 use std::{
@@ -35,26 +36,6 @@ const STARTING_POSITION_PIECES: [Option<Piece>; NUM_BOARD_SQUARES] = [
     None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
 ];
 
-// NOTE: There might be more variants in the future like Strict, or Chess960
-// TODO: consider actually using the builder pattern here to construct more flexible group of checks down the road
-// TODO: this invalid square check is not necessary when you create a board from a FEN actually. Potentially
-// rework the modes in order to remove that extra work. If Validity Checks get built with builders this could
-// actually be fairly easy to do. Create a director class to have easy "recipes" for building from FEN for example
-
-/// Mode explanation:
-///
-/// Basic : If you pass in pieces, the type system will give you basic guarantees. If you pass in a FEN,
-/// then Basic mode will make sure that that FEN has 8 sections, each rank FEN corresponds to the correct number of squares,
-/// and each symbol corresponds to a valid Piece. This mode can be useful for testing purposes.
-///
-///
-/// Strict: Strict mode adds additional checks to make sure that the board is valid given the rules of regular chess.
-///
-#[derive(Debug)]
-pub enum ValidityCheck {
-    Basic,
-    Strict,
-}
 
 #[derive(Debug)]
 pub struct BoardBuilder {
@@ -112,6 +93,8 @@ impl BoardBuilder {
         let mut minor_piece_count: [u8; Color::COUNT] = [0; Color::COUNT];
         let mut piece_list: [Vec<Square>; Piece::COUNT] = Default::default();
 
+        // Note: pieces are being cloned here. Optimizer might elide clones/copies if you
+        // don't reuse the BoardBuilder, but not sure.
         let pieces = self.pieces;
 
         for (index, piece) in pieces.into_iter().enumerate() {
@@ -167,7 +150,7 @@ impl BoardBuilder {
     /// Generates the pieces array of a Board struct given a board fen
     fn pieces_from_fen(
         board_fen: &str,
-    ) -> Result<[Option<Piece>; NUM_BOARD_SQUARES], BoardFENParseError> {
+    ) -> Result<[Option<Piece>; NUM_BOARD_SQUARES], BoardFenDeserializeError> {
         let mut pieces = [None; NUM_BOARD_SQUARES];
 
         let ranks: Vec<&str> = board_fen.split('/').collect();
@@ -187,16 +170,16 @@ impl BoardBuilder {
                 }
                 Ok(pieces)
             }
-            _ => Err(BoardFENParseError::WrongNumRanks(
-                board_fen.to_owned(),
-                ranks.len(),
-            )),
+            _ => Err(BoardFenDeserializeError::WrongNumRanks {
+                board_fen: board_fen.to_owned(),
+                num_ranks: ranks.len(),
+            }),
         }
     }
 
     /// Takes a &str that corresponds to a portion of a FEN string for a specific Rank (e.g. rnbqkbnr)
     /// and generates a corresponding Option<Piece> array
-    fn rank_from_fen(rank_fen: &str) -> Result<[Option<Piece>; File::COUNT], RankFENParseError> {
+    fn rank_from_fen(rank_fen: &str) -> Result<[Option<Piece>; File::COUNT], RankFenDeserializeError> {
         match rank_fen {
             rank_fen if !rank_fen.is_empty() => {
                 let mut rank = [None; File::COUNT];
@@ -210,9 +193,9 @@ impl BoardBuilder {
                                 // check if there are two digits in a row to catch invalid rank fen
                                 // e.g. "ppp12pp"
                                 true => {
-                                    return Err(RankFENParseError::TwoConsecutiveDigits(
-                                        rank_fen.to_owned(),
-                                    ))
+                                    return Err(RankFenDeserializeError::TwoConsecutiveDigits {
+                                        rank_fen: rank_fen.to_owned(),
+                                    })
                                 }
                                 false => {
                                     is_last_char_digit = true;
@@ -234,17 +217,17 @@ impl BoardBuilder {
                                             square_counter += digit;
                                         }
                                         _ => {
-                                            return Err(RankFENParseError::InvalidNumSquares(
-                                                rank_fen.to_owned(),
-                                            ))
+                                            return Err(RankFenDeserializeError::InvalidNumSquares {
+                                                rank_fen: rank_fen.to_owned(),
+                                            })
                                         }
                                     }
                                 }
                                 _ => {
-                                    return Err(RankFENParseError::InvalidDigit(
-                                        rank_fen.to_owned(),
-                                        digit as usize,
-                                    ))
+                                    return Err(RankFenDeserializeError::InvalidDigit{
+                                        rank_fen: rank_fen.to_owned(),
+                                        invalid_digit: digit as usize,
+                                    })
                                 }
                             }
                         }
@@ -259,9 +242,9 @@ impl BoardBuilder {
                                     square_counter += 1;
                                 }
                                 _ => {
-                                    return Err(RankFENParseError::InvalidNumSquares(
-                                        rank_fen.to_owned(),
-                                    ))
+                                    return Err(RankFenDeserializeError::InvalidNumSquares{
+                                        rank_fen: rank_fen.to_owned(),
+                                    })
                                 }
                             }
                         }
@@ -269,17 +252,21 @@ impl BoardBuilder {
                 }
                 match square_counter as usize {
                     File::COUNT => Ok(rank),
-                    _ => Err(RankFENParseError::InvalidNumSquares(rank_fen.to_owned())),
+                    _ => Err(RankFenDeserializeError::InvalidNumSquares {
+                        rank_fen: rank_fen.to_owned()
+                    }),
                 }
             }
-            empty => Err(RankFENParseError::Empty),
+            empty => Err(RankFenDeserializeError::Empty),
         }
     }
 }
 
 impl Default for BoardBuilder {
     fn default() -> Self {
-        BoardBuilder::new()
+        let mut default_board_builder = BoardBuilder::new_with_pieces(STARTING_POSITION_PIECES);
+        default_board_builder.validity_check(ValidityCheck::Basic);
+        default_board_builder
     }
 }
 
@@ -300,47 +287,56 @@ pub struct Board {
 /// Returns an a Board with the default starting position in regular chess.
 impl Default for Board {
     fn default() -> Self {
-        BoardBuilder::new_with_pieces(STARTING_POSITION_PIECES)
-            .validity_check(ValidityCheck::Basic)
+            BoardBuilder::default()
             .build()
             .expect("starting position should never fail to build")
     }
 }
 
+/// Attempts to deserialize board fen into Board
 impl TryFrom<&str> for Board {
     type Error = BoardBuildError;
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        BoardBuilder::new_with_fen(value)?.build()
+    fn try_from(board_fen: &str) -> Result<Self, Self::Error> {
+        BoardBuilder::new_with_fen(board_fen)?.build()
     }
 }
 
 impl Board {
-    pub fn new() -> Self {
-        Self {
-            pieces: [None; NUM_BOARD_SQUARES],
-            pawns: [BitBoard(0), BitBoard(0)],
-            kings_square: [None, None],
-            piece_count: [0; Piece::COUNT],
-            big_piece_count: [0; Color::COUNT],
-            major_piece_count: [0; Color::COUNT],
-            minor_piece_count: [0; Color::COUNT],
-            piece_list: Default::default(),
-        }
-    }
+    // pub fn new() -> Self {
+    //     Self {
+    //         pieces: [None; NUM_BOARD_SQUARES],
+    //         pawns: [BitBoard(0), BitBoard(0)],
+    //         kings_square: [None, None],
+    //         piece_count: [0; Piece::COUNT],
+    //         big_piece_count: [0; Color::COUNT],
+    //         major_piece_count: [0; Color::COUNT],
+    //         minor_piece_count: [0; Color::COUNT],
+    //         piece_list: Default::default(),
+    //     }
+    // }
 
-    // TODO: add additional checks
     /// Checks the board to make sure that it is consistent with the ValidityCheck/mode
     pub fn check_board(self, validity_check: &ValidityCheck) -> Result<Self, BoardValidityCheckError> {
+
+        // TODO:
+        // check that there aren't more than 6 pawns in a single file
+        // check minimum number of enemy missing pieces doesn't contradict number of pawns in a single file
+        // check general version of if there are white pawns in A2 and A3, there can't be one in B2
+        // pawn + (pawn || bishop || knight) ||  (knight + knight)
+        // check for non-jumpers in impossible positions
+        // look for bishops trapped behind non-enemy pawns (or behind 3 pawns)
+        // check that bishops are on squares that have the same color as them
+
         if let ValidityCheck::Strict = validity_check {
             // TODO: be sure that the piece counts can't go out of sync and don't need to be checked
             // check that there is exactly one BlackKing and one WhiteKing
             if !(self.piece_count[Piece::WhiteKing as usize] == 1
                 && self.piece_count[Piece::BlackKing as usize] == 1)
             {
-                return Err(BoardValidityCheckError::StrictOneBlackKingOneWhiteKing(
-                    self.piece_count[Piece::WhiteKing as usize],
-                    self.piece_count[Piece::BlackKing as usize],
-                ));
+                return Err(BoardValidityCheckError::StrictOneBlackKingOneWhiteKing{
+                    num_white_kings: self.piece_count[Piece::WhiteKing as usize],
+                    num_black_kings: self.piece_count[Piece::BlackKing as usize],
+                });
             }
 
             // check that kings are separated by at least 1 square
@@ -351,11 +347,11 @@ impl Board {
             let kings_distance =
                 Square::get_chebyshev_distance(white_king_square, black_king_square);
             if kings_distance < 2 {
-                return Err(BoardValidityCheckError::StrictKingsLessThanTwoSquaresApart(
+                return Err(BoardValidityCheckError::StrictKingsLessThanTwoSquaresApart{
                     white_king_square,
                     black_king_square,
                     kings_distance,
-                ));
+                });
             }
 
             let mut num_excess_big_pieces = [0, 0];
@@ -365,11 +361,11 @@ impl Board {
                 let piece = Piece::try_from(index).unwrap(); // index should always be in range 0..12
                 let max_allowed = piece.get_max_num_allowed();
                 if piece_count > max_allowed {
-                    return Err(BoardValidityCheckError::StrictExceedsMaxNumForPieceType(
+                    return Err(BoardValidityCheckError::StrictExceedsMaxNumForPieceType {
                         piece_count,
                         piece,
                         max_allowed,
-                    ));
+                    });
                 }
 
                 let num_excess_big = piece_count as i8 - piece.get_starting_num() as i8;
@@ -394,12 +390,12 @@ impl Board {
                     > num_missing_pawns[Color::Black as usize]
             {
                 return Err(
-                    BoardValidityCheckError::StrictMorePromotedPiecesThanMissingPawns(
-                        num_excess_big_pieces[Color::White as usize],
-                        num_missing_pawns[Color::White as usize],
-                        num_excess_big_pieces[Color::Black as usize],
-                        num_missing_pawns[Color::Black as usize],
-                    ),
+                    BoardValidityCheckError::StrictMoreExcessBigPiecesThanMissingPawns { 
+                        num_excess_big_pieces_white: num_excess_big_pieces[Color::White as usize],
+                        num_missing_pawns_white: num_missing_pawns[Color::White as usize],
+                        num_excess_big_pieces_black: num_excess_big_pieces[Color::Black as usize],
+                        num_missing_pawns_black: num_missing_pawns[Color::Black as usize],
+                    },
                 );
             }
 
@@ -423,16 +419,6 @@ impl Board {
                     }
                 }
             }
-            // TODO:
-            // check that there aren't more than 6 pawns in a single file
-            // check minimum number of enemy missing pieces doesn't contradict number of pawns in a single file
-            // check general version of if there are white pawns in A2 and A3, there can't be one in B2
-            // GAMESTATE: check that the non-active player is not in check
-            // GAMESTATE: check that the active player is checked less than 3 times
-            // GAMESTATE: check that if the active player is checked 2 times it can't be:
-            // pawn + (pawn || bishop || knight) ||  (knight + knight)
-            // check for non-jumpers in impossible positions
-            // look for bishops trapped behind non-enemy pawns (or behind 3 pawns)
         }
         Ok(self)
     }
@@ -761,7 +747,7 @@ mod tests {
         .piece(Piece::BlackRook, Square64::G8)
         .piece(Piece::BlackKing, Square64::H8);
 
-        for i in 8u8..=15 {
+        for i in 8_u8..=15 {
             output.piece(Piece::WhiteQueen, Square64::try_from(i).unwrap());
         }
         let output = output.build();
@@ -802,7 +788,7 @@ mod tests {
         .piece(Piece::WhiteKnight, Square64::C1)
         .piece(Piece::WhiteKnight, Square64::G1);
         
-        for i in 8u8..=15 {
+        for i in 8_u8..=15 {
             output.piece(Piece::WhitePawn, Square64::try_from(i).unwrap());
         }
     }

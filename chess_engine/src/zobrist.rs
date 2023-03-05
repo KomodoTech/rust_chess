@@ -6,6 +6,8 @@ use crate::board::NUM_BOARD_SQUARES;
 use crate::castle_perm::NUM_CASTLE_PERM;
 use crate::piece::Piece;
 
+// TODO: make Zobrist generate at compile time with proc macro
+
 // TODO: test to make sure seed is a good choice
 /// Seed used for Zobrist Hashing. Note that many PRNG implementations will behave poorly
 /// if the seed is poorly distributed (it should have roughly equal number of 0s and 1s)

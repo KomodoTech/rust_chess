@@ -35,7 +35,11 @@ impl Default for CastlePerm {
 }
 
 impl CastlePerm {
-    fn gen_castle_perm_from_fen(value: &str) -> Result<Self, CastlePermConversionError> {
+    pub fn new() -> Self {
+        CastlePerm([None; 4])
+    }
+
+    fn from_fen(value: &str) -> Result<Self, CastlePermConversionError> {
         let mut castle_perm = CastlePerm([None; Castle::COUNT]);
         let mut castle_perm_fens_index: usize = 0;
         for char in value.chars() {
@@ -111,7 +115,7 @@ impl TryFrom<u8> for CastlePerm {
 impl TryFrom<&str> for CastlePerm {
     type Error = CastlePermConversionError;
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Self::gen_castle_perm_from_fen(value)
+        Self::from_fen(value)
     }
 }
 

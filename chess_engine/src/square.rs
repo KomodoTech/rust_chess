@@ -200,7 +200,7 @@ impl TryFrom<i8> for Square {
     fn try_from(value: i8) -> Result<Self, Self::Error> {
         Self::iter()
             .find(|s| *s as i8 == value)
-            .ok_or(SquareConversionError::FromI8(value))
+            .ok_or(SquareConversionError::FromI8{index: value})
     }
 }
 
@@ -210,7 +210,7 @@ impl TryFrom<u8> for Square {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Self::iter()
             .find(|s| *s as u8 == value)
-            .ok_or(SquareConversionError::FromU8(value))
+            .ok_or(SquareConversionError::FromU8{index: value})
     }
 }
 
@@ -220,7 +220,7 @@ impl TryFrom<u32> for Square {
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         Self::iter()
             .find(|s| *s as u32 == value)
-            .ok_or(SquareConversionError::FromU32(value))
+            .ok_or(SquareConversionError::FromU32{index: value})
     }
 }
 
@@ -230,7 +230,7 @@ impl TryFrom<usize> for Square {
     fn try_from(value: usize) -> Result<Self, Self::Error> {
         Self::iter()
             .find(|s| *s as usize == value)
-            .ok_or(SquareConversionError::FromUsize(value))
+            .ok_or(SquareConversionError::FromUsize{index: value})
     }
 }
 

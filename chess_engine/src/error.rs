@@ -21,57 +21,74 @@ pub enum ChessError {
 }
 
 #[derive(Error, Debug, PartialEq)]
-pub enum RankFENParseError {
-    #[error("Failed to build Rank due to invalid char")]
-    PieceConversionError(#[from] PieceConversionError),
+pub enum RankFenDeserializeError {
+    #[error("Failed to deserialize pieces of rank from rank fen due to invalid char")]
+    InvalidChar(#[from] PieceConversionError),
 
     #[error("Rank FEN is empty")]
     Empty,
 
-    #[error("Rank FEN {0} should represent {} squares but does not", File::COUNT)]
-    InvalidNumSquares(String),
+    #[error("Rank FEN {rank_fen} should represent {} squares but does not", File::COUNT)]
+    InvalidNumSquares {rank_fen: String},
 
     #[error(
-        "Rank FEN {0} has character {1} which represents invalid digit (needs to be in 1..=8)"
+        "Rank FEN {rank_fen} includes {invalid_digit} which represents invalid digit (needs to be in 1..=8)"
     )]
-    InvalidDigit(String, usize),
+    InvalidDigit {
+        rank_fen: String,
+        invalid_digit: usize
+    },
 
-    // #[error("Rank FEN {0} includes invalid char {1}")]
-    // InvalidChar(String, char),
-    #[error("Rank FEN {0} includes two consecutive digits")]
-    TwoConsecutiveDigits(String),
+    #[error("Rank FEN {rank_fen} includes two consecutive digits")]
+    TwoConsecutiveDigits {rank_fen: String},
 }
 
+
 #[derive(Error, Debug, PartialEq)]
-pub enum BoardFENParseError {
-    #[error("Encountered error while trying to parse a Rank FEN")]
-    RankFENParseError(#[from] RankFENParseError),
+pub enum BoardFenDeserializeError {
+    #[error(transparent)]
+    RankFenDeserialize(#[from] RankFenDeserializeError),
 
     #[error(
-        "board FEN {0} has {1} ranks separated by / delimiter instead of {}",
+        "board FEN {board_fen} has {num_ranks} ranks separated by / delimiter instead of {}",
         Rank::COUNT
     )]
-    WrongNumRanks(String, usize),
+    WrongNumRanks{
+        board_fen: String,
+        num_ranks: usize
+    },
 }
 
 #[derive(Error, Debug, PartialEq)]
 pub enum BoardValidityCheckError {
-    #[error("Board has {0} WhiteKings and {1} BlackKings, but should have exactly one of each")]
-    StrictOneBlackKingOneWhiteKing(u8, u8),
+    #[error("Board has {num_white_kings} WhiteKings and {num_black_kings} BlackKings, but should have exactly one of each")]
+    StrictOneBlackKingOneWhiteKing {
+        num_white_kings: u8,
+        num_black_kings: u8
+    },
 
-    #[error("Board has {0} {1}s, which exceeds {2} which is the maximum allowed number for that piece type")]
-    StrictExceedsMaxNumForPieceType(u8, Piece, u8),
+    #[error("Board has {piece_count} {piece}s, which exceeds {max_allowed} which is the maximum allowed number for that piece type")]
+    StrictExceedsMaxNumForPieceType {
+        piece_count: u8,
+        piece: Piece,
+        max_allowed: u8
+    },
 
     #[error(
-        "A player has more promoted pieces than missing pawns which is not allowed:
+        "A player has more excess big pieces than missing pawns which is not allowed:
             \nWhite:
-            \nNumber of promoted pieces: {0}
-            \nNumber of missing pawns: {1}
+            \nNumber of excess big pieces: {num_excess_big_pieces_white}
+            \nNumber of missing pawns: {num_missing_pawns_white}
             \nBlack:
-            \nNumber of promoted pieces: {2}
-            \nNumber of missing pawns: {3}"
+            \nNumber of excess big pieces: {num_excess_big_pieces_black}
+            \nNumber of missing pawns: {num_missing_pawns_black}"
     )]
-    StrictMorePromotedPiecesThanMissingPawns(u8, u8, u8, u8),
+    StrictMoreExcessBigPiecesThanMissingPawns{
+        num_excess_big_pieces_white: u8,
+        num_missing_pawns_white: u8,
+        num_excess_big_pieces_black: u8,
+        num_missing_pawns_black: u8
+    },
 
     #[error("Board has a WhitePawn in Rank1 which is not a valid position")]
     StrictWhitePawnInFirstRank,
@@ -79,35 +96,121 @@ pub enum BoardValidityCheckError {
     #[error("Board has a BlackPawn in Rank8 which is not a valid position")]
     StrictBlackPawnInLastRank,
 
-    #[error("Board has Kings less than 2 squares apart from each other which is not allowed. WhiteKing is at Square {0}, BlackKing is at Square{1} and the distance between them is {2}")]
-    StrictKingsLessThanTwoSquaresApart(Square, Square, u8),
+    #[error("Board has Kings less than 2 squares apart from each other which is not allowed. 
+    WhiteKing is at Square {white_king_square}, BlackKing is at Square{black_king_square} 
+    and the distance between them is {kings_distance}")]
+    StrictKingsLessThanTwoSquaresApart {
+        white_king_square: Square,
+        black_king_square: Square, 
+        kings_distance: u8},
 }
 
 #[derive(Error, Debug, PartialEq)]
 pub enum BoardBuildError {
-    #[error("Failed to parse FEN while building board")]
-    BoardFENParseError(#[from] BoardFENParseError),
+    #[error("Found Piece on invalid square index {invalid_square_index}")]
+    PieceOnInvalidSquare {
+        invalid_square_index: usize,
+        #[source]
+        source: SquareConversionError
+    },
 
-    #[error("Board failed validity checks")]
-    BoardValidityCheckError(#[from] BoardValidityCheckError),
+    #[error(transparent)]
+    BoardFenDeserialize(#[from] BoardFenDeserializeError),
 
-    #[error("Found Piece on invalid square index {0}")]
-    PieceOnInvalidSquare(#[from] SquareConversionError),
+    #[error(transparent)]
+    BoardValidityCheck(#[from] BoardValidityCheckError),
+}
+
+impl From<SquareConversionError> for BoardBuildError {
+    fn from(err: SquareConversionError) -> Self {
+        match err {
+            SquareConversionError::FromUsize {index} => BoardBuildError::PieceOnInvalidSquare {
+                invalid_square_index: index,
+                source: err
+            },
+            _ => panic!("Board builder check for pieces on invalid square only expects SquareConversionError of variant FromUsize")
+        }
+    }
 }
 
 #[derive(Error, Debug, PartialEq)]
-pub enum GamestateFENParseError {
-    #[error("board failed to build")]
-    BoardBuildError(#[from] BoardBuildError),
+pub enum GamestateBuildError {
+    #[error(transparent)]
+    GamestateFenDeserialize(#[from] GamestateFenDeserializeError),
 
-    #[error("Halfmove Clock is invalid")]
-    HalfmoveClockFENParseError(#[from] HalfmoveClockFENParseError),
+    #[error(transparent)]
+    GamestateValidityCheck(#[from] GamestateValidityCheckError),
+}
 
-    #[error("Fullmove Counter is invalid")]
-    FullmoveCounterFENParseError(#[from] FullmoveCounterFENParseError),
+#[derive(Error, Debug, PartialEq)]
+pub enum GamestateValidityCheckError {
 
-    #[error("En Passant Square is invalid")]
-    EnPassantFENParseError(#[from] EnPassantFENParseError),
+    #[error("En passant square exists so the halfmove clock: {halfmove_clock} should be 0")]
+    EnPassantHalfmoveClockNotZero{halfmove_clock: u32},
+
+    #[error("En passant square {en_passant_square} is not empty")]
+    EnPassantNotEmpty{en_passant_square: Square64},
+
+    #[error("Square behind en passant square {square_behind} is not empty")]
+    EnPassantSquareBehindNotEmpty{square_behind: Square64},
+
+    #[error("Square ahead en passant square {square_ahead} is empty")]
+    EnPassantSquareAheadEmpty{square_ahead: Square64},
+
+    #[error("Square ahead en passant square {square_ahead} is occupied by {invalid_piece} which is not a {expected_piece}")]
+    EnPassantSquareAheadUnexpectedPiece{
+        square_ahead: Square64,
+        invalid_piece: Piece,
+        expected_piece: Piece
+    },
+
+    #[error("En passant square has rank {rank} which is impossible given color {active_color}. Only valid combinations are (White, 6) and (Black, 3)")]
+    ColorRankMismatch {
+        active_color: Color,
+        rank: Rank
+    },
+
+    #[error("Halfmove clock: {halfmove_clock} should be in range 0..{}", HALF_MOVE_MAX)]
+    HalfmoveClockExceedsMax {halfmove_clock: u32},
+
+    #[error("Fullmove number: {fullmove_number} should be in range 1..={}", MAX_GAME_MOVES)]
+    FullmoveNumberNotInRange {fullmove_number: u32},
+
+    #[error("Given halfmove clock: {halfmove_clock}, fullmove number: {fullmove_number} is too small")]
+    FullmoveNumberLessThanHalfmoveClockDividedByTwo {
+        fullmove_number: u32,
+        halfmove_clock: u32
+    },
+
+    #[error("Non-active player in check")]
+    NonActivePlayerCheck,
+}
+
+
+
+#[derive(Error, Debug, PartialEq)]
+pub enum GamestateFenDeserializeError {
+
+    #[error(transparent)]
+    BoardBuild(#[from] BoardBuildError),
+
+    #[error("Gamestate failed to deserialize due to castle permissions section of FEN not representing a valid CastlePerm")]
+    CastlePerm(#[from] CastlePermConversionError),
+
+    #[error("Gamestate failed to deserialize due to en passant section of FEN not representing a valid Square")]
+    EnPassant(#[from] StrumParseError),
+
+    #[error("Gamestate failed to deserialize due to full move number section of FEN {fullmove_fen} not representing a valid number")]
+    FullmoveNumber {fullmove_fen: String},
+
+    #[error("Gamestate failed to deserialize due to half move number section of FEN {halfmove_fen} not representing a valid number")]
+    HalfmoveClock {halfmove_fen: String},
+
+    #[error("active color section of {gamestate_fen} is {invalid_color}, which is an invalid Color")]
+    ActiveColor {
+        gamestate_fen: String,
+        invalid_color: String
+    },
 
     #[error("FEN is invalid because it is empty")]
     Empty,
@@ -117,60 +220,6 @@ pub enum GamestateFENParseError {
         NUM_FEN_SECTIONS
     )]
     WrongNumFENSections(usize),
-
-    #[error("active color section of substring {0} is an invalid Color")]
-    ActiveColor(String),
-
-    #[error("castle permissions {0} are invalid")]
-    CastlePerm(String),
-}
-
-#[derive(Error, Debug, PartialEq)]
-pub enum EnPassantFENParseError {
-    #[error("en passant square {0} is invalid")]
-    SquareConversionError(#[from] SquareConversionError),
-
-    #[error("en passant square is invalid. It should be lowercase.")]
-    EnPassantUppercase,
-
-    #[error("en passant square has rank {0} which is impossible given color {1}. Only valid combinations are (White, 6) and (Black, 3)")]
-    ColorRankMismatch(Color, Rank),
-
-    #[error("en passant has rank {0} which is not possible (can only be 3 or 6)")]
-    Rank(Rank),
-
-    #[error("for en passant square to exist, both it and the square behind it must be empty")]
-    NonEmptySquares,
-
-    #[error("the correct colored pawn ({0}) is not in front of the en passant square {1}")]
-    CorrectPawnNotInFront(Color, Square),
-}
-
-#[derive(Error, Debug, PartialEq)]
-pub enum FullmoveCounterFENParseError {
-    #[error("full moves is not a valid u32")]
-    ParseIntError(#[from] ParseIntError),
-
-    #[error("full moves {0} must be in range 1..={}", MAX_GAME_MOVES)]
-    NotInRange(u32),
-
-    #[error("full moves {0} should be at least half the amount of half moves {1}")]
-    SmallerThanHalfmoveClockDividedByTwo(u32, u32),
-}
-
-#[derive(Error, Debug, PartialEq)]
-pub enum HalfmoveClockFENParseError {
-    #[error("half moves is not a valid u32")]
-    ParseIntError(#[from] ParseIntError),
-
-    #[error(
-        "half moves {0} exceeds maximum number of half moves before a tie is called {}",
-        HALF_MOVE_MAX
-    )]
-    ExceedsMax(u32),
-
-    #[error("half moves must be 0 if there is en passant square")]
-    NonZeroWhileEnPassant,
 }
 
 #[derive(Error, Debug, PartialEq)]
@@ -212,25 +261,25 @@ pub enum CastlePermConversionError {
 
 #[derive(Error, Debug, PartialEq)]
 pub enum SquareConversionError {
-    #[error("could not convert &str {0} into a Square")]
+    #[error(transparent)]
     FromStr(#[from] StrumParseError),
 
-    #[error("could not convert i8 {0} into a Square")]
-    FromI8(i8),
+    #[error("could not convert i8: {index} into a Square")]
+    FromI8 {index: i8},
 
-    #[error("could not convert u8 {0} into a Square")]
-    FromU8(u8),
+    #[error("could not convert u8: {index} into a Square")]
+    FromU8 {index: u8},
 
-    #[error("could not convert u32 {0} into a Square")]
-    FromU32(u32),
+    #[error("could not convert u32: {index} into a Square")]
+    FromU32 {index: u32},
 
-    #[error("could not convert usize {0} into a Square")]
-    FromUsize(usize),
+    #[error("could not convert usize: {index} into a Square")]
+    FromUsize {index: usize},
 }
 
 #[derive(Error, Debug, PartialEq)]
 pub enum Square64ConversionError {
-    #[error("could not convert &str {0} into a Square64")]
+    #[error("could not convert &str into a Square64. It does not represent a valid Square64")]
     FromStr(#[from] StrumParseError),
 
     #[error("could not convert u8 {0} into a Square64")]
