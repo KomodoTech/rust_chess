@@ -1,5 +1,3 @@
-use rand::prelude::*;
-use rand_pcg::Lcg128Xsl64;
 use std::{
     default,
     fmt::{self, write},
@@ -9,16 +7,18 @@ use strum::EnumCount;
 use strum_macros::{Display as EnumDisplay, EnumCount as EnumCountMacro};
 
 use crate::{
-    board::Board,
-    castle_perms::{self, CastlePerm, NUM_CASTLE_PERM},
+    board::{Board, BoardBuilder, NUM_BOARD_COLUMNS, NUM_BOARD_ROWS, NUM_BOARD_SQUARES},
+    castle_perm::{self, CastlePerm, NUM_CASTLE_PERM},
+    color::Color,
     error::{
-        BoardFENParseError, CastlePermConversionError, EnPassantFENParseError,
-        FullmoveCounterFENParseError, GamestateFENParseError, HalfmoveClockFENParseError,
-        RankFENParseError, SquareConversionError,
+        BoardFenDeserializeError, GamestateBuildError, GamestateFenDeserializeError,
+        GamestateValidityCheckError, RankFenDeserializeError, SquareConversionError,
     },
-    pieces::{self, Piece, PieceType},
-    squares::{Square, Square64},
-    util::{Color, Rank},
+    file::File,
+    piece::{self, Piece, PieceType},
+    rank::Rank,
+    square::{Square, Square64},
+    zobrist::Zobrist,
 };
 
 // CONSTANTS:
@@ -26,108 +26,258 @@ use crate::{
 pub const MAX_GAME_MOVES: usize = 1024;
 /// When we reach 50 moves (aka 100 half moves) without a pawn advance or a piece capture the game ends
 /// immediately in a tie
-pub const HALF_MOVE_MAX: usize = 100;
+pub const HALF_MOVE_MAX: u8 = 100;
 pub const NUM_FEN_SECTIONS: usize = 6;
-/// Number of squares for the internal board (10x12)
-pub const NUM_BOARD_SQUARES: usize = 120;
 const DEFAULT_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-// TODO: test to make sure seed is a good choice
-/// Seed used for Zobrist Hashing. Note that many PRNG implementations will behave poorly
-/// if the seed is poorly distributed (it should have roughly equal number of 0s and 1s)
-// NOTE: the seed data comes from this article: https://www.pcg-random.org/posts/simple-portable-cpp-seed-entropy.html
-const ZOBRIST_SEED: [u8; 32] = [
-    0x67, 0x0e, 0x5a, 0x45, 0x9a, 0xc9, 0xea, 0x9c, 0x88, 0x85, 0x36, 0x20, 0xc4, 0xc8, 0x36, 0xf9,
-    0x07, 0xab, 0x56, 0x40, 0xb2, 0x0b, 0x31, 0x3e, 0x7b, 0x94, 0x50, 0x51, 0x37, 0xf5, 0x0e, 0x84,
-];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Undo {
+pub struct Undo {
     move_: u32,
     castle_permissions: CastlePerm,
     en_passant: Option<Square>,
-    halfmove_clock: u32,
+    halfmove_clock: u8,
     position_key: u64,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-struct Zobrist {
-    color_key: u64,
-    piece_keys: [[u64; NUM_BOARD_SQUARES]; Piece::COUNT],
-    en_passant_keys: [u64; NUM_BOARD_SQUARES],
-    castle_keys: [u64; NUM_CASTLE_PERM],
+// NOTE: There might be more variants in the future like Strict, or Chess960
+// TODO: consider actually using the builder pattern here to construct more flexible group of checks down the road
+// TODO: the invalid square check is not necessary when you create a board from a FEN actually. Potentially
+// rework the modes in order to remove that extra work. If Validity Checks get built with builders this could
+// actually be fairly easy to do. Create a director class to have easy "recipes" for building from FEN for example
+
+/// Mode explanation:
+///
+/// For Board:
+/// Basic : If you pass in pieces, the type system will give you basic guarantees. If you pass in a FEN,
+/// then Basic mode will make sure that that FEN has 8 sections, each rank FEN corresponds to the correct number of squares,
+/// and each symbol corresponds to a valid Piece. This mode can be useful for testing purposes.
+///
+///
+/// Strict: Strict mode adds additional checks to make sure that the board is valid given the rules of regular chess.
+///
+#[derive(Debug)]
+pub enum ValidityCheck {
+    Basic,
+    Strict,
 }
 
-// NOTE: https://craftychess.com/hyatt/collisions.html
-// NOTE: https://www.unf.edu/~cwinton/html/cop4300/s09/class.notes/LCGinfo.pdf
-// NOTE: https://www.stmintz.com/ccc/index.php?id=29863
-// NOTE: https://www.pcg-random.org/index.html
-// NOTE: https://rust-random.github.io/book/portability.html
-// NOTE: https://rust-random.github.io/book/guide-rngs.html
-// NOTE: https://www.pcg-random.org/posts/cpp-seeding-surprises.html
-/// Zobrist hashing using rand_pcg variant that should work decently well on 32bit and 64bit machines
-/// We don't require cryptographically secure PRNG's, but there have historically been
-/// many truly terribly implemented random number generators, so we're doing our best to choose
-/// a decent one, even though the effect of collisions seems to be fairly minimal for Zobrist
-/// hashing.
-impl Zobrist {
-    fn new() -> Self {
-        // declare seed deterministically from const we declared
-        let mut seed: <Lcg128Xsl64 as SeedableRng>::Seed = ZOBRIST_SEED;
-        // build Permuted Congruential Generator to do pseudo random number generation
-        let mut rng: Lcg128Xsl64 = Lcg128Xsl64::from_seed(seed);
-        // initialize Zobrist keys we want to fill with pseudo random values
-        let mut color_key: u64 = rng.gen();
-        let mut piece_keys = [[0u64; NUM_BOARD_SQUARES]; Piece::COUNT];
-        for square_array in &mut piece_keys {
-            rng.fill(square_array)
-        }
-        let mut en_passant_keys = [0u64; NUM_BOARD_SQUARES];
-        rng.fill(&mut en_passant_keys);
-        let mut castle_keys = [0u64; NUM_CASTLE_PERM];
-        rng.fill(&mut castle_keys);
+#[derive(Debug)]
+pub struct GamestateBuilder {
+    validity_check: ValidityCheck,
+    board: Board,
+    active_color: Color,
+    castle_permissions: CastlePerm,
+    en_passant: Option<Square64>,
+    halfmove_clock: u8,
+    fullmove_number: u32,
+    history: Vec<Undo>,
+}
 
-        Zobrist {
-            color_key,
-            piece_keys,
-            en_passant_keys,
-            castle_keys,
+// TODO: Revisit question of clones and performance and see if you can improve ergonomics:
+// https://users.rust-lang.org/t/builder-pattern-in-rust-self-vs-mut-self-and-method-vs-associated-function/72892/2
+impl GamestateBuilder {
+    pub fn new() -> Self {
+        GamestateBuilder {
+            validity_check: ValidityCheck::Strict,
+            board: BoardBuilder::new()
+                .build()
+                .expect("new() version of board should never fail"),
+            active_color: Color::White,
+            castle_permissions: CastlePerm::default(),
+            en_passant: None,
+            halfmove_clock: 0,
+            fullmove_number: 1,
+            history: vec![],
+        }
+    }
+
+    pub fn new_with_board(board: Board) -> Self {
+        GamestateBuilder {
+            validity_check: ValidityCheck::Strict,
+            board,
+            active_color: Color::White,
+            castle_permissions: CastlePerm::default(),
+            en_passant: None,
+            halfmove_clock: 0,
+            fullmove_number: 1,
+            history: vec![],
+        }
+    }
+
+    // TODO: make sure that on the frontend the number of characters that can be passed is limited to something reasonable
+    // TODO: look into X-FEN and Shredder-FEN for Chess960)
+    pub fn new_with_fen(gamestate_fen: &str) -> Result<Self, GamestateFenDeserializeError> {
+        let mut board = None;
+        let mut active_color = None;
+        let mut castle_permissions = None;
+        let mut en_passant = None;
+        let mut halfmove_clock = None;
+        let mut fullmove_number = None;
+
+        // Allow for extra spaces in between sections but not in the middle of sections
+        let fen_sections = gamestate_fen
+            .split(' ')
+            .filter(|section| !section.is_empty())
+            .collect::<Vec<_>>();
+
+        match fen_sections.len() {
+            NUM_FEN_SECTIONS => {
+                for (index, section) in fen_sections.into_iter().enumerate() {
+                    match index {
+                        0 => board = Some(Board::try_from(section)?),
+                        // active_color should be either "w" or "b"
+                        1 => {
+                            active_color = match section {
+                                white if white == char::from(Color::White).to_string() => {
+                                    Some(Color::White)
+                                }
+                                black if black == char::from(Color::Black).to_string() => {
+                                    Some(Color::Black)
+                                }
+                                _ => {
+                                    return Err(GamestateFenDeserializeError::ActiveColor {
+                                        gamestate_fen: gamestate_fen.to_owned(),
+                                        invalid_color: section.to_owned(),
+                                    });
+                                }
+                            }
+                        }
+                        2 => castle_permissions = Some(CastlePerm::try_from(section)?),
+                        3 => {
+                            en_passant = match section {
+                                "-" => None,
+                                _ => Some(Square64::try_from(section.to_uppercase().as_str())?),
+                            }
+                        }
+                        4 => {
+                            halfmove_clock = Some(section.parse::<u8>().map_err(|_err| {
+                                GamestateFenDeserializeError::HalfmoveClock {
+                                    halfmove_fen: section.to_owned(),
+                                }
+                            })?)
+                        }
+                        5 => {
+                            fullmove_number = Some(section.parse::<u32>().map_err(|_err| {
+                                GamestateFenDeserializeError::FullmoveNumber {
+                                    fullmove_fen: section.to_owned(),
+                                }
+                            })?)
+                        }
+                        _ => panic!("index should be in range 0..=5"),
+                    }
+                }
+
+                let board = board.unwrap();
+                let active_color = active_color.unwrap();
+                let castle_permissions = castle_permissions.unwrap();
+                let halfmove_clock = halfmove_clock.unwrap();
+                let fullmove_number = fullmove_number.unwrap();
+
+                Ok(GamestateBuilder {
+                    validity_check: ValidityCheck::Strict,
+                    board,
+                    active_color,
+                    castle_permissions,
+                    en_passant,
+                    halfmove_clock,
+                    fullmove_number,
+                    history: vec![],
+                })
+            }
+            _ => Err(GamestateFenDeserializeError::WrongNumFENSections {
+                num_fen_sections: fen_sections.len(),
+            }),
+        }
+    }
+
+    pub fn validity_check(mut self, validity_check: ValidityCheck) -> Self {
+        self.validity_check = validity_check;
+        self
+    }
+
+    pub fn active_color(mut self, active_color: Color) -> Self {
+        self.active_color = active_color;
+        self
+    }
+
+    pub fn castle_permissions(mut self, castle_permissions: CastlePerm) -> Self {
+        self.castle_permissions = castle_permissions;
+        self
+    }
+
+    pub fn en_passant(mut self, en_passant: Option<Square64>) -> Self {
+        self.en_passant = en_passant;
+        self
+    }
+
+    pub fn halfmove_clock(mut self, halfmove_clock: u8) -> Self {
+        self.halfmove_clock = halfmove_clock;
+        self
+    }
+
+    pub fn fullmove_number(mut self, fullmove_number: u32) -> Self {
+        self.fullmove_number = fullmove_number;
+        self
+    }
+
+    pub fn history(mut self, history: Vec<Undo>) -> Self {
+        self.history = history;
+        self
+    }
+
+    pub fn build(self) -> Result<Gamestate, GamestateBuildError> {
+        let gamestate = Gamestate {
+            board: self.board,
+            active_color: self.active_color,
+            castle_permissions: self.castle_permissions,
+            en_passant: self.en_passant,
+            halfmove_clock: self.halfmove_clock,
+            fullmove_number: self.fullmove_number,
+            history: self.history,
+            zobrist: Zobrist::default(),
+        };
+
+        match self.validity_check {
+            ValidityCheck::Strict => Ok(gamestate.check_gamestate(&self.validity_check)?),
+            ValidityCheck::Basic => Ok(gamestate),
         }
     }
 }
 
-impl Default for Zobrist {
+impl Default for GamestateBuilder {
     fn default() -> Self {
-        Self::new()
+        GamestateBuilder::new_with_board(Board::default()).validity_check(ValidityCheck::Basic)
     }
 }
 
-// TODO: consider making the Gamestate with the builder pattern
-// TODO: make Zobrist generate at compile time with proc macro
 #[derive(Debug, PartialEq, Eq)]
 pub struct Gamestate {
     board: Board,
     active_color: Color,
     castle_permissions: CastlePerm,
-    en_passant: Option<Square>,
-    halfmove_clock: u32, // number of moves both players have made since last pawn advance of piece capture
-    fullmove_number: u32, // number of completed turns in the game (incremented when black moves)
+    en_passant: Option<Square64>,
+    /// number of moves both players have made since last pawn advance of piece capture
+    halfmove_clock: u8,
+    /// number of completed turns in the game (incremented when black moves)
+    fullmove_number: u32,
     history: Vec<Undo>,
     zobrist: Zobrist,
 }
 
 impl Default for Gamestate {
     fn default() -> Self {
-        Gamestate::try_from(DEFAULT_FEN)
-            .expect("Default Gamestate failed to initialize with Default FEN")
+        GamestateBuilder::new_with_board(Board::default())
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .expect("starting gamestate should never fail to build")
     }
 }
 
-/// Generates a new Gamestate from a FEN &str. Base FEN gets converted to board via TryFrom<&str>
-/// Color and En Passant square must be lower case.
+/// Attempts to deserialize a gamestate fen into a Gamestate
 impl TryFrom<&str> for Gamestate {
-    type Error = GamestateFENParseError;
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Self::gen_gamestate_from_fen(value)
+    type Error = GamestateBuildError;
+    fn try_from(gamestate_fen: &str) -> Result<Self, Self::Error> {
+        GamestateBuilder::new_with_fen(gamestate_fen)?.build()
     }
 }
 
@@ -150,28 +300,228 @@ impl fmt::Display for Gamestate {
 }
 
 impl Gamestate {
-    // TODO: determine if new should be this zeroed out version of the board
-    // or if it should just be the default board
-    pub fn new() -> Self {
-        let board = Board::new();
-        let active_color = Color::White;
-        let castle_permissions = CastlePerm::default();
-        let en_passant: Option<Square> = None;
-        let halfmove_clock: u32 = 0;
-        let fullmove_number: u32 = 0;
-        let history = Vec::new();
-        let zobrist = Zobrist::new();
+    fn gen_position_key(&self) -> u64 {
+        let mut position_key: u64 = 0;
 
-        Gamestate {
-            board,
-            active_color,
-            castle_permissions,
-            en_passant,
-            halfmove_clock,
-            fullmove_number,
-            history,
-            zobrist,
+        // Piece location component
+        for (square_index, piece_at_square) in self.board.pieces.iter().enumerate() {
+            if let Some(piece) = *piece_at_square {
+                position_key ^= self.zobrist.piece_keys[piece as usize][square_index];
+            }
         }
+        // Color (which player's turn) component
+        if self.active_color == Color::White {
+            position_key ^= self.zobrist.color_key
+        };
+        // En Passant component
+        if let Some(square) = self.en_passant {
+            position_key ^= self.zobrist.en_passant_keys[square as usize];
+        }
+        // Castle Permissions component
+        let castle_permissions: u8 = self.castle_permissions.into();
+        position_key ^= self.zobrist.castle_keys[castle_permissions as usize];
+
+        position_key
+    }
+
+    /// Check that the gamestate is valid for the given a validity check mode
+    fn check_gamestate(
+        self,
+        validity_check: &ValidityCheck,
+    ) -> Result<Self, GamestateValidityCheckError> {
+        if let ValidityCheck::Strict = validity_check {
+            // TODO:
+            // check that the non-active player is not in check
+            // check that the active player is checked less than 3 times
+            // check that if the active player is checked 2 times it can't be:
+            // check if active color can win in one move (not allowed)
+            // check that the castling permissions don't contradict the position of rooks and kings
+
+            // check that halfmove clock doesn't violate the 50 move rule
+            if self.halfmove_clock >= HALF_MOVE_MAX {
+                return Err(GamestateValidityCheckError::StrictHalfmoveClockExceedsMax {
+                    halfmove_clock: self.halfmove_clock,
+                });
+            }
+
+            // check that fullmove number is in valid range 1..=MAX_GAME_MOVES
+            if !(1..=MAX_GAME_MOVES).contains(&(self.fullmove_number as usize)) {
+                return Err(
+                    GamestateValidityCheckError::StrictFullmoveNumberNotInRange {
+                        fullmove_number: self.fullmove_number,
+                    },
+                );
+            }
+
+            // check that fullmove number and halfmove clock are plausible
+            // NOTE: fullmove_number starts at 1 and increments every time black moves
+            // halfmove_clock starts at 0 and increases everytime a player makes a move that does not
+            // move a pawn or capture a piece.
+            // Initial setup is active color: white, fullmove: 1, halfmove: 0
+            // so 2 * (1 - 1) + 0 = 0 which is not less than 0
+            // Now if white moves a knight out, you should have color: black, fullmove: 1, halfmove: 1
+            // so 2*(1 - 1) + 1 = 1 which is not less than 1
+            // Now say black moves a pawn but we get back color: white, fullmove: 2, halfmove: 2
+            // so 2*(2 - 1) + 0 = 2  which is not less than 2
+            // we can't catch that kind of mistake here because for all we know black moved a knight
+            // but let's say that we get back color: white, fullmove: 1, halfmove: 2
+            // in order to get halfmove: 2, white had to play a knight, then black had to play a knight
+            // as well which should have incremented fullmove. That's what's being caught here
+            if (2 * (self.fullmove_number - 1) + self.active_color as u32)
+                < self.halfmove_clock as u32
+            {
+                return Err(
+                GamestateValidityCheckError::StrictFullmoveNumberLessThanHalfmoveClockDividedByTwo {
+                    fullmove_number: self.fullmove_number,
+                    halfmove_clock: self.halfmove_clock,
+                },
+            );
+            }
+
+            //====================== EN PASSANT CHECKS ========================
+
+            if let Some(en_passant) = self.en_passant {
+                // Take in a Square64 so that you can't be given an invalid square but then cast it to 120 format
+                // so that we can use it as an index properly
+                let en_passant = Square::from(en_passant);
+
+                // check that if there is an en passant square, the halfmove clock must be 0 (pawn just moved resets clock)
+                if !matches!(self.halfmove_clock, 0) {
+                    return Err(
+                        GamestateValidityCheckError::StrictEnPassantHalfmoveClockNotZero {
+                            halfmove_clock: self.halfmove_clock,
+                        },
+                    );
+                }
+
+                // check that en passant square is on proper rank given active color
+                let rank = en_passant.get_rank();
+                match rank {
+                    // White pawn just moved up by two spaces
+                    // If active color is black then en_passant rank has to be 3.
+                    Rank::Rank3 => {
+                        match self.active_color {
+                            Color::Black => {
+                                // check that the en passant square is empty
+                                if let Some(_piece) = self.board.pieces[en_passant as usize] {
+                                    return Err(
+                                        GamestateValidityCheckError::StrictEnPassantNotEmpty {
+                                            en_passant_square: en_passant,
+                                        },
+                                    );
+                                }
+
+                                // check that the square behind the en_passant square is empty
+                                let square_behind_index = en_passant as usize - NUM_BOARD_COLUMNS;
+                                if let Some(_piece) = self.board.pieces[square_behind_index] {
+                                    return Err(
+                                    GamestateValidityCheckError::StrictEnPassantSquareBehindNotEmpty {
+                                        square_behind: Square::try_from(square_behind_index)
+                                            .expect(
+                                            "should never fail since we know that we are on rank 3",
+                                        ),
+                                    },
+                                );
+                                }
+
+                                let square_ahead_index = en_passant as usize + NUM_BOARD_COLUMNS;
+                                match self.board.pieces[square_ahead_index] {
+                                    // check that white pawn is in front of en passant square
+                                    Some(piece) => {
+                                        if !matches!(piece, Piece::WhitePawn) {
+                                            return Err(GamestateValidityCheckError::StrictEnPassantSquareAheadUnexpectedPiece {
+                                            square_ahead: Square::try_from(square_ahead_index)
+                                            .expect("should never fail since we know that we are on rank 3"),
+                                            invalid_piece: piece,
+                                            expected_piece: Piece::WhitePawn
+                                        });
+                                        }
+                                    }
+                                    None => {
+                                        return Err(GamestateValidityCheckError::StrictEnPassantSquareAheadEmpty {
+                                    square_ahead: Square::try_from(square_ahead_index)
+                                    .expect("should never fail since we know that we are on rank 3")
+                                });
+                                    }
+                                }
+                            }
+
+                            Color::White => {
+                                return Err(GamestateValidityCheckError::StrictColorRankMismatch {
+                                    active_color: self.active_color,
+                                    rank,
+                                });
+                            }
+                        }
+                    }
+
+                    // Black pawn just moved up by two spaces
+                    // If active color is white then en_passant rank has to be 6.
+                    Rank::Rank6 => {
+                        match self.active_color {
+                            Color::White => {
+                                // check that the en passant square is empty
+                                if let Some(_piece) = self.board.pieces[en_passant as usize] {
+                                    return Err(
+                                        GamestateValidityCheckError::StrictEnPassantNotEmpty {
+                                            en_passant_square: en_passant,
+                                        },
+                                    );
+                                }
+
+                                // check that the square behind the en_passant square is empty
+                                let square_behind_index = en_passant as usize + NUM_BOARD_COLUMNS;
+                                if let Some(_piece) = self.board.pieces[square_behind_index] {
+                                    return Err(
+                                    GamestateValidityCheckError::StrictEnPassantSquareBehindNotEmpty {
+                                        square_behind: Square::try_from(square_behind_index)
+                                            .expect(
+                                            "should never fail since we know that we are on rank 6",
+                                        ),
+                                    },
+                                );
+                                }
+
+                                let square_ahead_index = en_passant as usize - NUM_BOARD_COLUMNS;
+                                match self.board.pieces[square_ahead_index] {
+                                    // check that black pawn is in front of en passant square
+                                    Some(piece) => {
+                                        if !matches!(piece, Piece::BlackPawn) {
+                                            return Err(GamestateValidityCheckError::StrictEnPassantSquareAheadUnexpectedPiece {
+                                            square_ahead: Square::try_from(square_ahead_index)
+                                            .expect("should never fail since we know that we are on rank 6"),
+                                            invalid_piece: piece,
+                                            expected_piece: Piece::BlackPawn
+                                        });
+                                        }
+                                    }
+                                    None => {
+                                        return Err(GamestateValidityCheckError::StrictEnPassantSquareAheadEmpty {
+                                    square_ahead: Square::try_from(square_ahead_index)
+                                    .expect("should never fail since we know that we are on rank 6")
+                                });
+                                    }
+                                }
+                            }
+
+                            Color::Black => {
+                                return Err(GamestateValidityCheckError::StrictColorRankMismatch {
+                                    active_color: self.active_color,
+                                    rank,
+                                });
+                            }
+                        }
+                    }
+                    _ => {
+                        return Err(GamestateValidityCheckError::StrictColorRankMismatch {
+                            active_color: self.active_color,
+                            rank,
+                        });
+                    }
+                }
+            }
+        }
+        Ok(self)
     }
 
     /// Determine if the provided square is currently under attack
@@ -250,278 +600,19 @@ impl Gamestate {
         // if we never early returned true, then our square is not under attack
         false
     }
-
-    // TODO: make sure that on the frontend the number of characters that can be passed is limited to something reasonable
-    // TODO: check that bishops are on squares that have the same color as them
-    /// Validate full FEN string and generate valid Gamestate object if validation succeeds
-    fn gen_gamestate_from_fen(fen: &str) -> Result<Self, GamestateFENParseError> {
-        let fen_sections: Vec<&str> = fen.trim().split(' ').collect();
-        let mut fen_sections_iterator = fen_sections.iter();
-
-        // deal with board FEN separately because spaces in the middle will break parse and complicate things
-        let board_str = *fen_sections_iterator
-            .next()
-            .ok_or(GamestateFENParseError::Empty)?;
-        let board = Board::try_from(board_str)?;
-
-        // go through rest of FEN sections and clean up any empty sections aka extra spaces
-        let mut remaining_sections: Vec<&str> = vec![]; // will not include any empty sections
-        for &section in fen_sections_iterator {
-            // TODO: get rid of is_empty and use patten matching if let [first, ..]
-            // Check if current fen section is empty (if so just a space that we can ignore)
-            if !section.is_empty() {
-                remaining_sections.push(section);
-            }
-        }
-
-        match remaining_sections.len() {
-            len if len == NUM_FEN_SECTIONS - 1 => {
-                let active_color_str = remaining_sections[0];
-                // active_color_str here should be either "w" or "b"
-                let active_color = match active_color_str {
-                    white if white == char::from(Color::White).to_string() => Color::White,
-                    black if black == char::from(Color::Black).to_string() => Color::Black,
-                    _ => {
-                        return Err(GamestateFENParseError::ActiveColor(
-                            active_color_str.to_string(),
-                        ))
-                    }
-                };
-
-                // Check that castling permissions don't contradict position of rooks and kings
-                // TODO: look into X-FEN and Shredder-FEN for Chess960
-                let castle_permissions_str = remaining_sections[1];
-                let castle_permissions = match CastlePerm::try_from(castle_permissions_str) {
-                    Ok(cp) => cp,
-                    Err(_) => {
-                        return Err(GamestateFENParseError::CastlePerm(
-                            castle_permissions_str.to_string(),
-                        ))
-                    }
-                };
-
-                let en_passant_str = remaining_sections[2];
-                let en_passant = match Square::try_from(en_passant_str.to_uppercase().as_str()) {
-                    // en_passant_str must be lowercase
-                    Ok(ep) => match en_passant_str {
-                        uppercase if uppercase == en_passant_str.to_uppercase() => {
-                            return Err(GamestateFENParseError::EnPassantFENParseError(
-                                EnPassantFENParseError::EnPassantUppercase,
-                            ))
-                        }
-                        _ => {
-                            // If active color is black then en_passant rank has to be 3.
-                            let ep_rank = ep.get_rank();
-                            match ep_rank {
-                                Rank::Rank3 => match active_color {
-                                    Color::Black => {
-                                        // check that the en passant square and the one behind it are empty
-                                        let ep_empty = board.pieces[ep as usize].is_none();
-                                        let square_behind =
-                                            Square::from_file_and_rank(ep.get_file(), Rank::Rank2);
-                                        let square_behind_empty =
-                                            board.pieces[square_behind as usize].is_none();
-                                        let square_ahead =
-                                            Square::from_file_and_rank(ep.get_file(), Rank::Rank4);
-                                        match (ep_empty & square_behind_empty) {
-                                            // check that white pawn is in front of en passant square
-                                            true => match board.pawns[0].check_bit(Square64::from(square_ahead)) {
-                                                true => Some(ep),
-                                                false => return Err(GamestateFENParseError::EnPassantFENParseError(EnPassantFENParseError::CorrectPawnNotInFront(Color::White, ep)))
-                                            },
-                                            false => return Err(GamestateFENParseError::EnPassantFENParseError(EnPassantFENParseError::NonEmptySquares)),
-                                        }
-                                    }
-                                    Color::White => {
-                                        return Err(GamestateFENParseError::EnPassantFENParseError(
-                                            EnPassantFENParseError::ColorRankMismatch(
-                                                active_color,
-                                                ep_rank,
-                                            ),
-                                        ))
-                                    }
-                                },
-                                // If active color is white then en_passant rank has to be 6.
-                                Rank::Rank6 => match active_color {
-                                    Color::White => {
-                                        // check that the en passant square and the one behind it are empty
-                                        let ep_empty = board.pieces[ep as usize].is_none();
-                                        let square_behind =
-                                            Square::from_file_and_rank(ep.get_file(), Rank::Rank7);
-                                        let square_behind_empty =
-                                            board.pieces[square_behind as usize].is_none();
-                                        let square_ahead =
-                                            Square::from_file_and_rank(ep.get_file(), Rank::Rank5);
-                                        match (ep_empty & square_behind_empty) {
-                                            // check that black pawn is in front of en passant square
-                                            true => match board.pawns[1].check_bit(Square64::from(square_ahead)) {
-                                                true => Some(ep),
-                                                false => return Err(GamestateFENParseError::EnPassantFENParseError(EnPassantFENParseError::CorrectPawnNotInFront(Color::Black, ep)))
-                                            },
-                                            false => return Err(GamestateFENParseError::EnPassantFENParseError(EnPassantFENParseError::NonEmptySquares)),
-                                        }
-                                    }
-                                    Color::Black => {
-                                        return Err(GamestateFENParseError::EnPassantFENParseError(
-                                            EnPassantFENParseError::ColorRankMismatch(
-                                                active_color,
-                                                ep_rank,
-                                            ),
-                                        ))
-                                    }
-                                },
-                                _ => {
-                                    return Err(GamestateFENParseError::EnPassantFENParseError(
-                                        EnPassantFENParseError::Rank(ep_rank),
-                                    ))
-                                }
-                            }
-                        }
-                    },
-                    Err(_) => match en_passant_str {
-                        "-" => None,
-                        _ => {
-                            return Err(GamestateFENParseError::EnPassantFENParseError(
-                                EnPassantFENParseError::SquareConversionError(
-                                    SquareConversionError::FromStr(
-                                        strum::ParseError::VariantNotFound,
-                                    ),
-                                ),
-                            ))
-                        }
-                    },
-                };
-
-                let halfmove_clock_str = remaining_sections[3];
-                let halfmove_clock = match halfmove_clock_str.parse::<u32>() {
-                    Ok(num) => match num {
-                        // if this num was 100 the game would immediately tie, so this is considered invalid
-                        n if (0..HALF_MOVE_MAX).contains(&(n as usize)) => {
-                            // if there is an en passant square, the half move clock must equal 0 (pawn must have moved for en passant to be active)
-                            // TODO: get rid of is_some
-                            match (n != 0) && en_passant.is_some() {
-                                true => {
-                                    return Err(GamestateFENParseError::HalfmoveClockFENParseError(
-                                        HalfmoveClockFENParseError::NonZeroWhileEnPassant,
-                                    ))
-                                }
-                                false => n,
-                            }
-                        }
-                        _ => {
-                            return Err(GamestateFENParseError::HalfmoveClockFENParseError(
-                                HalfmoveClockFENParseError::ExceedsMax(num),
-                            ))
-                        }
-                    },
-                    Err(e) => {
-                        return Err(GamestateFENParseError::HalfmoveClockFENParseError(
-                            HalfmoveClockFENParseError::ParseIntError(e),
-                        ))
-                    }
-                };
-
-                let fullmove_number_str = remaining_sections[4];
-                // check that fullmove_number is a valid u32
-                let fullmove_number = match fullmove_number_str.parse::<u32>() {
-                    Ok(num) => match num {
-                        // check that fullmove number is less than MAX_GAME_MOVES
-                        n if (1..=MAX_GAME_MOVES).contains(&(n as usize)) => {
-                            // Check that halfmove and fullmove aren't mutually exclusive
-                            let halfmove_clock = halfmove_clock_str.parse::<u32>().expect(
-                                "halfmove_clock_str should be a valid u32 since we check it above",
-                            );
-                            let offset: u32 = match active_color {
-                                Color::White => 0,
-                                Color::Black => 1,
-                            };
-                            match n {
-                                plausible if ((2*(plausible - 1) + offset) >= halfmove_clock) => plausible,
-                                _ => return Err(GamestateFENParseError::FullmoveCounterFENParseError(FullmoveCounterFENParseError::SmallerThanHalfmoveClockDividedByTwo(n, halfmove_clock)))
-                            }
-                        }
-                        _ => {
-                            return Err(GamestateFENParseError::FullmoveCounterFENParseError(
-                                FullmoveCounterFENParseError::NotInRange(num),
-                            ))
-                        }
-                    },
-                    Err(e) => {
-                        return Err(GamestateFENParseError::FullmoveCounterFENParseError(
-                            FullmoveCounterFENParseError::ParseIntError(e),
-                        ))
-                    }
-                };
-
-                let history = Vec::new();
-                let zobrist = Zobrist::default();
-
-                // TODO: Check if active color can win in one move and disallow
-
-                Ok(Gamestate {
-                    board,
-                    active_color,
-                    castle_permissions,
-                    en_passant,
-                    halfmove_clock,
-                    fullmove_number,
-                    history,
-                    zobrist,
-                })
-            }
-            _ => Err(GamestateFENParseError::WrongNumFENSections(
-                fen_sections.len(),
-            )),
-        }
-    }
-
-    fn gen_position_key(&self) -> u64 {
-        let mut position_key: u64 = 0;
-
-        // Piece location component
-        for (square_index, piece_at_square) in self.board.pieces.iter().enumerate() {
-            if let Some(piece) = *piece_at_square {
-                position_key ^= self.zobrist.piece_keys[piece as usize][square_index];
-            }
-        }
-        // Color (which player's turn) component
-        if self.active_color == Color::White {
-            position_key ^= self.zobrist.color_key
-        };
-        // En Passant component
-        if let Some(square) = self.en_passant {
-            position_key ^= self.zobrist.en_passant_keys[square as usize];
-        }
-        // Castle Permissions component
-        let castle_permissions: u8 = self.castle_permissions.into();
-        position_key ^= self.zobrist.castle_keys[castle_permissions as usize];
-
-        position_key
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::borrow::Borrow;
-
     use strum::IntoEnumIterator;
 
     use super::*;
     use crate::{
-        board::{bitboard::BitBoard, MAX_NUM_PIECE_TYPE_INSTANCES},
+        board::bitboard::BitBoard,
+        error::{BoardBuildError, BoardValidityCheckError, PieceConversionError},
+        file::File,
         gamestate,
-        util::File,
     };
-
-    // TODO: properly seed and test Zobrist key gen to check for collision rate in norm
-    #[test]
-    fn test_gen_position_key_deterministic() {
-        let gamestate = Gamestate::default();
-        let output = gamestate.gen_position_key();
-        let expected = gamestate.gen_position_key();
-        println!("output: {}, expected: {}", output, expected);
-        assert_eq!(output, expected);
-    }
 
     // FEN parsing tests
     // Full FEN parsing
@@ -530,9 +621,9 @@ mod tests {
         let input = DEFAULT_FEN;
         let output = Gamestate::try_from(input);
         let default = Gamestate::default();
+
         #[rustfmt::skip]
-        let board = Board {
-            pieces: [
+        let pieces = [
                 None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
                 None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
                 None, Some(Piece::WhiteRook), Some(Piece::WhiteKnight), Some(Piece::WhiteBishop), Some(Piece::WhiteQueen), Some(Piece::WhiteKing), Some(Piece::WhiteBishop), Some(Piece::WhiteKnight), Some(Piece::WhiteRook), None,
@@ -545,41 +636,59 @@ mod tests {
                 None, Some(Piece::BlackRook), Some(Piece::BlackKnight), Some(Piece::BlackBishop), Some(Piece::BlackQueen), Some(Piece::BlackKing), Some(Piece::BlackBishop), Some(Piece::BlackKnight), Some(Piece::BlackRook), None,
                 None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
                 None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
-            ],      
-            pawns: [BitBoard(0x000000000000FF00), BitBoard(0x00FF000000000000)],
-            kings_square: [Some(Square::E1), Some(Square::E8)],
-            piece_count: [8, 2, 2, 2, 1, 1, 8, 2, 2, 2, 1, 1],
-            big_piece_count: [8, 8],
-            // NOTE: King considered major piece for us
-            major_piece_count: [4, 4],
-            minor_piece_count: [4, 4],
-            piece_list: [
-                // WhitePawns
-                [Some(Square::A2), Some(Square::B2), Some(Square::C2), Some(Square::D2), Some(Square::E2), Some(Square::F2), Some(Square::G2), Some(Square::H2), None, None],
-                // WhiteKnights
-                [Some(Square::B1), Some(Square::G1), None, None, None, None, None, None, None, None],
-                // WhiteBishops
-                [Some(Square::C1), Some(Square::F1), None, None, None, None, None, None, None, None],
-                // WhiteRooks
-                [Some(Square::A1), Some(Square::H1), None, None, None, None, None, None, None, None],
-                // WhiteQueens
-                [Some(Square::D1), None, None, None, None, None, None, None, None, None],
-                // WhiteKing
-                [Some(Square::E1), None, None, None, None, None, None, None, None, None],
-                // BlackPawns
-                [Some(Square::A7), Some(Square::B7), Some(Square::C7), Some(Square::D7), Some(Square::E7), Some(Square::F7), Some(Square::G7), Some(Square::H7), None, None],
-                // BlackKnights
-                [Some(Square::B8), Some(Square::G8), None, None, None, None, None, None, None, None],
-                // BlackBishops
-                [Some(Square::C8), Some(Square::F8), None, None, None, None, None, None, None, None],
-                // BlackRooks
-                [Some(Square::A8), Some(Square::H8), None, None, None, None, None, None, None, None],
-                // BlackQueens
-                [Some(Square::D8), None, None, None, None, None, None, None, None, None],
-                // BlackKing
-                [Some(Square::E8), None, None, None, None, None, None, None, None, None],
-            ]
-        };
+        ];
+
+        let board = BoardBuilder::new_with_pieces(pieces).build().unwrap();
+
+        // let board = Board {
+        //     pieces: [
+        //         None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+        //         None, Some(Piece::WhiteRook), Some(Piece::WhiteKnight), Some(Piece::WhiteBishop), Some(Piece::WhiteQueen), Some(Piece::WhiteKing), Some(Piece::WhiteBishop), Some(Piece::WhiteKnight), Some(Piece::WhiteRook), None,
+        //         None, Some(Piece::WhitePawn), Some(Piece::WhitePawn),   Some(Piece::WhitePawn),   Some(Piece::WhitePawn),  Some(Piece::WhitePawn), Some(Piece::WhitePawn),   Some(Piece::WhitePawn),   Some(Piece::WhitePawn), None,
+        //         None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+        //         None, Some(Piece::BlackPawn), Some(Piece::BlackPawn),   Some(Piece::BlackPawn),   Some(Piece::BlackPawn),  Some(Piece::BlackPawn), Some(Piece::BlackPawn),   Some(Piece::BlackPawn),   Some(Piece::BlackPawn), None,
+        //         None, Some(Piece::BlackRook), Some(Piece::BlackKnight), Some(Piece::BlackBishop), Some(Piece::BlackQueen), Some(Piece::BlackKing), Some(Piece::BlackBishop), Some(Piece::BlackKnight), Some(Piece::BlackRook), None,
+        //         None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+        //     ],
+        //     pawns: [BitBoard(0x000000000000FF00), BitBoard(0x00FF000000000000)],
+        //     kings_square: [Some(Square::E1), Some(Square::E8)],
+        //     piece_count: [8, 2, 2, 2, 1, 1, 8, 2, 2, 2, 1, 1],
+        //     big_piece_count: [8, 8],
+        //     // NOTE: King considered major piece for us
+        //     major_piece_count: [4, 4],
+        //     minor_piece_count: [4, 4],
+        // piece_list: [
+        //     // WhitePawns
+        //     vec![Square::A2, Square::B2, Square::C2, Square::D2, Square::E2, Square::F2, Square::G2, Square::H2],
+        //     // WhiteKnights
+        //     vec![Square::B1, Square::G1],
+        //     // WhiteBishops
+        //     vec![Square::C1, Square::F1],
+        //     // WhiteRooks
+        //     vec![Square::A1, Square::H1],
+        //     // WhiteQueens
+        //     vec![Square::D1],
+        //     // WhiteKing
+        //     vec![Square::E1],
+        //     // BlackPawns
+        //     vec![Square::A7, Square::B7, Square::C7, Square::D7, Square::E7, Square::F7, Square::G7, Square::H7],
+        //     // BlackKnights
+        //     vec![Square::B8, Square::G8],
+        //     // BlackBishops
+        //     vec![Square::C8, Square::F8],
+        //     // BlackRooks
+        //     vec![Square::A8, Square::H8],
+        //     // BlackQueens
+        //     vec![Square::D8],
+        //     // BlackKing
+        //     vec![Square::E8],
+        // ]
+        // };
 
         let active_color = Color::White;
         let castle_permissions = CastlePerm::default();
@@ -589,7 +698,7 @@ mod tests {
         let history = Vec::new();
         let zobrist = Zobrist::default();
 
-        let expected: Result<Gamestate, GamestateFENParseError> = Ok(Gamestate {
+        let expected = Ok(Gamestate {
             board,
             active_color,
             castle_permissions,
@@ -649,56 +758,64 @@ mod tests {
     #[test]
     fn test_square_attacked_queen_no_blockers() {
         // const FEN_1: &str = "8/3q4/8/8/4Q3/8/8/8 w - - 0 2";
-        #[rustfmt::skip]
-        let board = Board {
-            pieces: [
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    Some(Piece::WhiteQueen), None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     Some(Piece::BlackQueen), None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-            ],      
-            pawns: [BitBoard(0), BitBoard(0)],
-            kings_square: [None; Color::COUNT],
-            piece_count: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0],
-            big_piece_count: [1, 1],
-            // NOTE: King considered major piece for us
-            major_piece_count: [1, 1],
-            minor_piece_count: [0, 0],
-            piece_list: [
-                // WhitePawns
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // WhiteKnights
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // WhiteBishops
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // WhiteRooks
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // WhiteQueens
-                [Some(Square::E4), None, None, None, None, None, None, None, None, None],
-                // WhiteKing
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // BlackPawns
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // BlackKnights
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // BlackBishops
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // BlackRooks
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // BlackQueens
-                [Some(Square::D7), None, None, None, None, None, None, None, None, None],
-                // BlackKing
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-            ]
-        };
+        let board = BoardBuilder::new()
+            .validity_check(ValidityCheck::Basic)
+            .piece(Piece::WhiteQueen, Square64::E4)
+            .piece(Piece::BlackQueen, Square64::D7)
+            .build()
+            .unwrap();
+
+        // #[rustfmt::skip]
+        // let board = Board {
+        //     pieces: [
+        //         None, None, None, None, None,                    None,                    None, None, None, None,
+        //         None, None, None, None, None,                    None,                    None, None, None, None,
+        //         None, None, None, None, None,                    None,                    None, None, None, None,
+        //         None, None, None, None, None,                    None,                    None, None, None, None,
+        //         None, None, None, None, None,                    None,                    None, None, None, None,
+        //         None, None, None, None, None,                    Some(Piece::WhiteQueen), None, None, None, None,
+        //         None, None, None, None, None,                    None,                    None, None, None, None,
+        //         None, None, None, None, None,                    None,                    None, None, None, None,
+        //         None, None, None, None, Some(Piece::BlackQueen), None,                    None, None, None, None,
+        //         None, None, None, None, None,                    None,                    None, None, None, None,
+        //         None, None, None, None, None,                    None,                    None, None, None, None,
+        //         None, None, None, None, None,                    None,                    None, None, None, None,
+        //     ],
+        //     pawns: [BitBoard(0), BitBoard(0)],
+        //     kings_square: [None; Color::COUNT],
+        //     piece_count: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0],
+        //     big_piece_count: [1, 1],
+        //     // NOTE: King considered major piece for us
+        //     major_piece_count: [1, 1],
+        //     minor_piece_count: [0, 0],
+        //     piece_list: [
+        //         // WhitePawns
+        //         vec![],
+        //         // WhiteKnights
+        //         vec![],
+        //         // WhiteBishops
+        //         vec![],
+        //         // WhiteRooks
+        //         vec![],
+        //         // WhiteQueens
+        //         vec![Square::E4],
+        //         // WhiteKing
+        //         vec![],
+        //         // BlackPawns
+        //         vec![],
+        //         // BlackKnights
+        //         vec![],
+        //         // BlackBishops
+        //         vec![],
+        //         // BlackRooks
+        //         vec![],
+        //         // BlackQueens
+        //         vec![Square::D7],
+        //         // BlackKing
+        //         vec![]
+        //     ]
+        // };
+
         let active_color = Color::White;
         let castle_permissions = CastlePerm::try_from(0).unwrap();
         let en_passant = None;
@@ -744,56 +861,64 @@ mod tests {
     #[test]
     fn test_square_attacked_queen_with_blocker() {
         // const FEN_1: &str = "8/3q4/8/8/4Q3/8/2P5/8 w - - 0 2";
-        #[rustfmt::skip]
-        let board = Board {
-            pieces: [
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     Some(Piece::WhitePawn),   None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    Some(Piece::WhiteQueen), None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     Some(Piece::BlackQueen), None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-            ],      
-            pawns: [BitBoard(0x00_00_00_00_00_00_04_00), BitBoard(0)],
-            kings_square: [None; Color::COUNT],
-            piece_count: [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0],
-            big_piece_count: [1, 1],
-            // NOTE: King considered major piece for us
-            major_piece_count: [1, 1],
-            minor_piece_count: [0, 0],
-            piece_list: [
-                // WhitePawns
-                [Some(Square::C2), None, None, None, None, None, None, None, None, None],
-                // WhiteKnights
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // WhiteBishops
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // WhiteRooks
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // WhiteQueens
-                [Some(Square::E4), None, None, None, None, None, None, None, None, None],
-                // WhiteKing
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // BlackPawns
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // BlackKnights
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // BlackBishops
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // BlackRooks
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // BlackQueens
-                [Some(Square::D7), None, None, None, None, None, None, None, None, None],
-                // BlackKing
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-            ]
-        };
+        let board = BoardBuilder::new()
+            .validity_check(ValidityCheck::Basic)
+            .piece(Piece::WhitePawn, Square64::C2)
+            .piece(Piece::WhiteQueen, Square64::E4)
+            .piece(Piece::BlackQueen, Square64::D7)
+            .build()
+            .unwrap();
+
+        // #[rustfmt::skip]
+        // let board = Board {
+        //     pieces: [
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     Some(Piece::WhitePawn),   None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    Some(Piece::WhiteQueen), None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     Some(Piece::BlackQueen), None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //     ],
+        //     pawns: [BitBoard(0x00_00_00_00_00_00_04_00), BitBoard(0)],
+        //     kings_square: [None; Color::COUNT],
+        //     piece_count: [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0],
+        //     big_piece_count: [1, 1],
+        //     // NOTE: King considered major piece for us
+        //     major_piece_count: [1, 1],
+        //     minor_piece_count: [0, 0],
+        //     piece_list: [
+        //         // WhitePawns
+        //         vec![Square::C2],
+        //         // WhiteKnights
+        //         vec![],
+        //         // WhiteBishops
+        //         vec![],
+        //         // WhiteRooks
+        //         vec![],
+        //         // WhiteQueens
+        //         vec![Square::E4],
+        //         // WhiteKing
+        //         vec![],
+        //         // BlackPawns
+        //         vec![],
+        //         // BlackKnights
+        //         vec![],
+        //         // BlackBishops
+        //         vec![],
+        //         // BlackRooks
+        //         vec![],
+        //         // BlackQueens
+        //         vec![Square::D7],
+        //         // BlackKing
+        //         vec![]
+        //     ]
+        // };
 
         println!("{}", board);
 
@@ -842,56 +967,63 @@ mod tests {
     #[test]
     fn test_square_attacked_white_bishop_on_black_square() {
         // const FEN: &str = "8/8/8/8/8/2B4K/8/k7 w - - 0 1";
-        #[rustfmt::skip]
-        let board = Board {
-            pieces: [
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, Some(Piece::BlackKing), None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     Some(Piece::WhiteBishop), None,                    None,                    None,                     None,                     Some(Piece::WhiteKing), None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-            ],      
-            pawns: [BitBoard(0), BitBoard(0)],
-            kings_square: [Some(Square::H3), Some(Square::A1)],
-            piece_count: [0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0],
-            big_piece_count: [2, 1],
-            // NOTE: King considered major piece for us
-            major_piece_count: [1, 1],
-            minor_piece_count: [1, 0],
-            piece_list: [
-                // WhitePawns
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // WhiteKnights
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // WhiteBishops
-                [Some(Square::C3), None, None, None, None, None, None, None, None, None],
-                // WhiteRooks
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // WhiteQueens
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // WhiteKing
-                [Some(Square::H3), None, None, None, None, None, None, None, None, None],
-                // BlackPawns
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // BlackKnights
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // BlackBishops
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // BlackRooks
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // BlackQueens
-                [None; MAX_NUM_PIECE_TYPE_INSTANCES],
-                // BlackKing
-                [Some(Square::A1), None, None, None, None, None, None, None, None, None],
-            ]
-        };
+        let board = BoardBuilder::new()
+            .piece(Piece::BlackKing, Square64::A1)
+            .piece(Piece::WhiteBishop, Square64::C3)
+            .piece(Piece::WhiteKing, Square64::H3)
+            .build()
+            .unwrap();
+
+        // #[rustfmt::skip]
+        // let board = Board {
+        //     pieces: [
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, Some(Piece::BlackKing), None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     Some(Piece::WhiteBishop), None,                    None,                    None,                     None,                     Some(Piece::WhiteKing), None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //     ],
+        //     pawns: [BitBoard(0), BitBoard(0)],
+        //     kings_square: [Some(Square::H3), Some(Square::A1)],
+        //     piece_count: [0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0],
+        //     big_piece_count: [2, 1],
+        //     // NOTE: King considered major piece for us
+        //     major_piece_count: [1, 1],
+        //     minor_piece_count: [1, 0],
+        //     piece_list: [
+        //         // WhitePawns
+        //         vec![],
+        //         // WhiteKnights
+        //         vec![],
+        //         // WhiteBishops
+        //         vec![Square::C3],
+        //         // WhiteRooks
+        //         vec![],
+        //         // WhiteQueens
+        //         vec![],
+        //         // WhiteKing
+        //         vec![Square::H3],
+        //         // BlackPawns
+        //         vec![],
+        //         // BlackKnights
+        //         vec![],
+        //         // BlackBishops
+        //         vec![],
+        //         // BlackRooks
+        //         vec![],
+        //         // BlackQueens
+        //         vec![],
+        //         // BlackKing
+        //         vec![Square::A1],
+        //     ]
+        // };
         let active_color = Color::White;
         let castle_permissions = CastlePerm::try_from(0).unwrap();
         let en_passant = None;
@@ -1111,7 +1243,11 @@ mod tests {
     fn test_gamestate_try_from_valid_fen_spaces_wrong_number_of_sections() {
         let input = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQ kq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::WrongNumFENSections(7));
+        let expected = Err(GamestateBuildError::GamestateFenDeserialize(
+            GamestateFenDeserializeError::WrongNumFENSections {
+                num_fen_sections: 7,
+            },
+        ));
         assert_eq!(output, expected);
     }
 
@@ -1120,19 +1256,25 @@ mod tests {
         let invalid_board_section = "rnbqkbnr/pppppppp/";
         let input = "rnbqkbnr/pppppppp/ 8/8/8/8/PPPPPPPP/RNBQK BNR w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::from(
-            BoardFENParseError::WrongNumRanks(invalid_board_section.to_string(), 3),
+        let expected = Err(GamestateBuildError::GamestateFenDeserialize(
+            GamestateFenDeserializeError::WrongNumFENSections {
+                num_fen_sections: 8,
+            },
         ));
         assert_eq!(output, expected);
     }
 
     #[test]
     fn test_gamestate_try_from_invalid_fen_spaces_in_board_section_end() {
-        let input = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQK BNR w KQkq - 0 1";
+        let input = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQK BN w KQkq - 0"; // NOTE: had to remove a section or else wrong num sections is hit first
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::InvalidNumSquares(
-                "RNBQK".to_string(),
+        let expected = Err(GamestateBuildError::GamestateFenDeserialize(
+            GamestateFenDeserializeError::BoardBuild(BoardBuildError::BoardFenDeserialize(
+                BoardFenDeserializeError::RankFenDeserialize(
+                    RankFenDeserializeError::InvalidNumSquares {
+                        rank_fen: "RNBQK".to_owned(),
+                    },
+                ),
             )),
         ));
         assert_eq!(output, expected);
@@ -1140,13 +1282,35 @@ mod tests {
 
     // NOTE: enpassant testing for - is done by the tests that use default FENs
     #[test]
-    fn test_gamestate_try_from_invalid_en_passant_uppercase() {
+    fn test_gamestate_try_from_valid_en_passant_uppercase() {
         let en_passant_str = "E6";
         let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq E6 0 3";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::EnPassantFENParseError(
-            EnPassantFENParseError::EnPassantUppercase,
-        ));
+        #[rustfmt::skip]
+        let pieces = [
+                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+                None, Some(Piece::WhiteRook), Some(Piece::WhiteKnight), Some(Piece::WhiteBishop), Some(Piece::WhiteQueen), Some(Piece::WhiteKing), Some(Piece::WhiteBishop), Some(Piece::WhiteKnight), Some(Piece::WhiteRook), None,
+                None, Some(Piece::WhitePawn), Some(Piece::WhitePawn),   Some(Piece::WhitePawn),   None,                    Some(Piece::WhitePawn), Some(Piece::WhitePawn),   Some(Piece::WhitePawn),   Some(Piece::WhitePawn), None,
+                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     Some(Piece::WhitePawn),  Some(Piece::BlackPawn), None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     Some(Piece::BlackPawn), None,
+                None, Some(Piece::BlackPawn), Some(Piece::BlackPawn),   Some(Piece::BlackPawn),   Some(Piece::BlackPawn),  None,                   Some(Piece::BlackPawn),   Some(Piece::BlackPawn),   None,                   None,
+                None, Some(Piece::BlackRook), Some(Piece::BlackKnight), Some(Piece::BlackBishop), Some(Piece::BlackQueen), Some(Piece::BlackKing), Some(Piece::BlackBishop), Some(Piece::BlackKnight), Some(Piece::BlackRook), None,
+                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+                None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+        ];
+
+        let expected = GamestateBuilder::new_with_board(
+            BoardBuilder::new_with_pieces(pieces).build().unwrap(),
+        )
+        .active_color(Color::White)
+        .castle_permissions(CastlePerm::default())
+        .en_passant(Some(Square64::E6))
+        .halfmove_clock(0)
+        .fullmove_number(3)
+        .build();
         assert_eq!(output, expected);
     }
 
@@ -1155,10 +1319,8 @@ mod tests {
         let en_passant_str = "e9";
         let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq e9 0 3";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::EnPassantFENParseError(
-            EnPassantFENParseError::SquareConversionError(SquareConversionError::FromStr(
-                strum::ParseError::VariantNotFound,
-            )),
+        let expected = Err(GamestateBuildError::GamestateFenDeserialize(
+            GamestateFenDeserializeError::EnPassant(strum::ParseError::VariantNotFound),
         ));
         assert_eq!(output, expected);
     }
@@ -1166,10 +1328,12 @@ mod tests {
     // En passant square can't be occupied
     #[test]
     fn test_gamestate_try_from_invalid_en_passant_square_occupied() {
-        let input = "rn1qkbnr/ppp2ppp/3pb3/3Pp3/8/8/PPPQPPPP/RNB1KBNR w KQkq e6 2 4";
+        let input = "rn1qkbnr/ppp2ppp/3pb3/3Pp3/8/8/PPPQPPPP/RNB1KBNR w KQkq e6 0 4";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::EnPassantFENParseError(
-            EnPassantFENParseError::NonEmptySquares,
+        let expected = Err(GamestateBuildError::GamestateValidityCheck(
+            GamestateValidityCheckError::StrictEnPassantNotEmpty {
+                en_passant_square: Square::try_from("E6").unwrap(),
+            },
         ));
         assert_eq!(output, expected);
     }
@@ -1177,10 +1341,12 @@ mod tests {
     // Square behind en passant square can't be occupied
     #[test]
     fn test_gamestate_try_from_invalid_en_passant_square_behind_occupied() {
-        let input = "rnbqk1nr/ppp1bppp/3p4/3Pp3/8/8/PPPQPPPP/RNB1KBNR w KQkq e6 2 4";
+        let input = "rnbqk1nr/ppp1bppp/3p4/3Pp3/8/8/PPPQPPPP/RNB1KBNR w KQkq e6 0 4";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::EnPassantFENParseError(
-            EnPassantFENParseError::NonEmptySquares,
+        let expected = Err(GamestateBuildError::GamestateValidityCheck(
+            GamestateValidityCheckError::StrictEnPassantSquareBehindNotEmpty {
+                square_behind: Square::E7,
+            },
         ));
         assert_eq!(output, expected);
     }
@@ -1190,8 +1356,10 @@ mod tests {
     fn test_gamestate_try_from_invalid_en_passant_no_pawn_in_front() {
         let input = "rnbqkbnr/ppp2ppp/3p4/3P4/4p3/8/PPPQPPPP/RNB1KBNR w KQkq e6 0 4";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::EnPassantFENParseError(
-            EnPassantFENParseError::CorrectPawnNotInFront(Color::Black, Square::E6),
+        let expected = Err(GamestateBuildError::GamestateValidityCheck(
+            GamestateValidityCheckError::StrictEnPassantSquareAheadEmpty {
+                square_ahead: Square::E5,
+            },
         ));
         assert_eq!(output, expected);
     }
@@ -1201,8 +1369,12 @@ mod tests {
     fn test_gamestate_try_from_invalid_en_passant_wrong_pawn_in_front() {
         let input = "rnbqkbnr/pp1p1ppp/2p5/4P3/8/8/PPP1PPPP/RNBQKBNR w KQkq e6 0 3";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::EnPassantFENParseError(
-            EnPassantFENParseError::CorrectPawnNotInFront(Color::Black, Square::E6),
+        let expected = Err(GamestateBuildError::GamestateValidityCheck(
+            GamestateValidityCheckError::StrictEnPassantSquareAheadUnexpectedPiece {
+                square_ahead: Square::E5,
+                invalid_piece: Piece::WhitePawn,
+                expected_piece: Piece::BlackPawn,
+            },
         ));
         assert_eq!(output, expected);
     }
@@ -1210,11 +1382,13 @@ mod tests {
     // Halfmove and Fullmove
     #[test]
     fn test_gamestate_try_from_invalid_halfmove_exceeds_max() {
-        let halfmove: u32 = 100;
+        let halfmove: u8 = 100;
         let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq - 100 1024";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::HalfmoveClockFENParseError(
-            HalfmoveClockFENParseError::ExceedsMax(halfmove),
+        let expected = Err(GamestateBuildError::GamestateValidityCheck(
+            GamestateValidityCheckError::StrictHalfmoveClockExceedsMax {
+                halfmove_clock: halfmove,
+            },
         ));
         assert_eq!(output, expected);
     }
@@ -1224,8 +1398,10 @@ mod tests {
         let fullmove: u32 = 1025;
         let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq - 0 1025";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::FullmoveCounterFENParseError(
-            FullmoveCounterFENParseError::NotInRange(fullmove),
+        let expected = Err(GamestateBuildError::GamestateValidityCheck(
+            GamestateValidityCheckError::StrictFullmoveNumberNotInRange {
+                fullmove_number: fullmove,
+            },
         ));
         assert_eq!(output, expected);
     }
@@ -1235,8 +1411,10 @@ mod tests {
         let fullmove: u32 = 0;
         let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq - 0 0";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::FullmoveCounterFENParseError(
-            FullmoveCounterFENParseError::NotInRange(fullmove),
+        let expected = Err(GamestateBuildError::GamestateValidityCheck(
+            GamestateValidityCheckError::StrictFullmoveNumberNotInRange {
+                fullmove_number: fullmove,
+            },
         ));
         assert_eq!(output, expected);
     }
@@ -1247,8 +1425,13 @@ mod tests {
         let invalid_board_str = "8/8/8/8/8/8/8/8";
         let input = "8/8/8/8/8/8/8/8 w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
-            BoardFENParseError::InvalidKingNum(invalid_board_str.to_string()),
+        let expected = Err(GamestateBuildError::GamestateFenDeserialize(
+            GamestateFenDeserializeError::BoardBuild(BoardBuildError::BoardValidityCheck(
+                BoardValidityCheckError::StrictOneBlackKingOneWhiteKing {
+                    num_white_kings: 0,
+                    num_black_kings: 0,
+                },
+            )),
         ));
         assert_eq!(output, expected);
     }
@@ -1258,8 +1441,13 @@ mod tests {
         let invalid_board_str = "8/8/rbkqn2p/8/8/8/PPKPP1PP";
         let input = "8/8/rbkqn2p/8/8/8/PPKPP1PP w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
-            BoardFENParseError::WrongNumRanks(invalid_board_str.to_string(), 7),
+        let expected = Err(GamestateBuildError::GamestateFenDeserialize(
+            GamestateFenDeserializeError::BoardBuild(BoardBuildError::BoardFenDeserialize(
+                BoardFenDeserializeError::WrongNumRanks {
+                    board_fen: invalid_board_str.to_owned(),
+                    num_ranks: 7,
+                },
+            )),
         ));
         assert_eq!(output, expected);
     }
@@ -1269,8 +1457,13 @@ mod tests {
         let invalid_board_str = "8/8/rbkqn2p/8/8/8/PPKPP1PP/8/";
         let input = "8/8/rbkqn2p/8/8/8/PPKPP1PP/8/ w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
-            BoardFENParseError::WrongNumRanks(invalid_board_str.to_string(), 9),
+        let expected = Err(GamestateBuildError::GamestateFenDeserialize(
+            GamestateFenDeserializeError::BoardBuild(BoardBuildError::BoardFenDeserialize(
+                BoardFenDeserializeError::WrongNumRanks {
+                    board_fen: invalid_board_str.to_owned(),
+                    num_ranks: 9,
+                },
+            )),
         ));
         assert_eq!(output, expected);
     }
@@ -1280,8 +1473,10 @@ mod tests {
         let invalid_board_str = "8/8/rbkqn2p//8/8/PPKPP1PP/8";
         let input = "8/8/rbkqn2p//8/8/PPKPP1PP/8 w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::Empty),
+        let expected = Err(GamestateBuildError::GamestateFenDeserialize(
+            GamestateFenDeserializeError::BoardBuild(BoardBuildError::BoardFenDeserialize(
+                BoardFenDeserializeError::RankFenDeserialize(RankFenDeserializeError::Empty),
+            )),
         ));
         assert_eq!(output, expected);
     }
@@ -1291,134 +1486,14 @@ mod tests {
         let invalid_board_str = "8/8/rbqn3p/8/8/8/PPKPP1PP/8";
         let input = "8/8/rbqn3p/8/8/8/PPKPP1PP/8 w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
-            BoardFENParseError::InvalidKingNum(invalid_board_str.to_string()),
-        ));
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_gamestate_try_from_invalid_board_fen_too_many_kings() {
-        let invalid_board_str = "8/8/rbqnkkpr/8/8/8/PPKPP1PP/8";
-        let input = "8/8/rbqnkkpr/8/8/8/PPKPP1PP/8 w KQkq - 0 1";
-        let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
-            BoardFENParseError::InvalidNumOfPiece(invalid_board_str.to_string(), 'k'),
-        ));
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_gamestate_try_from_invalid_board_fen_too_many_white_queens() {
-        let invalid_board_str = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/QQQQQQQQ";
-        let input = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/QQQQQQQQ w KQkq - 0 1";
-        let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
-            BoardFENParseError::InvalidNumOfPiece(invalid_board_str.to_string(), 'Q'),
-        ));
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_gamestate_try_from_invalid_board_fen_too_many_white_pawns() {
-        let invalid_board_str = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/PPPPPPPP";
-        let input = "8/8/rbqnkppr/8/8/8/PQKPP1PQ/PPPPPPPP w KQkq - 0 1";
-        let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
-            BoardFENParseError::InvalidNumOfPiece(invalid_board_str.to_string(), 'P'),
-        ));
-        assert_eq!(output, expected);
-    }
-
-    // Rank Level:
-    #[test]
-    fn test_gamestate_try_from_invalid_rank_fen_empty() {
-        let invalid_board_str = "";
-        let input = "/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-        let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::Empty),
-        ));
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_gamestate_try_from_invalid_rank_fen_char() {
-        let invalid_rank_str = "rn2Xb1r";
-        let input = "rn2Xb1r/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-        let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::InvalidChar(
-                invalid_rank_str.to_string(),
-                'X',
+        let expected = Err(GamestateBuildError::GamestateFenDeserialize(
+            GamestateFenDeserializeError::BoardBuild(BoardBuildError::BoardValidityCheck(
+                BoardValidityCheckError::StrictOneBlackKingOneWhiteKing {
+                    num_white_kings: 1,
+                    num_black_kings: 0,
+                },
             )),
         ));
         assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_board_try_from_invalid_rank_fen_digit() {
-        let invalid_rank_str = "rn0kb1rqN"; // num squares would be valid
-        let input = "rn0kb1rqN/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-        let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::InvalidDigit(
-                invalid_rank_str.to_string(),
-                0,
-            )),
-        ));
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_board_invalid_rank_fen_too_many_squares() {
-        let invalid_rank_str = "rn2kb1rqN";
-        let input = "rn2kb1rqN/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-        let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::InvalidNumSquares(
-                invalid_rank_str.to_string(),
-            )),
-        ));
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_board_invalid_rank_fen_too_few_squares() {
-        let invalid_rank_str = "rn2kb";
-        let input = "rn2kb/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-        let output = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::InvalidNumSquares(
-                invalid_rank_str.to_string(),
-            )),
-        ));
-        assert_eq!(output, expected);
-    }
-
-    #[test]
-    fn test_board_invalid_rank_fen_two_consecutive_digits() {
-        let invalid_rank_str = "pppp12p"; // adds up to 8 squares but isn't valid
-        let input = "pppp12p/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-        let ouput = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::TwoConsecutiveDigits(
-                invalid_rank_str.to_string(),
-            )),
-        ));
-        assert_eq!(ouput, expected);
-    }
-
-    #[test]
-    fn test_board_invalid_rank_fen_two_consecutive_digits_invalid_num_squares() {
-        let invalid_rank_str = "pppp18p"; // adds up to more than 8 squares but gets caught for consecutive digits
-        let input = "pppp18p/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-        let ouput = Gamestate::try_from(input);
-        let expected = Err(GamestateFENParseError::BoardFENParseError(
-            BoardFENParseError::RankFENParseError(RankFENParseError::TwoConsecutiveDigits(
-                invalid_rank_str.to_string(),
-            )),
-        ));
-        assert_eq!(ouput, expected);
     }
 }

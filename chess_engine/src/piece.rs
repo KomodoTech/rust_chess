@@ -1,4 +1,4 @@
-use crate::{error::PieceConversionError, util::Color};
+use crate::{color::Color, error::PieceConversionError};
 
 use std::fmt::{self, write};
 use strum::EnumCount;
@@ -99,6 +99,12 @@ const PIECE_KING: [bool; Piece::COUNT] = [
 const MAX_NUM_PIECES_ALLOWED: [u8; Piece::COUNT] = [
     //wp wn wb wr  wq wk bp bn  bb  br  bq bk
     8, 10, 10, 10, 9, 1, 8, 10, 10, 10, 9, 1,
+];
+
+/// For regular chess these are the starting number of pieces per type
+const STARTING_NUM_PIECES: [u8; Piece::COUNT] = [
+    //wp wn wb wr wq wk bp bn bb br bq bk
+    8, 2, 2, 2, 1, 1, 8, 2, 2, 2, 1, 1,
 ];
 
 // ATTACKING
@@ -209,6 +215,9 @@ impl Piece {
     pub fn get_max_num_allowed(&self) -> u8 {
         MAX_NUM_PIECES_ALLOWED[*self as usize]
     }
+    pub fn get_starting_num(&self) -> u8 {
+        STARTING_NUM_PIECES[*self as usize]
+    }
 
     pub fn is_pawn(&self) -> bool {
         PIECE_PAWN[*self as usize]
@@ -270,7 +279,9 @@ impl TryFrom<char> for Piece {
             'r' => Ok(Piece::BlackRook),
             'q' => Ok(Piece::BlackQueen),
             'k' => Ok(Piece::BlackKing),
-            _ => Err(PieceConversionError::FromChar(value)),
+            _ => Err(PieceConversionError::FromChar {
+                invalid_char: value,
+            }),
         }
     }
 }
@@ -290,6 +301,30 @@ impl From<Piece> for char {
             Piece::BlackRook => 'r',
             Piece::BlackQueen => 'q',
             Piece::BlackKing => 'k',
+        }
+    }
+}
+
+impl TryFrom<usize> for Piece {
+    type Error = PieceConversionError;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Piece::WhitePawn),
+            1 => Ok(Piece::WhiteKnight),
+            2 => Ok(Piece::WhiteBishop),
+            3 => Ok(Piece::WhiteRook),
+            4 => Ok(Piece::WhiteQueen),
+            5 => Ok(Piece::WhiteKing),
+            6 => Ok(Piece::BlackPawn),
+            7 => Ok(Piece::BlackKnight),
+            8 => Ok(Piece::BlackBishop),
+            9 => Ok(Piece::BlackRook),
+            10 => Ok(Piece::BlackQueen),
+            11 => Ok(Piece::BlackKing),
+            _ => Err(PieceConversionError::FromUsize {
+                invalid_usize: value,
+            }),
         }
     }
 }
@@ -393,7 +428,9 @@ mod test {
     fn test_piece_try_from_char_invalid_input() {
         let input = 'M';
         let output = Piece::try_from(input);
-        let expected = Err(PieceConversionError::FromChar(input));
+        let expected = Err(PieceConversionError::FromChar {
+            invalid_char: input,
+        });
         assert_eq!(output, expected);
     }
 

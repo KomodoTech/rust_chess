@@ -1,7 +1,9 @@
 use crate::{
     error::ChessError as Error,
-    squares::{Square, Square64},
-    util::{File, Rank, SQUARE_120_TO_64, SQUARE_64_TO_120},
+    file::File,
+    rank::Rank,
+    square::{Square, Square64},
+    square::{SQUARE_120_TO_64, SQUARE_64_TO_120},
 };
 use std::{fmt, ops::BitAnd};
 
@@ -37,7 +39,7 @@ pub struct BitBoard(pub u64);
 
 impl BitBoard {
     /// Counts number of set bits
-    fn count_bits(&self) -> u8 {
+    pub fn count_bits(&self) -> u8 {
         let mut count: u8 = 0;
         let mut b = self.0;
         while b > 0 {
