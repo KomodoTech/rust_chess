@@ -62,21 +62,23 @@ impl CastlePerm {
                 }
                 '-' => {}
                 _ => {
-                    return Err(CastlePermConversionError::FromStrInvalidChar(
-                        value.to_owned(),
-                        char,
-                    ));
+                    return Err(CastlePermConversionError::FromStrInvalidChar {
+                        invalid_string: value.to_owned(),
+                        invalid_char: char,
+                    });
                 }
             }
         }
         match castle_perm_fens_index {
             index if (0..=15).contains(&index) => match value {
                 v if v == CASTLE_PERM_FENS[castle_perm_fens_index] => Ok(castle_perm),
-                _ => Err(CastlePermConversionError::FromStr(value.to_owned())),
+                _ => Err(CastlePermConversionError::FromStr {
+                    invalid_string: value.to_owned(),
+                }),
             },
-            _ => Err(CastlePermConversionError::FromStrDuplicates(
-                value.to_owned(),
-            )),
+            _ => Err(CastlePermConversionError::FromStrDuplicates {
+                invalid_string: value.to_owned(),
+            }),
         }
     }
 }
@@ -107,7 +109,7 @@ impl TryFrom<u8> for CastlePerm {
                 }
                 Ok(castle_perm)
             }
-            _ => Err(CastlePermConversionError::FromU8ValueTooLarge(value)),
+            _ => Err(CastlePermConversionError::FromU8ValueTooLarge { invalid_u8: value }),
         }
     }
 }
@@ -176,7 +178,7 @@ mod tests {
     fn test_castle_perm_try_from_u8_invalid_input() {
         let input: u8 = 0b0100_0101;
         let output = CastlePerm::try_from(input);
-        let expected = Err(CastlePermConversionError::FromU8ValueTooLarge(input));
+        let expected = Err(CastlePermConversionError::FromU8ValueTooLarge { invalid_u8: input });
         assert_eq!(output, expected);
     }
 
@@ -218,10 +220,10 @@ mod tests {
     fn test_castle_perm_try_from_str_invalid_char() {
         let input = "qX";
         let output = CastlePerm::try_from(input);
-        let expected = Err(CastlePermConversionError::FromStrInvalidChar(
-            input.to_owned(),
-            'X',
-        ));
+        let expected = Err(CastlePermConversionError::FromStrInvalidChar {
+            invalid_string: input.to_owned(),
+            invalid_char: 'X',
+        });
         assert_eq!(output, expected);
     }
 
@@ -229,7 +231,9 @@ mod tests {
     fn test_castle_perm_try_from_str_invalid_order() {
         let input = "qKQ";
         let output = CastlePerm::try_from(input);
-        let expected = Err(CastlePermConversionError::FromStr(input.to_owned()));
+        let expected = Err(CastlePermConversionError::FromStr {
+            invalid_string: input.to_owned(),
+        });
         assert_eq!(output, expected);
     }
 
@@ -237,9 +241,9 @@ mod tests {
     fn test_castle_perm_try_from_str_too_many_chars() {
         let input = "KQkqK";
         let output = CastlePerm::try_from(input);
-        let expected = Err(CastlePermConversionError::FromStrDuplicates(
-            input.to_owned(),
-        ));
+        let expected = Err(CastlePermConversionError::FromStrDuplicates {
+            invalid_string: input.to_owned(),
+        });
         assert_eq!(output, expected);
     }
 
@@ -247,7 +251,9 @@ mod tests {
     fn test_castle_perm_try_from_str_dupe_dash() {
         let input = "--";
         let output = CastlePerm::try_from(input);
-        let expected = Err(CastlePermConversionError::FromStr(input.to_owned()));
+        let expected = Err(CastlePermConversionError::FromStr {
+            invalid_string: input.to_owned(),
+        });
         assert_eq!(output, expected);
     }
 
@@ -255,7 +261,9 @@ mod tests {
     fn test_castle_perm_try_from_str_dupe_dash_and_too_long() {
         let input = "KQkq--";
         let output = CastlePerm::try_from(input);
-        let expected = Err(CastlePermConversionError::FromStr(input.to_owned()));
+        let expected = Err(CastlePermConversionError::FromStr {
+            invalid_string: input.to_owned(),
+        });
         assert_eq!(output, expected);
     }
 

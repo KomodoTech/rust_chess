@@ -47,7 +47,9 @@ impl TryFrom<usize> for Rank {
     fn try_from(value: usize) -> Result<Self, Self::Error> {
         Self::iter()
             .find(|r| *r as usize == value)
-            .ok_or(RankConversionError::FromUsize(value))
+            .ok_or(RankConversionError::FromUsize {
+                invalid_usize: value,
+            })
     }
 }
 

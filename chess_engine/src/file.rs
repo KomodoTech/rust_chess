@@ -47,7 +47,9 @@ impl TryFrom<usize> for File {
     fn try_from(value: usize) -> Result<Self, Self::Error> {
         Self::iter()
             .find(|r| *r as usize == value)
-            .ok_or(FileConversionError::FromUsize(value))
+            .ok_or(FileConversionError::FromUsize {
+                invalid_usize: value,
+            })
     }
 }
 

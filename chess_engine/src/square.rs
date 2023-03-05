@@ -81,7 +81,7 @@ impl TryFrom<u8> for Square64 {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Self::iter()
             .find(|s| *s as u8 == value)
-            .ok_or(Square64ConversionError::FromU8(value))
+            .ok_or(Square64ConversionError::FromU8 { index: value })
     }
 }
 
@@ -91,7 +91,7 @@ impl TryFrom<u32> for Square64 {
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         Self::iter()
             .find(|s| *s as u32 == value)
-            .ok_or(Square64ConversionError::FromU32(value))
+            .ok_or(Square64ConversionError::FromU32 { index: value })
     }
 }
 
@@ -101,7 +101,7 @@ impl TryFrom<usize> for Square64 {
     fn try_from(value: usize) -> Result<Self, Self::Error> {
         Self::iter()
             .find(|s| *s as usize == value)
-            .ok_or(Square64ConversionError::FromUsize(value))
+            .ok_or(Square64ConversionError::FromUsize { index: value })
     }
 }
 
@@ -114,11 +114,13 @@ impl Square64 {
     }
 
     pub fn get_file(&self) -> File {
-        FILES_BOARD_64[*self as usize].expect("should return valid File since every Square64 has one")
+        FILES_BOARD_64[*self as usize]
+            .expect("should return valid File since every Square64 has one")
     }
 
     pub fn get_rank(&self) -> Rank {
-        RANKS_BOARD_64[*self as usize].expect("should return valid File since every Square64 has one")
+        RANKS_BOARD_64[*self as usize]
+            .expect("should return valid File since every Square64 has one")
     }
 
     pub fn get_color(&self) -> Color {
@@ -136,8 +138,7 @@ impl Square64 {
     }
 
     /// Get the chess/kings distance between two squares
-    pub fn get_chebyshev_distance(square_1: Square64, square_2: Square64) -> u8 
-    {
+    pub fn get_chebyshev_distance(square_1: Square64, square_2: Square64) -> u8 {
         // https://www.youtube.com/watch?v=bfV4XhpzpBE&t=178s
         let file_1 = square_1.get_file() as i8;
         let rank_1 = square_1.get_rank() as i8;
@@ -200,7 +201,7 @@ impl TryFrom<i8> for Square {
     fn try_from(value: i8) -> Result<Self, Self::Error> {
         Self::iter()
             .find(|s| *s as i8 == value)
-            .ok_or(SquareConversionError::FromI8{index: value})
+            .ok_or(SquareConversionError::FromI8 { index: value })
     }
 }
 
@@ -210,7 +211,7 @@ impl TryFrom<u8> for Square {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         Self::iter()
             .find(|s| *s as u8 == value)
-            .ok_or(SquareConversionError::FromU8{index: value})
+            .ok_or(SquareConversionError::FromU8 { index: value })
     }
 }
 
@@ -220,7 +221,7 @@ impl TryFrom<u32> for Square {
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         Self::iter()
             .find(|s| *s as u32 == value)
-            .ok_or(SquareConversionError::FromU32{index: value})
+            .ok_or(SquareConversionError::FromU32 { index: value })
     }
 }
 
@@ -230,7 +231,7 @@ impl TryFrom<usize> for Square {
     fn try_from(value: usize) -> Result<Self, Self::Error> {
         Self::iter()
             .find(|s| *s as usize == value)
-            .ok_or(SquareConversionError::FromUsize{index: value})
+            .ok_or(SquareConversionError::FromUsize { index: value })
     }
 }
 
@@ -243,11 +244,13 @@ impl Square {
     }
 
     pub fn get_file(&self) -> File {
-        FILES_BOARD_120[*self as usize].expect("should return valid File since every Square has one")
+        FILES_BOARD_120[*self as usize]
+            .expect("should return valid File since every Square has one")
     }
 
     pub fn get_rank(&self) -> Rank {
-        RANKS_BOARD_120[*self as usize].expect("should return valid Rank since every Square has one")
+        RANKS_BOARD_120[*self as usize]
+            .expect("should return valid Rank since every Square has one")
     }
 
     pub fn get_color(&self) -> Color {
@@ -265,8 +268,7 @@ impl Square {
     }
 
     /// Get the chess/kings distance between two squares
-    pub fn get_chebyshev_distance(square_1: Square, square_2: Square) -> u8 
-    {
+    pub fn get_chebyshev_distance(square_1: Square, square_2: Square) -> u8 {
         // https://www.youtube.com/watch?v=bfV4XhpzpBE&t=178s
         let file_1 = square_1.get_file() as i8;
         let rank_1 = square_1.get_rank() as i8;
@@ -292,17 +294,27 @@ impl Square {
 mod tests {
     use super::*;
 
-//============================== Chebychev Distance ============================
+    //============================== Chebychev Distance ============================
     #[test]
-    fn  test_board_chebychev_distance_visual() {
+    fn test_board_chebychev_distance_visual() {
         for square_i in Square64::iter() {
             println!("Chebychev Distances for {}", square_i);
             for rank in Rank::iter() {
                 for file in File::iter() {
                     let square_j = Square64::from_file_and_rank(file, rank);
                     match square_j {
-                        same_square if square_j == square_i =>{print!("||{}||, ", Square64::get_chebyshev_distance(square_i, square_j));},
-                        _ => {print!("  {}  , ", Square64::get_chebyshev_distance(square_i, square_j));}
+                        same_square if square_j == square_i => {
+                            print!(
+                                "||{}||, ",
+                                Square64::get_chebyshev_distance(square_i, square_j)
+                            );
+                        }
+                        _ => {
+                            print!(
+                                "  {}  , ",
+                                Square64::get_chebyshev_distance(square_i, square_j)
+                            );
+                        }
                     }
                 }
                 println!();
@@ -337,7 +349,7 @@ mod tests {
         let expected = 7;
         assert_eq!(output, expected);
     }
-//============================== Square Miscellaneous ==========================
+    //============================== Square Miscellaneous ==========================
     #[test]
     fn test_square_from_file_and_rank() {
         let square = Square::from_file_and_rank(File::FileB, Rank::Rank3);
@@ -358,9 +370,7 @@ mod tests {
         assert_eq!(output, expected);
     }
 
-
-
-//============================== Square64 Miscellaneous ========================
+    //============================== Square64 Miscellaneous ========================
     #[test]
     fn test_square64_from_file_and_rank() {
         let square = Square64::from_file_and_rank(File::FileB, Rank::Rank3);
@@ -381,7 +391,7 @@ mod tests {
         assert_eq!(output, expected);
     }
 
-//============================== Conversions ==================================
+    //============================== Conversions ==================================
     #[test]
     fn test_square_120_to_square_64() {
         let input = Square::A6;
@@ -421,7 +431,9 @@ mod tests {
         let lhs = Square64::B1;
         let rhs: usize = 63;
         let output = lhs + rhs;
-        let expected = Err(Square64ConversionError::FromUsize(lhs as usize + rhs));
+        let expected = Err(Square64ConversionError::FromUsize {
+            index: lhs as usize + rhs,
+        });
         assert_eq!(output, expected);
     }
 
@@ -509,7 +521,7 @@ mod tests {
     fn test_square_120_try_from_u8_invalid() {
         let input: u8 = 11;
         let output = Square::try_from(input);
-        let expected = Err(SquareConversionError::FromU8(11));
+        let expected = Err(SquareConversionError::FromU8 { index: 11 });
         assert_eq!(output, expected);
     }
 
@@ -525,7 +537,7 @@ mod tests {
     fn test_square_64_try_from_u8_invalid() {
         let input: u8 = 64;
         let output = Square64::try_from(input);
-        let expected = Err(Square64ConversionError::FromU8(64));
+        let expected = Err(Square64ConversionError::FromU8 { index: 64 });
         assert_eq!(output, expected);
     }
 
@@ -541,7 +553,7 @@ mod tests {
     fn test_square_120_try_from_u32_invalid() {
         let input: u32 = 11;
         let output = Square::try_from(input);
-        let expected = Err(SquareConversionError::FromU32(11));
+        let expected = Err(SquareConversionError::FromU32 { index: 11 });
         assert_eq!(output, expected);
     }
 
@@ -557,7 +569,7 @@ mod tests {
     fn test_square_64_try_from_u32_invalid() {
         let input: u32 = 64;
         let output = Square64::try_from(input);
-        let expected = Err(Square64ConversionError::FromU32(64));
+        let expected = Err(Square64ConversionError::FromU32 { index: 64 });
         assert_eq!(output, expected);
     }
 
@@ -573,7 +585,7 @@ mod tests {
     fn test_square_120_try_from_usize_invalid() {
         let input: usize = 11;
         let output = Square::try_from(input);
-        let expected = Err(SquareConversionError::FromUsize(11));
+        let expected = Err(SquareConversionError::FromUsize { index: 11 });
         assert_eq!(output, expected);
     }
 
@@ -589,8 +601,7 @@ mod tests {
     fn test_square_64_try_from_usize_invalid() {
         let input: usize = 64;
         let output = Square64::try_from(input);
-        let expected = Err(Square64ConversionError::FromUsize(64));
+        let expected = Err(Square64ConversionError::FromUsize { index: 64 });
         assert_eq!(output, expected);
     }
-
 }
