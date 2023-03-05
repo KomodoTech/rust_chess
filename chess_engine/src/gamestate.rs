@@ -124,7 +124,12 @@ impl GamestateBuilder {
             NUM_FEN_SECTIONS => {
                 for (index, section) in fen_sections.into_iter().enumerate() {
                     match index {
-                        0 => board = Some(Board::try_from(section)?),
+                        // Turn off board checking default so that it can be set by Gamestate
+                        0 => board = Some(
+                            BoardBuilder::new_with_fen(section)?
+                            .validity_check(ValidityCheck::Basic)
+                            .build()?
+                        ),
                         // active_color should be either "w" or "b"
                         1 => {
                             active_color = match section {
@@ -237,10 +242,11 @@ impl GamestateBuilder {
             zobrist: Zobrist::default(),
         };
 
-        match self.validity_check {
-            ValidityCheck::Strict => Ok(gamestate.check_gamestate(&self.validity_check)?),
-            ValidityCheck::Basic => Ok(gamestate),
+        if let ValidityCheck::Strict = self.validity_check {
+            gamestate.check_gamestate(&self.validity_check)?;
         }
+
+        Ok(gamestate)
     }
 }
 
@@ -326,9 +332,9 @@ impl Gamestate {
 
     /// Check that the gamestate is valid for the given a validity check mode
     fn check_gamestate(
-        self,
+        &self,
         validity_check: &ValidityCheck,
-    ) -> Result<Self, GamestateValidityCheckError> {
+    ) -> Result<(), GamestateValidityCheckError> {
         if let ValidityCheck::Strict = validity_check {
             // TODO:
             // check that the non-active player is not in check
@@ -336,6 +342,9 @@ impl Gamestate {
             // check that if the active player is checked 2 times it can't be:
             // check if active color can win in one move (not allowed)
             // check that the castling permissions don't contradict the position of rooks and kings
+
+            // check board is valid
+            self.board.check_board(validity_check)?;
 
             // check that halfmove clock doesn't violate the 50 move rule
             if self.halfmove_clock >= HALF_MOVE_MAX {
@@ -374,8 +383,7 @@ impl Gamestate {
                 GamestateValidityCheckError::StrictFullmoveNumberLessThanHalfmoveClockDividedByTwo {
                     fullmove_number: self.fullmove_number,
                     halfmove_clock: self.halfmove_clock,
-                },
-            );
+                });
             }
 
             //====================== EN PASSANT CHECKS ========================
@@ -521,7 +529,43 @@ impl Gamestate {
                 }
             }
         }
-        Ok(self)
+        Ok(())
+    }
+
+    /// Serialize Gamestate into FEN. Does not do any validity checking
+    pub fn to_fen(&self) -> String {
+        // board
+        let mut fen = self.board.to_board_fen();
+        fen.push(' ');
+
+        // active_color
+        fen.push(self.active_color.into());
+        fen.push(' ');
+
+        // castle_permissions
+        fen.push_str(self.castle_permissions
+            .to_string()
+            .as_str());
+        fen.push(' ');
+
+        // en_passant
+        match self.en_passant {
+            Some(square) => {fen.push_str(square
+                .to_string()
+                .to_lowercase()
+                .as_str());},
+            None => {fen.push('-');}
+        }
+        fen.push(' ');
+
+        // halfmove_clock
+        fen.push_str(self.halfmove_clock.to_string().as_str());
+        fen.push(' ');
+
+        // fullmove_number
+        fen.push_str(self.fullmove_number.to_string().as_str());
+
+        fen
     }
 
     /// Determine if the provided square is currently under attack
@@ -1219,9 +1263,55 @@ mod tests {
         assert_eq!(gs_wnf3_string, expected_wnf3);
     }
 
-    // FEN PARSING:
-    // TODO:
-    //     let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq e6 0 3";
+    //=================================== Serialization to FEN ================
+    #[test]
+    fn test_gamestate_serialization_en_passant_opening() {
+        let expected = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq e6 0 3";
+        let input = GamestateBuilder::new_with_fen(expected)
+        .unwrap()
+        .build()
+        .unwrap();
+        
+        let output = input.to_fen();
+        assert_eq!(output, expected);
+    }
+
+    // Example of how to create an invalid Gamestate from fen
+    #[test]
+    fn test_gamestate_serialization_validity_basic_empty() {
+        let expected = "8/8/8/8/8/8/8/8 w KQkq - 0 1";
+        let input = GamestateBuilder::new_with_fen(expected)
+        .unwrap()
+        .validity_check(ValidityCheck::Basic)
+        .build()
+        .unwrap();
+
+        let output = input.to_fen();
+        assert_eq!(output, expected);
+    }
+
+    // If you don't turn off strict checks you should get an error when your board is invalid
+    #[test]
+    fn test_gamestate_serialization_validity_strict_empty() {
+        let input = "8/8/8/8/8/8/8/8 w KQkq - 0 1";
+        let output = GamestateBuilder::new_with_fen(input)
+        .unwrap()
+        .build();
+
+        let expected = Err(GamestateBuildError::GamestateValidityCheck(
+            GamestateValidityCheckError::BoardValidityCheck(
+                BoardValidityCheckError::StrictOneBlackKingOneWhiteKing { 
+                    num_white_kings: 0, num_black_kings: 0 
+                }   
+            )
+        ));
+
+        assert_eq!(output, expected);
+    }
+
+
+    // Deserialization from FEN:
+
     // Tests for extra spaces
     #[test]
     fn test_gamestate_try_from_valid_fen_untrimmed() {
@@ -1425,14 +1515,14 @@ mod tests {
         let invalid_board_str = "8/8/8/8/8/8/8/8";
         let input = "8/8/8/8/8/8/8/8 w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateBuildError::GamestateFenDeserialize(
-            GamestateFenDeserializeError::BoardBuild(BoardBuildError::BoardValidityCheck(
+        let expected = Err(GamestateBuildError::GamestateValidityCheck(
+            GamestateValidityCheckError::BoardValidityCheck(
                 BoardValidityCheckError::StrictOneBlackKingOneWhiteKing {
                     num_white_kings: 0,
                     num_black_kings: 0,
                 },
             )),
-        ));
+        );
         assert_eq!(output, expected);
     }
 
@@ -1486,14 +1576,14 @@ mod tests {
         let invalid_board_str = "8/8/rbqn3p/8/8/8/PPKPP1PP/8";
         let input = "8/8/rbqn3p/8/8/8/PPKPP1PP/8 w KQkq - 0 1";
         let output = Gamestate::try_from(input);
-        let expected = Err(GamestateBuildError::GamestateFenDeserialize(
-            GamestateFenDeserializeError::BoardBuild(BoardBuildError::BoardValidityCheck(
+        let expected = Err(GamestateBuildError::GamestateValidityCheck(
+            GamestateValidityCheckError::BoardValidityCheck(
                 BoardValidityCheckError::StrictOneBlackKingOneWhiteKing {
                     num_white_kings: 1,
                     num_black_kings: 0,
                 },
             )),
-        ));
+        );
         assert_eq!(output, expected);
     }
 }

@@ -3,7 +3,8 @@ pub mod bitboard;
 use crate::{
     color::Color,
     error::{
-        BoardBuildError, BoardFenDeserializeError, BoardValidityCheckError, RankFenDeserializeError,
+        BoardBuildError, BoardFenDeserializeError , BoardValidityCheckError,
+        RankFenDeserializeError,
     },
     file::File,
     gamestate::ValidityCheck,
@@ -146,10 +147,10 @@ impl BoardBuilder {
         };
 
         // NOTE: Basic mode doesn't do any extra board checking and that's probably not going to change
-        match self.validity_check {
-            ValidityCheck::Strict => Ok(board.check_board(&self.validity_check)?),
-            ValidityCheck::Basic => Ok(board),
+        if let ValidityCheck::Strict = self.validity_check {
+            board.check_board(&self.validity_check)?;
         }
+        Ok(board)
     }
 
     /// Generates the pieces array of a Board struct given a board fen
@@ -313,9 +314,9 @@ impl TryFrom<&str> for Board {
 impl Board {
     /// Checks the board to make sure that it is consistent with the ValidityCheck/mode
     pub fn check_board(
-        self,
+        &self,
         validity_check: &ValidityCheck,
-    ) -> Result<Self, BoardValidityCheckError> {
+    ) -> Result<(), BoardValidityCheckError> {
         // TODO:
         // check that there aren't more than 6 pawns in a single file
         // check minimum number of enemy missing pieces doesn't contradict number of pawns in a single file
@@ -421,12 +422,52 @@ impl Board {
                 }
             }
         }
-        Ok(self)
+        Ok(())
     }
 
-    /// Returns FEN based on board position
+    /// Serializes board position into board FEN. Does not do any validity checking so will just
+    /// ignore any pieces on invalid squares
     pub fn to_board_fen(&self) -> String {
-        todo!()
+        let mut board_fen = String::new();
+        let mut empty_count: u32 = 0;
+
+        for rank in Rank::iter().rev() {
+            // Reset here so you don't add up trailing Nones from each row
+            empty_count = 0;
+
+            for file in File::iter() {
+                let square = Square::from_file_and_rank(file, rank);
+
+                match self.pieces[square as usize] {
+                    Some(piece) => {
+                        if empty_count > 0 {
+                            board_fen.push(char::from_digit(empty_count, 10).expect(
+                                "should not fail since File::COUNT is 8 and we reset empty_count",
+                            ));
+                        }
+                        board_fen.push(piece.into());
+                        empty_count = 0;
+                    }
+
+                    None => {
+                        empty_count += 1;
+                        // If you end a rank on a None, then you need to append the digit (empty_count)
+                        if file == File::FileH {
+                            board_fen.push(char::from_digit(empty_count, 10).expect(
+                                "should not fail since File::COUNT is 8 and we reset empty_count",
+                            ))
+                        }
+                    }
+                }
+            }
+
+            // Don't print out a trailing '/'
+            if (rank as usize) > 0 {
+                board_fen.push('/')
+            }
+        }
+
+        board_fen
     }
 
     // /// Combines white and black pawn positions into one BitBoard. Assumes that you never
@@ -1021,7 +1062,100 @@ mod tests {
         assert_eq!(ouput, expected);
     }
 
-    //==================================== Board Level FEN Parsing  ================
+    //==================================== Board Level FEN Serialization  ================
+    #[test]
+    fn test_board_serialization_sliding_and_kings() {
+        let input = BoardBuilder::new()
+            .piece(Piece::WhiteRook, Square64::A1)
+            .piece(Piece::WhiteKing, Square64::E1)
+            .piece(Piece::WhiteRook, Square64::H1)
+            .piece(Piece::WhiteBishop, Square64::H4)
+            .piece(Piece::BlackBishop, Square64::B7)
+            .piece(Piece::BlackKing, Square64::E7)
+            .piece(Piece::BlackBishop, Square64::G7)
+            .piece(Piece::BlackQueen, Square64::H7)
+            .piece(Piece::BlackRook, Square64::A8)
+            .piece(Piece::BlackRook, Square64::H8)
+            .build()
+            .unwrap();
+
+        let output = input.to_board_fen();
+        let expected = "r6r/1b2k1bq/8/8/7B/8/8/R3K2R".to_owned();
+
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_board_serialization_empty() {
+        let input = BoardBuilder::new()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
+        let output = input.to_board_fen();
+        let expected = "8/8/8/8/8/8/8/8";
+        assert_eq!(output, expected);
+    }
+
+    // to_board_fen does not check for pieces on invalid squares
+    #[test]
+    fn test_board_serialization_pieces_on_invalid_squares() {
+        let input = Board {
+            #[rustfmt::skip]
+            pieces:  [
+                Some(Piece::BlackBishop), None, None, None, None, None, None, None, None, None,
+                None,                     None, None, None, None, None, None, None, None, None,
+                None,                     None, None, None, None, None, None, None, None, None,
+                None,                     None, None, None, None, None, None, None, None, None,
+                None,                     None, None, None, None, None, None, None, None, None,
+                None,                     None, None, None, None, None, None, None, None, None,
+                None,                     None, None, None, None, None, None, None, None, None,
+                None,                     None, None, None, None, None, None, None, None, None,
+                None,                     None, None, None, None, None, None, None, None, None,
+                None,                     None, None, None, None, None, None, None, None, None,
+                None,                     None, None, None, None, None, None, None, None, None,
+                None,                     None, None, None, None, None, None, None, None, None,
+            ],
+
+            pawns: [BitBoard(0), BitBoard(0)],
+            kings_square: [None, None],
+            piece_count: [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
+            big_piece_count: [0, 1],
+            major_piece_count: [0, 0],
+            minor_piece_count: [0, 1],
+            piece_list: [
+                // WhitePawns
+                vec![],
+                // WhiteKnights
+                vec![],
+                // WhiteBishops
+                vec![],
+                // WhiteRooks
+                vec![],
+                // WhiteQueens
+                vec![],
+                // WhiteKing
+                vec![],
+                // BlackPawns
+                vec![],
+                // BlackKnights
+                vec![],
+                // BlackBishops
+                vec![],
+                // BlackRooks
+                vec![],
+                // BlackQueens
+                vec![],
+                // BlackKing
+                vec![],
+            ],
+        };
+
+        let output = input.to_board_fen();
+        let expected = "8/8/8/8/8/8/8/8";
+        assert_eq!(output, expected);
+    }
+
+    //==================================== Board Level FEN Deserialization  ================
     #[test]
     fn test_board_try_from_valid_board_fen_sliding_and_kings() {
         let input = "r6r/1b2k1bq/8/8/7B/8/8/R3K2R";
