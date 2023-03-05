@@ -279,18 +279,18 @@ impl Default for BoardBuilder {
     }
 }
 
-// TODO: redo testing setup so that inner fields can stay private
 #[derive(Debug, PartialEq, Eq)]
 pub struct Board {
-    // TODO: evaluate whether exposing pieces for Zobrist hashing is acceptable
+    // TODO: Consider making board field private
     pub pieces: [Option<Piece>; NUM_BOARD_SQUARES],
-    pub pawns: [BitBoard; Color::COUNT],
-    pub kings_square: [Option<Square>; Color::COUNT],
-    pub piece_count: [u8; Piece::COUNT],
-    pub big_piece_count: [u8; Color::COUNT],
-    pub major_piece_count: [u8; Color::COUNT],
-    pub minor_piece_count: [u8; Color::COUNT],
-    pub piece_list: [Vec<Square>; Piece::COUNT], // stores position of each piece to avoid searching through all squares
+    pawns: [BitBoard; Color::COUNT],
+    kings_square: [Option<Square>; Color::COUNT],
+    piece_count: [u8; Piece::COUNT],
+    big_piece_count: [u8; Color::COUNT],
+    major_piece_count: [u8; Color::COUNT],
+    minor_piece_count: [u8; Color::COUNT],
+    /// Stores position of each piece to avoid searching through all squares
+    piece_list: [Vec<Square>; Piece::COUNT],
 }
 
 /// Returns an a Board with the default starting position in regular chess.
@@ -311,19 +311,6 @@ impl TryFrom<&str> for Board {
 }
 
 impl Board {
-    // pub fn new() -> Self {
-    //     Self {
-    //         pieces: [None; NUM_BOARD_SQUARES],
-    //         pawns: [BitBoard(0), BitBoard(0)],
-    //         kings_square: [None, None],
-    //         piece_count: [0; Piece::COUNT],
-    //         big_piece_count: [0; Color::COUNT],
-    //         major_piece_count: [0; Color::COUNT],
-    //         minor_piece_count: [0; Color::COUNT],
-    //         piece_list: Default::default(),
-    //     }
-    // }
-
     /// Checks the board to make sure that it is consistent with the ValidityCheck/mode
     pub fn check_board(
         self,

@@ -147,7 +147,7 @@ pub enum GamestateBuildError {
 #[derive(Error, Debug, PartialEq)]
 pub enum GamestateValidityCheckError {
     #[error("En passant square exists so the halfmove clock: {halfmove_clock} should be 0")]
-    StrictEnPassantHalfmoveClockNotZero { halfmove_clock: u32 },
+    StrictEnPassantHalfmoveClockNotZero { halfmove_clock: u8 },
 
     #[error("En passant square {en_passant_square} is not empty")]
     StrictEnPassantNotEmpty { en_passant_square: Square },
@@ -172,7 +172,7 @@ pub enum GamestateValidityCheckError {
         "Halfmove clock: {halfmove_clock} should be in range 0..{}",
         HALF_MOVE_MAX
     )]
-    StrictHalfmoveClockExceedsMax { halfmove_clock: u32 },
+    StrictHalfmoveClockExceedsMax { halfmove_clock: u8 },
 
     #[error(
         "Fullmove number: {fullmove_number} should be in range 1..={}",
@@ -185,7 +185,7 @@ pub enum GamestateValidityCheckError {
     )]
     StrictFullmoveNumberLessThanHalfmoveClockDividedByTwo {
         fullmove_number: u32,
-        halfmove_clock: u32,
+        halfmove_clock: u8,
     },
 
     #[error("Non-active player in check")]

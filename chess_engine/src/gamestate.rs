@@ -7,7 +7,7 @@ use strum::EnumCount;
 use strum_macros::{Display as EnumDisplay, EnumCount as EnumCountMacro};
 
 use crate::{
-    board::{Board, BoardBuilder, NUM_BOARD_SQUARES, NUM_BOARD_COLUMNS, NUM_BOARD_ROWS},
+    board::{Board, BoardBuilder, NUM_BOARD_COLUMNS, NUM_BOARD_ROWS, NUM_BOARD_SQUARES},
     castle_perm::{self, CastlePerm, NUM_CASTLE_PERM},
     color::Color,
     error::{
@@ -26,7 +26,7 @@ use crate::{
 pub const MAX_GAME_MOVES: usize = 1024;
 /// When we reach 50 moves (aka 100 half moves) without a pawn advance or a piece capture the game ends
 /// immediately in a tie
-pub const HALF_MOVE_MAX: usize = 100;
+pub const HALF_MOVE_MAX: u8 = 100;
 pub const NUM_FEN_SECTIONS: usize = 6;
 const DEFAULT_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
@@ -35,7 +35,7 @@ pub struct Undo {
     move_: u32,
     castle_permissions: CastlePerm,
     en_passant: Option<Square>,
-    halfmove_clock: u32,
+    halfmove_clock: u8,
     position_key: u64,
 }
 
@@ -68,7 +68,7 @@ pub struct GamestateBuilder {
     active_color: Color,
     castle_permissions: CastlePerm,
     en_passant: Option<Square64>,
-    halfmove_clock: u32,
+    halfmove_clock: u8,
     fullmove_number: u32,
     history: Vec<Undo>,
 }
@@ -150,7 +150,7 @@ impl GamestateBuilder {
                             }
                         }
                         4 => {
-                            halfmove_clock = Some(section.parse::<u32>().map_err(|_err| {
+                            halfmove_clock = Some(section.parse::<u8>().map_err(|_err| {
                                 GamestateFenDeserializeError::HalfmoveClock {
                                     halfmove_fen: section.to_owned(),
                                 }
@@ -210,7 +210,7 @@ impl GamestateBuilder {
         self
     }
 
-    pub fn halfmove_clock(mut self, halfmove_clock: u32) -> Self {
+    pub fn halfmove_clock(mut self, halfmove_clock: u8) -> Self {
         self.halfmove_clock = halfmove_clock;
         self
     }
@@ -256,8 +256,10 @@ pub struct Gamestate {
     active_color: Color,
     castle_permissions: CastlePerm,
     en_passant: Option<Square64>,
-    halfmove_clock: u32, // number of moves both players have made since last pawn advance of piece capture
-    fullmove_number: u32, // number of completed turns in the game (incremented when black moves)
+    /// number of moves both players have made since last pawn advance of piece capture
+    halfmove_clock: u8,
+    /// number of completed turns in the game (incremented when black moves)
+    fullmove_number: u32,
     history: Vec<Undo>,
     zobrist: Zobrist,
 }
@@ -298,28 +300,6 @@ impl fmt::Display for Gamestate {
 }
 
 impl Gamestate {
-    // pub fn new() -> Self {
-    //     let board = Board::new();
-    //     let active_color = Color::White;
-    //     let castle_permissions = CastlePerm::default();
-    //     let en_passant: Option<Square64> = None;
-    //     let halfmove_clock: u32 = 0;
-    //     let fullmove_number: u32 = 0;
-    //     let history = Vec::new();
-    //     let zobrist = Zobrist::new();
-
-    //     Gamestate {
-    //         board,
-    //         active_color,
-    //         castle_permissions,
-    //         en_passant,
-    //         halfmove_clock,
-    //         fullmove_number,
-    //         history,
-    //         zobrist,
-    //     }
-    // }
-
     fn gen_position_key(&self) -> u64 {
         let mut position_key: u64 = 0;
 
@@ -358,7 +338,7 @@ impl Gamestate {
             // check that the castling permissions don't contradict the position of rooks and kings
 
             // check that halfmove clock doesn't violate the 50 move rule
-            if self.halfmove_clock as usize >= HALF_MOVE_MAX {
+            if self.halfmove_clock >= HALF_MOVE_MAX {
                 return Err(GamestateValidityCheckError::StrictHalfmoveClockExceedsMax {
                     halfmove_clock: self.halfmove_clock,
                 });
@@ -387,7 +367,9 @@ impl Gamestate {
             // but let's say that we get back color: white, fullmove: 1, halfmove: 2
             // in order to get halfmove: 2, white had to play a knight, then black had to play a knight
             // as well which should have incremented fullmove. That's what's being caught here
-            if (2 * (self.fullmove_number - 1) + self.active_color as u32) < self.halfmove_clock {
+            if (2 * (self.fullmove_number - 1) + self.active_color as u32)
+                < self.halfmove_clock as u32
+            {
                 return Err(
                 GamestateValidityCheckError::StrictFullmoveNumberLessThanHalfmoveClockDividedByTwo {
                     fullmove_number: self.fullmove_number,
@@ -639,9 +621,9 @@ mod tests {
         let input = DEFAULT_FEN;
         let output = Gamestate::try_from(input);
         let default = Gamestate::default();
+
         #[rustfmt::skip]
-        let board = Board {
-            pieces: [
+        let pieces = [
                 None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
                 None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
                 None, Some(Piece::WhiteRook), Some(Piece::WhiteKnight), Some(Piece::WhiteBishop), Some(Piece::WhiteQueen), Some(Piece::WhiteKing), Some(Piece::WhiteBishop), Some(Piece::WhiteKnight), Some(Piece::WhiteRook), None,
@@ -654,41 +636,59 @@ mod tests {
                 None, Some(Piece::BlackRook), Some(Piece::BlackKnight), Some(Piece::BlackBishop), Some(Piece::BlackQueen), Some(Piece::BlackKing), Some(Piece::BlackBishop), Some(Piece::BlackKnight), Some(Piece::BlackRook), None,
                 None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
                 None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
-            ],      
-            pawns: [BitBoard(0x000000000000FF00), BitBoard(0x00FF000000000000)],
-            kings_square: [Some(Square::E1), Some(Square::E8)],
-            piece_count: [8, 2, 2, 2, 1, 1, 8, 2, 2, 2, 1, 1],
-            big_piece_count: [8, 8],
-            // NOTE: King considered major piece for us
-            major_piece_count: [4, 4],
-            minor_piece_count: [4, 4],
-        piece_list: [
-            // WhitePawns
-            vec![Square::A2, Square::B2, Square::C2, Square::D2, Square::E2, Square::F2, Square::G2, Square::H2],
-            // WhiteKnights
-            vec![Square::B1, Square::G1],
-            // WhiteBishops
-            vec![Square::C1, Square::F1],
-            // WhiteRooks
-            vec![Square::A1, Square::H1],
-            // WhiteQueens
-            vec![Square::D1],
-            // WhiteKing
-            vec![Square::E1],
-            // BlackPawns
-            vec![Square::A7, Square::B7, Square::C7, Square::D7, Square::E7, Square::F7, Square::G7, Square::H7],
-            // BlackKnights
-            vec![Square::B8, Square::G8],
-            // BlackBishops
-            vec![Square::C8, Square::F8],
-            // BlackRooks
-            vec![Square::A8, Square::H8],
-            // BlackQueens
-            vec![Square::D8],
-            // BlackKing
-            vec![Square::E8],
-        ]
-        };
+        ];
+
+        let board = BoardBuilder::new_with_pieces(pieces).build().unwrap();
+
+        // let board = Board {
+        //     pieces: [
+        //         None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+        //         None, Some(Piece::WhiteRook), Some(Piece::WhiteKnight), Some(Piece::WhiteBishop), Some(Piece::WhiteQueen), Some(Piece::WhiteKing), Some(Piece::WhiteBishop), Some(Piece::WhiteKnight), Some(Piece::WhiteRook), None,
+        //         None, Some(Piece::WhitePawn), Some(Piece::WhitePawn),   Some(Piece::WhitePawn),   Some(Piece::WhitePawn),  Some(Piece::WhitePawn), Some(Piece::WhitePawn),   Some(Piece::WhitePawn),   Some(Piece::WhitePawn), None,
+        //         None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+        //         None, Some(Piece::BlackPawn), Some(Piece::BlackPawn),   Some(Piece::BlackPawn),   Some(Piece::BlackPawn),  Some(Piece::BlackPawn), Some(Piece::BlackPawn),   Some(Piece::BlackPawn),   Some(Piece::BlackPawn), None,
+        //         None, Some(Piece::BlackRook), Some(Piece::BlackKnight), Some(Piece::BlackBishop), Some(Piece::BlackQueen), Some(Piece::BlackKing), Some(Piece::BlackBishop), Some(Piece::BlackKnight), Some(Piece::BlackRook), None,
+        //         None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
+        //     ],
+        //     pawns: [BitBoard(0x000000000000FF00), BitBoard(0x00FF000000000000)],
+        //     kings_square: [Some(Square::E1), Some(Square::E8)],
+        //     piece_count: [8, 2, 2, 2, 1, 1, 8, 2, 2, 2, 1, 1],
+        //     big_piece_count: [8, 8],
+        //     // NOTE: King considered major piece for us
+        //     major_piece_count: [4, 4],
+        //     minor_piece_count: [4, 4],
+        // piece_list: [
+        //     // WhitePawns
+        //     vec![Square::A2, Square::B2, Square::C2, Square::D2, Square::E2, Square::F2, Square::G2, Square::H2],
+        //     // WhiteKnights
+        //     vec![Square::B1, Square::G1],
+        //     // WhiteBishops
+        //     vec![Square::C1, Square::F1],
+        //     // WhiteRooks
+        //     vec![Square::A1, Square::H1],
+        //     // WhiteQueens
+        //     vec![Square::D1],
+        //     // WhiteKing
+        //     vec![Square::E1],
+        //     // BlackPawns
+        //     vec![Square::A7, Square::B7, Square::C7, Square::D7, Square::E7, Square::F7, Square::G7, Square::H7],
+        //     // BlackKnights
+        //     vec![Square::B8, Square::G8],
+        //     // BlackBishops
+        //     vec![Square::C8, Square::F8],
+        //     // BlackRooks
+        //     vec![Square::A8, Square::H8],
+        //     // BlackQueens
+        //     vec![Square::D8],
+        //     // BlackKing
+        //     vec![Square::E8],
+        // ]
+        // };
 
         let active_color = Color::White;
         let castle_permissions = CastlePerm::default();
@@ -758,56 +758,64 @@ mod tests {
     #[test]
     fn test_square_attacked_queen_no_blockers() {
         // const FEN_1: &str = "8/3q4/8/8/4Q3/8/8/8 w - - 0 2";
-        #[rustfmt::skip]
-        let board = Board {
-            pieces: [
-                None, None, None, None, None,                    None,                    None, None, None, None,
-                None, None, None, None, None,                    None,                    None, None, None, None,
-                None, None, None, None, None,                    None,                    None, None, None, None,
-                None, None, None, None, None,                    None,                    None, None, None, None,
-                None, None, None, None, None,                    None,                    None, None, None, None,
-                None, None, None, None, None,                    Some(Piece::WhiteQueen), None, None, None, None,
-                None, None, None, None, None,                    None,                    None, None, None, None,
-                None, None, None, None, None,                    None,                    None, None, None, None,
-                None, None, None, None, Some(Piece::BlackQueen), None,                    None, None, None, None,
-                None, None, None, None, None,                    None,                    None, None, None, None,
-                None, None, None, None, None,                    None,                    None, None, None, None,
-                None, None, None, None, None,                    None,                    None, None, None, None,
-            ],      
-            pawns: [BitBoard(0), BitBoard(0)],
-            kings_square: [None; Color::COUNT],
-            piece_count: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0],
-            big_piece_count: [1, 1],
-            // NOTE: King considered major piece for us
-            major_piece_count: [1, 1],
-            minor_piece_count: [0, 0],
-            piece_list: [
-                // WhitePawns
-                vec![],
-                // WhiteKnights
-                vec![],
-                // WhiteBishops
-                vec![],
-                // WhiteRooks
-                vec![],
-                // WhiteQueens
-                vec![Square::E4],
-                // WhiteKing
-                vec![],
-                // BlackPawns
-                vec![],
-                // BlackKnights
-                vec![],
-                // BlackBishops
-                vec![],
-                // BlackRooks
-                vec![],
-                // BlackQueens
-                vec![Square::D7],
-                // BlackKing
-                vec![]
-            ]
-        };
+        let board = BoardBuilder::new()
+            .validity_check(ValidityCheck::Basic)
+            .piece(Piece::WhiteQueen, Square64::E4)
+            .piece(Piece::BlackQueen, Square64::D7)
+            .build()
+            .unwrap();
+
+        // #[rustfmt::skip]
+        // let board = Board {
+        //     pieces: [
+        //         None, None, None, None, None,                    None,                    None, None, None, None,
+        //         None, None, None, None, None,                    None,                    None, None, None, None,
+        //         None, None, None, None, None,                    None,                    None, None, None, None,
+        //         None, None, None, None, None,                    None,                    None, None, None, None,
+        //         None, None, None, None, None,                    None,                    None, None, None, None,
+        //         None, None, None, None, None,                    Some(Piece::WhiteQueen), None, None, None, None,
+        //         None, None, None, None, None,                    None,                    None, None, None, None,
+        //         None, None, None, None, None,                    None,                    None, None, None, None,
+        //         None, None, None, None, Some(Piece::BlackQueen), None,                    None, None, None, None,
+        //         None, None, None, None, None,                    None,                    None, None, None, None,
+        //         None, None, None, None, None,                    None,                    None, None, None, None,
+        //         None, None, None, None, None,                    None,                    None, None, None, None,
+        //     ],
+        //     pawns: [BitBoard(0), BitBoard(0)],
+        //     kings_square: [None; Color::COUNT],
+        //     piece_count: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0],
+        //     big_piece_count: [1, 1],
+        //     // NOTE: King considered major piece for us
+        //     major_piece_count: [1, 1],
+        //     minor_piece_count: [0, 0],
+        //     piece_list: [
+        //         // WhitePawns
+        //         vec![],
+        //         // WhiteKnights
+        //         vec![],
+        //         // WhiteBishops
+        //         vec![],
+        //         // WhiteRooks
+        //         vec![],
+        //         // WhiteQueens
+        //         vec![Square::E4],
+        //         // WhiteKing
+        //         vec![],
+        //         // BlackPawns
+        //         vec![],
+        //         // BlackKnights
+        //         vec![],
+        //         // BlackBishops
+        //         vec![],
+        //         // BlackRooks
+        //         vec![],
+        //         // BlackQueens
+        //         vec![Square::D7],
+        //         // BlackKing
+        //         vec![]
+        //     ]
+        // };
+
         let active_color = Color::White;
         let castle_permissions = CastlePerm::try_from(0).unwrap();
         let en_passant = None;
@@ -853,56 +861,64 @@ mod tests {
     #[test]
     fn test_square_attacked_queen_with_blocker() {
         // const FEN_1: &str = "8/3q4/8/8/4Q3/8/2P5/8 w - - 0 2";
-        #[rustfmt::skip]
-        let board = Board {
-            pieces: [
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     Some(Piece::WhitePawn),   None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    Some(Piece::WhiteQueen), None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     Some(Piece::BlackQueen), None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-            ],      
-            pawns: [BitBoard(0x00_00_00_00_00_00_04_00), BitBoard(0)],
-            kings_square: [None; Color::COUNT],
-            piece_count: [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0],
-            big_piece_count: [1, 1],
-            // NOTE: King considered major piece for us
-            major_piece_count: [1, 1],
-            minor_piece_count: [0, 0],
-            piece_list: [
-                // WhitePawns
-                vec![Square::C2],
-                // WhiteKnights
-                vec![],
-                // WhiteBishops
-                vec![],
-                // WhiteRooks
-                vec![],
-                // WhiteQueens
-                vec![Square::E4],
-                // WhiteKing
-                vec![],
-                // BlackPawns
-                vec![],
-                // BlackKnights
-                vec![],
-                // BlackBishops
-                vec![],
-                // BlackRooks
-                vec![],
-                // BlackQueens
-                vec![Square::D7],
-                // BlackKing
-                vec![]
-            ]
-        };
+        let board = BoardBuilder::new()
+            .validity_check(ValidityCheck::Basic)
+            .piece(Piece::WhitePawn, Square64::C2)
+            .piece(Piece::WhiteQueen, Square64::E4)
+            .piece(Piece::BlackQueen, Square64::D7)
+            .build()
+            .unwrap();
+
+        // #[rustfmt::skip]
+        // let board = Board {
+        //     pieces: [
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     Some(Piece::WhitePawn),   None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    Some(Piece::WhiteQueen), None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     Some(Piece::BlackQueen), None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //     ],
+        //     pawns: [BitBoard(0x00_00_00_00_00_00_04_00), BitBoard(0)],
+        //     kings_square: [None; Color::COUNT],
+        //     piece_count: [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0],
+        //     big_piece_count: [1, 1],
+        //     // NOTE: King considered major piece for us
+        //     major_piece_count: [1, 1],
+        //     minor_piece_count: [0, 0],
+        //     piece_list: [
+        //         // WhitePawns
+        //         vec![Square::C2],
+        //         // WhiteKnights
+        //         vec![],
+        //         // WhiteBishops
+        //         vec![],
+        //         // WhiteRooks
+        //         vec![],
+        //         // WhiteQueens
+        //         vec![Square::E4],
+        //         // WhiteKing
+        //         vec![],
+        //         // BlackPawns
+        //         vec![],
+        //         // BlackKnights
+        //         vec![],
+        //         // BlackBishops
+        //         vec![],
+        //         // BlackRooks
+        //         vec![],
+        //         // BlackQueens
+        //         vec![Square::D7],
+        //         // BlackKing
+        //         vec![]
+        //     ]
+        // };
 
         println!("{}", board);
 
@@ -951,56 +967,63 @@ mod tests {
     #[test]
     fn test_square_attacked_white_bishop_on_black_square() {
         // const FEN: &str = "8/8/8/8/8/2B4K/8/k7 w - - 0 1";
-        #[rustfmt::skip]
-        let board = Board {
-            pieces: [
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, Some(Piece::BlackKing), None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     Some(Piece::WhiteBishop), None,                    None,                    None,                     None,                     Some(Piece::WhiteKing), None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-                None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
-            ],      
-            pawns: [BitBoard(0), BitBoard(0)],
-            kings_square: [Some(Square::H3), Some(Square::A1)],
-            piece_count: [0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0],
-            big_piece_count: [2, 1],
-            // NOTE: King considered major piece for us
-            major_piece_count: [1, 1],
-            minor_piece_count: [1, 0],
-            piece_list: [
-                // WhitePawns
-                vec![],
-                // WhiteKnights
-                vec![],
-                // WhiteBishops
-                vec![Square::C3],
-                // WhiteRooks
-                vec![],
-                // WhiteQueens
-                vec![],
-                // WhiteKing
-                vec![Square::H3],
-                // BlackPawns
-                vec![],
-                // BlackKnights
-                vec![],
-                // BlackBishops
-                vec![],
-                // BlackRooks
-                vec![],
-                // BlackQueens
-                vec![],
-                // BlackKing
-                vec![Square::A1],
-            ]
-        };
+        let board = BoardBuilder::new()
+            .piece(Piece::BlackKing, Square64::A1)
+            .piece(Piece::WhiteBishop, Square64::C3)
+            .piece(Piece::WhiteKing, Square64::H3)
+            .build()
+            .unwrap();
+
+        // #[rustfmt::skip]
+        // let board = Board {
+        //     pieces: [
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, Some(Piece::BlackKing), None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     Some(Piece::WhiteBishop), None,                    None,                    None,                     None,                     Some(Piece::WhiteKing), None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //         None, None,                   None,                     None,                     None,                    None,                    None,                     None,                     None,                   None,
+        //     ],
+        //     pawns: [BitBoard(0), BitBoard(0)],
+        //     kings_square: [Some(Square::H3), Some(Square::A1)],
+        //     piece_count: [0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0],
+        //     big_piece_count: [2, 1],
+        //     // NOTE: King considered major piece for us
+        //     major_piece_count: [1, 1],
+        //     minor_piece_count: [1, 0],
+        //     piece_list: [
+        //         // WhitePawns
+        //         vec![],
+        //         // WhiteKnights
+        //         vec![],
+        //         // WhiteBishops
+        //         vec![Square::C3],
+        //         // WhiteRooks
+        //         vec![],
+        //         // WhiteQueens
+        //         vec![],
+        //         // WhiteKing
+        //         vec![Square::H3],
+        //         // BlackPawns
+        //         vec![],
+        //         // BlackKnights
+        //         vec![],
+        //         // BlackBishops
+        //         vec![],
+        //         // BlackRooks
+        //         vec![],
+        //         // BlackQueens
+        //         vec![],
+        //         // BlackKing
+        //         vec![Square::A1],
+        //     ]
+        // };
         let active_color = Color::White;
         let castle_permissions = CastlePerm::try_from(0).unwrap();
         let en_passant = None;
@@ -1280,9 +1303,7 @@ mod tests {
         ];
 
         let expected = GamestateBuilder::new_with_board(
-            BoardBuilder::new_with_pieces(pieces)
-            .build()
-            .unwrap()
+            BoardBuilder::new_with_pieces(pieces).build().unwrap(),
         )
         .active_color(Color::White)
         .castle_permissions(CastlePerm::default())
@@ -1361,7 +1382,7 @@ mod tests {
     // Halfmove and Fullmove
     #[test]
     fn test_gamestate_try_from_invalid_halfmove_exceeds_max() {
-        let halfmove: u32 = 100;
+        let halfmove: u8 = 100;
         let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq - 100 1024";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateBuildError::GamestateValidityCheck(
