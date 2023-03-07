@@ -103,7 +103,6 @@ impl TryFrom<usize> for Square64 {
             .find(|s| *s as usize == value)
             .ok_or(Square64ConversionError::FromUsize { index: value })
     }
-
 }
 
 impl Square64 {

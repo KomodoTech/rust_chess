@@ -15,6 +15,7 @@ use crate::{
         GamestateValidityCheckError, RankFenDeserializeError, SquareConversionError,
     },
     file::File,
+    moves::Move,
     piece::{self, Piece, PieceType},
     rank::Rank,
     square::{Square, Square64},
@@ -30,9 +31,9 @@ pub const HALF_MOVE_MAX: u8 = 100;
 pub const NUM_FEN_SECTIONS: usize = 6;
 const DEFAULT_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Undo {
-    move_: u32,
+    move_: Move,
     castle_permissions: CastlePerm,
     en_passant: Option<Square>,
     halfmove_clock: u8,
@@ -125,11 +126,13 @@ impl GamestateBuilder {
                 for (index, section) in fen_sections.into_iter().enumerate() {
                     match index {
                         // Turn off board checking default so that it can be set by Gamestate
-                        0 => board = Some(
-                            BoardBuilder::new_with_fen(section)?
-                            .validity_check(ValidityCheck::Basic)
-                            .build()?
-                        ),
+                        0 => {
+                            board = Some(
+                                BoardBuilder::new_with_fen(section)?
+                                    .validity_check(ValidityCheck::Basic)
+                                    .build()?,
+                            )
+                        }
                         // active_color should be either "w" or "b"
                         1 => {
                             active_color = match section {
@@ -543,18 +546,17 @@ impl Gamestate {
         fen.push(' ');
 
         // castle_permissions
-        fen.push_str(self.castle_permissions
-            .to_string()
-            .as_str());
+        fen.push_str(self.castle_permissions.to_string().as_str());
         fen.push(' ');
 
         // en_passant
         match self.en_passant {
-            Some(square) => {fen.push_str(square
-                .to_string()
-                .to_lowercase()
-                .as_str());},
-            None => {fen.push('-');}
+            Some(square) => {
+                fen.push_str(square.to_string().to_lowercase().as_str());
+            }
+            None => {
+                fen.push('-');
+            }
         }
         fen.push(' ');
 
@@ -1268,10 +1270,10 @@ mod tests {
     fn test_gamestate_serialization_en_passant_opening() {
         let expected = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq e6 0 3";
         let input = GamestateBuilder::new_with_fen(expected)
-        .unwrap()
-        .build()
-        .unwrap();
-        
+            .unwrap()
+            .build()
+            .unwrap();
+
         let output = input.to_fen();
         assert_eq!(output, expected);
     }
@@ -1281,10 +1283,10 @@ mod tests {
     fn test_gamestate_serialization_validity_basic_empty() {
         let expected = "8/8/8/8/8/8/8/8 w KQkq - 0 1";
         let input = GamestateBuilder::new_with_fen(expected)
-        .unwrap()
-        .validity_check(ValidityCheck::Basic)
-        .build()
-        .unwrap();
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
 
         let output = input.to_fen();
         assert_eq!(output, expected);
@@ -1294,21 +1296,19 @@ mod tests {
     #[test]
     fn test_gamestate_serialization_validity_strict_empty() {
         let input = "8/8/8/8/8/8/8/8 w KQkq - 0 1";
-        let output = GamestateBuilder::new_with_fen(input)
-        .unwrap()
-        .build();
+        let output = GamestateBuilder::new_with_fen(input).unwrap().build();
 
         let expected = Err(GamestateBuildError::GamestateValidityCheck(
             GamestateValidityCheckError::BoardValidityCheck(
-                BoardValidityCheckError::StrictOneBlackKingOneWhiteKing { 
-                    num_white_kings: 0, num_black_kings: 0 
-                }   
-            )
+                BoardValidityCheckError::StrictOneBlackKingOneWhiteKing {
+                    num_white_kings: 0,
+                    num_black_kings: 0,
+                },
+            ),
         ));
 
         assert_eq!(output, expected);
     }
-
 
     // Deserialization from FEN:
 
@@ -1521,8 +1521,8 @@ mod tests {
                     num_white_kings: 0,
                     num_black_kings: 0,
                 },
-            )),
-        );
+            ),
+        ));
         assert_eq!(output, expected);
     }
 
@@ -1582,8 +1582,8 @@ mod tests {
                     num_white_kings: 1,
                     num_black_kings: 0,
                 },
-            )),
-        );
+            ),
+        ));
         assert_eq!(output, expected);
     }
 }

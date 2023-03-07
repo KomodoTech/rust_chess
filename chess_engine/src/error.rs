@@ -21,6 +21,21 @@ pub enum ChessError {
 }
 
 #[derive(Error, Debug, PartialEq)]
+pub enum MoveDeserializeError {
+    #[error("The start square {start} is invalid for move:\n {_move}")]
+    Start { start: u32, _move: String },
+
+    #[error("The end square {end} is invalid for move:\n {_move}")]
+    End { end: u32, _move: String },
+
+    #[error("The captured piece {piece} is invalid for move:\n {_move}")]
+    Captured { piece: u32, _move: String },
+
+    #[error("The promoted piece {piece} is invalid for move:\n {_move}")]
+    Promoted { piece: u32, _move: String },
+}
+
+#[derive(Error, Debug, PartialEq)]
 pub enum RankFenDeserializeError {
     #[error("Failed to deserialize pieces of rank from rank fen due to invalid char")]
     InvalidChar(#[from] PieceConversionError),
@@ -249,6 +264,9 @@ pub enum PieceConversionError {
 
     #[error("could not convert usize {invalid_usize} into a Piece")]
     FromUsize { invalid_usize: usize },
+
+    #[error("could not convert u32 {invalid_u32} into a Piece")]
+    FromU32 { invalid_u32: u32 },
 }
 
 #[derive(Error, Debug, PartialEq)]

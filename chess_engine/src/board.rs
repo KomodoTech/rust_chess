@@ -3,8 +3,7 @@ pub mod bitboard;
 use crate::{
     color::Color,
     error::{
-        BoardBuildError, BoardFenDeserializeError , BoardValidityCheckError,
-        RankFenDeserializeError,
+        BoardBuildError, BoardFenDeserializeError, BoardValidityCheckError, RankFenDeserializeError,
     },
     file::File,
     gamestate::ValidityCheck,
