@@ -76,6 +76,8 @@ pub struct GamestateBuilder {
 
 // TODO: Revisit question of clones and performance and see if you can improve ergonomics:
 // https://users.rust-lang.org/t/builder-pattern-in-rust-self-vs-mut-self-and-method-vs-associated-function/72892/2
+// currently shouldn't be copying because Board doesn't implement Copy. Which seems reasonable for now
+// That being said, why make the Board reusable if the Gamestate isn't?
 impl GamestateBuilder {
     pub fn new() -> Self {
         GamestateBuilder {
@@ -570,11 +572,12 @@ impl Gamestate {
         fen
     }
 
-    /// Determine if the provided square is currently under attack
-    fn is_square_attacked(&self, square: Square) -> bool {
+    /// Determine if the provided square is currently under attack by the
+    /// provided color
+    fn is_square_attacked(&self, color: Color, square: Square) -> bool {
         // depending on active_color determine which pieces to check
         let mut pieces_to_check: [Piece; 6];
-        match self.active_color {
+        match color {
             Color::White => {
                 pieces_to_check = [
                     Piece::WhitePawn,
@@ -885,7 +888,7 @@ mod tests {
         for rank in Rank::iter() {
             for file in File::iter() {
                 let square = Square::from_file_and_rank(file, rank);
-                output[rank as usize][file as usize] = gamestate.is_square_attacked(square);
+                output[rank as usize][file as usize] = gamestate.is_square_attacked(active_color, square);
             }
         }
 
@@ -991,7 +994,7 @@ mod tests {
         for rank in Rank::iter() {
             for file in File::iter() {
                 let square = Square::from_file_and_rank(file, rank);
-                output[rank as usize][file as usize] = gamestate.is_square_attacked(square);
+                output[rank as usize][file as usize] = gamestate.is_square_attacked(active_color, square);
             }
         }
 
@@ -1093,7 +1096,7 @@ mod tests {
         for rank in Rank::iter() {
             for file in File::iter() {
                 let square = Square::from_file_and_rank(file, rank);
-                output[rank as usize][file as usize] = gamestate.is_square_attacked(square);
+                output[rank as usize][file as usize] = gamestate.is_square_attacked(active_color, square);
             }
         }
 
@@ -1128,7 +1131,7 @@ mod tests {
             for rank in Rank::iter().rev() {
                 for file in File::iter() {
                     let square = Square::from_file_and_rank(file, rank);
-                    match gamestate.is_square_attacked(square) {
+                    match gamestate.is_square_attacked(gamestate.active_color, square) {
                         true => print!("X"),
                         false => print!("-"),
                     }

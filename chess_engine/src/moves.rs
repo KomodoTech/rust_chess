@@ -24,8 +24,8 @@ const MOVE_PIECE_PROMOTED_SHIFT: u8 = 20;
 
 /// Information that defines a move is stored in a 32-bit word with the following format
 ///
-/// 0000 0000 0000 0000 0000 0000 0111 1111 START:           0x7F       bits 0-6 represent the Square120 where the move was initiated
-/// 0000 0000 0000 0000 0011 1111 1000 0000 END:             >> 7, 0x7F bits 7-13 represent the Square120 where the move ended
+/// 0000 0000 0000 0000 0000 0000 0111 1111 START:          0x7F       bits 0-6 represent the Square120 where the move was initiated
+/// 0000 0000 0000 0000 0011 1111 1000 0000 END:            >> 7, 0x7F bits 7-13 represent the Square120 where the move ended
 /// 0000 0000 0000 0011 1100 0000 0000 0000 PIECE_CAPTURED: >> 14, 0xF bits 14-17 represent the Piece that was captured (in None then 0)
 /// 0000 0000 0000 0100 0000 0000 0000 0000 EN_PASSANT:     0x40000    bit 18 represents whether or not a capture was an en passant capture
 /// 0000 0000 0000 1000 0000 0000 0000 0000 PAWN_START:     0x80000    bit 19 represents whether the move was a starting pawn move (which can move two spaces)
