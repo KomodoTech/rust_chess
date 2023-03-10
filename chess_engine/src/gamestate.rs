@@ -31,7 +31,7 @@ pub const HALF_MOVE_MAX: u8 = 100;
 pub const NUM_FEN_SECTIONS: usize = 6;
 const DEFAULT_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Undo {
     move_: Move,
     castle_permissions: CastlePerm,
@@ -235,15 +235,15 @@ impl GamestateBuilder {
         self
     }
 
-    pub fn build(self) -> Result<Gamestate, GamestateBuildError> {
+    pub fn build(&self) -> Result<Gamestate, GamestateBuildError> {
         let gamestate = Gamestate {
-            board: self.board,
+            board: self.board.clone(),
             active_color: self.active_color,
             castle_permissions: self.castle_permissions,
             en_passant: self.en_passant,
             halfmove_clock: self.halfmove_clock,
             fullmove_number: self.fullmove_number,
-            history: self.history,
+            history: self.history.clone(),
             zobrist: Zobrist::default(),
         };
 
@@ -663,7 +663,26 @@ mod tests {
         gamestate,
     };
 
-    // FEN parsing tests
+    //========================= REUSABLE BUILDER ==============================
+    #[test]
+    fn test_gamestate_builder_is_reusable() {
+        let mut gamestate_builder = GamestateBuilder::new_with_board(
+            BoardBuilder::new()
+            .validity_check(ValidityCheck::Basic)
+            .piece(Piece::BlackBishop, Square64::A1)
+            .build()
+            .unwrap()
+        )
+        .validity_check(ValidityCheck::Basic);
+
+        let gamestate_0 = gamestate_builder.build().unwrap();
+        let gamestate_1 = gamestate_builder.build().unwrap();
+
+        assert_eq!(gamestate_0, gamestate_1);
+    }
+
+
+    //=========================== FEN parsing tests ===========================
     // Full FEN parsing
     #[test]
     fn test_gamestate_try_from_valid_fen_default() {

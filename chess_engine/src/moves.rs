@@ -36,7 +36,7 @@ const MOVE_PIECE_PROMOTED_SHIFT: u8 = 20;
 /// IMPORTANT: 000 0000 indicates Square 0 in theory (in practice we should avoid this with the type system) and not absence
 ///            0000 indicates absence for Pieces. 0001 indicated White Pawn
 /// NOTE: The number of pieces can fit in 4 bits while the number of 120 squares can fit in 7 bits
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Move(u32);
 
 impl Move {

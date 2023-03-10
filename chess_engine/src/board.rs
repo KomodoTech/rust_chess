@@ -279,8 +279,7 @@ impl Default for BoardBuilder {
     }
 }
 
-// TODO: consider deriving copy to make Gamestate reusable
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Board {
     // TODO: Consider making board field private
     pub pieces: [Option<Piece>; NUM_BOARD_SQUARES],
