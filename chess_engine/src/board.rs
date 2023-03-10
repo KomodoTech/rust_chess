@@ -3,8 +3,7 @@ pub mod bitboard;
 use crate::{
     color::Color,
     error::{
-        BoardBuildError, BoardFenDeserializeError , BoardValidityCheckError,
-        RankFenDeserializeError,
+        BoardBuildError, BoardFenDeserializeError, BoardValidityCheckError, RankFenDeserializeError,
     },
     file::File,
     gamestate::ValidityCheck,
@@ -59,7 +58,6 @@ impl BoardBuilder {
 
     /// Constructor if you want to pass piece values all at once (you can still overwrite them later)
     pub fn new_with_pieces(pieces: [Option<Piece>; NUM_BOARD_SQUARES]) -> Self {
-        // generate board fen that corresponds to pieces
         BoardBuilder {
             validity_check: ValidityCheck::Strict,
             pieces,
@@ -99,7 +97,8 @@ impl BoardBuilder {
         let mut minor_piece_count: [u8; Color::COUNT] = [0; Color::COUNT];
         let mut piece_list: [Vec<Square>; Piece::COUNT] = Default::default();
 
-        // Note: pieces are being cloned here. Optimizer might elide clones/copies if you
+        // Note: pieces are being cloned here so that we can create multiple boards.
+        // from the same builder. Optimizer might elide clones/copies if you
         // don't reuse the BoardBuilder, but not sure.
         let pieces = self.pieces;
 
@@ -280,7 +279,7 @@ impl Default for BoardBuilder {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Board {
     // TODO: Consider making board field private
     pub pieces: [Option<Piece>; NUM_BOARD_SQUARES],
@@ -853,11 +852,24 @@ mod tests {
             .piece(Piece::WhiteKing, Square64::D1)
             .piece(Piece::WhiteKnight, Square64::B1)
             .piece(Piece::WhiteKnight, Square64::C1)
-            .piece(Piece::WhiteKnight, Square64::G1);
+            .piece(Piece::WhiteKnight, Square64::G1)
+            .piece(Piece::BlackKing, Square64::D8);
 
         for i in 8_u8..=15 {
             output.piece(Piece::WhitePawn, Square64::try_from(i).unwrap());
         }
+
+        let output = output.build();
+        let expected = Err(BoardBuildError::BoardValidityCheck(
+            BoardValidityCheckError::StrictMoreExcessBigPiecesThanMissingPawns {
+                num_excess_big_pieces_white: 1,
+                num_missing_pawns_white: 0,
+                num_excess_big_pieces_black: 0,
+                num_missing_pawns_black: 8
+            }
+        ));
+
+        assert_eq!(output, expected);
     }
 
     #[test]

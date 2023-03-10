@@ -329,6 +329,28 @@ impl TryFrom<usize> for Piece {
     }
 }
 
+impl TryFrom<u32> for Piece {
+    type Error = PieceConversionError;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Piece::WhitePawn),
+            1 => Ok(Piece::WhiteKnight),
+            2 => Ok(Piece::WhiteBishop),
+            3 => Ok(Piece::WhiteRook),
+            4 => Ok(Piece::WhiteQueen),
+            5 => Ok(Piece::WhiteKing),
+            6 => Ok(Piece::BlackPawn),
+            7 => Ok(Piece::BlackKnight),
+            8 => Ok(Piece::BlackBishop),
+            9 => Ok(Piece::BlackRook),
+            10 => Ok(Piece::BlackQueen),
+            11 => Ok(Piece::BlackKing),
+            _ => Err(PieceConversionError::FromU32 { invalid_u32: value }),
+        }
+    }
+}
+
 impl fmt::Display for Piece {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

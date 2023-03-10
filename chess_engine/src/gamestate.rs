@@ -15,6 +15,7 @@ use crate::{
         GamestateValidityCheckError, RankFenDeserializeError, SquareConversionError,
     },
     file::File,
+    moves::Move,
     piece::{self, Piece, PieceType},
     rank::Rank,
     square::{Square, Square64},
@@ -30,9 +31,9 @@ pub const HALF_MOVE_MAX: u8 = 100;
 pub const NUM_FEN_SECTIONS: usize = 6;
 const DEFAULT_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Undo {
-    move_: u32,
+    move_: Move,
     castle_permissions: CastlePerm,
     en_passant: Option<Square>,
     halfmove_clock: u8,
@@ -75,6 +76,8 @@ pub struct GamestateBuilder {
 
 // TODO: Revisit question of clones and performance and see if you can improve ergonomics:
 // https://users.rust-lang.org/t/builder-pattern-in-rust-self-vs-mut-self-and-method-vs-associated-function/72892/2
+// currently shouldn't be copying because Board doesn't implement Copy. Which seems reasonable for now
+// That being said, why make the Board reusable if the Gamestate isn't?
 impl GamestateBuilder {
     pub fn new() -> Self {
         GamestateBuilder {
@@ -125,11 +128,13 @@ impl GamestateBuilder {
                 for (index, section) in fen_sections.into_iter().enumerate() {
                     match index {
                         // Turn off board checking default so that it can be set by Gamestate
-                        0 => board = Some(
-                            BoardBuilder::new_with_fen(section)?
-                            .validity_check(ValidityCheck::Basic)
-                            .build()?
-                        ),
+                        0 => {
+                            board = Some(
+                                BoardBuilder::new_with_fen(section)?
+                                    .validity_check(ValidityCheck::Basic)
+                                    .build()?,
+                            )
+                        }
                         // active_color should be either "w" or "b"
                         1 => {
                             active_color = match section {
@@ -230,15 +235,15 @@ impl GamestateBuilder {
         self
     }
 
-    pub fn build(self) -> Result<Gamestate, GamestateBuildError> {
+    pub fn build(&self) -> Result<Gamestate, GamestateBuildError> {
         let gamestate = Gamestate {
-            board: self.board,
+            board: self.board.clone(),
             active_color: self.active_color,
             castle_permissions: self.castle_permissions,
             en_passant: self.en_passant,
             halfmove_clock: self.halfmove_clock,
             fullmove_number: self.fullmove_number,
-            history: self.history,
+            history: self.history.clone(),
             zobrist: Zobrist::default(),
         };
 
@@ -543,18 +548,17 @@ impl Gamestate {
         fen.push(' ');
 
         // castle_permissions
-        fen.push_str(self.castle_permissions
-            .to_string()
-            .as_str());
+        fen.push_str(self.castle_permissions.to_string().as_str());
         fen.push(' ');
 
         // en_passant
         match self.en_passant {
-            Some(square) => {fen.push_str(square
-                .to_string()
-                .to_lowercase()
-                .as_str());},
-            None => {fen.push('-');}
+            Some(square) => {
+                fen.push_str(square.to_string().to_lowercase().as_str());
+            }
+            None => {
+                fen.push('-');
+            }
         }
         fen.push(' ');
 
@@ -568,11 +572,12 @@ impl Gamestate {
         fen
     }
 
-    /// Determine if the provided square is currently under attack
-    fn is_square_attacked(&self, square: Square) -> bool {
+    /// Determine if the provided square is currently under attack by the
+    /// provided color
+    fn is_square_attacked(&self, color: Color, square: Square) -> bool {
         // depending on active_color determine which pieces to check
         let mut pieces_to_check: [Piece; 6];
-        match self.active_color {
+        match color {
             Color::White => {
                 pieces_to_check = [
                     Piece::WhitePawn,
@@ -658,7 +663,26 @@ mod tests {
         gamestate,
     };
 
-    // FEN parsing tests
+    //========================= REUSABLE BUILDER ==============================
+    #[test]
+    fn test_gamestate_builder_is_reusable() {
+        let mut gamestate_builder = GamestateBuilder::new_with_board(
+            BoardBuilder::new()
+            .validity_check(ValidityCheck::Basic)
+            .piece(Piece::BlackBishop, Square64::A1)
+            .build()
+            .unwrap()
+        )
+        .validity_check(ValidityCheck::Basic);
+
+        let gamestate_0 = gamestate_builder.build().unwrap();
+        let gamestate_1 = gamestate_builder.build().unwrap();
+
+        assert_eq!(gamestate_0, gamestate_1);
+    }
+
+
+    //=========================== FEN parsing tests ===========================
     // Full FEN parsing
     #[test]
     fn test_gamestate_try_from_valid_fen_default() {
@@ -883,7 +907,7 @@ mod tests {
         for rank in Rank::iter() {
             for file in File::iter() {
                 let square = Square::from_file_and_rank(file, rank);
-                output[rank as usize][file as usize] = gamestate.is_square_attacked(square);
+                output[rank as usize][file as usize] = gamestate.is_square_attacked(active_color, square);
             }
         }
 
@@ -989,7 +1013,7 @@ mod tests {
         for rank in Rank::iter() {
             for file in File::iter() {
                 let square = Square::from_file_and_rank(file, rank);
-                output[rank as usize][file as usize] = gamestate.is_square_attacked(square);
+                output[rank as usize][file as usize] = gamestate.is_square_attacked(active_color, square);
             }
         }
 
@@ -1091,7 +1115,7 @@ mod tests {
         for rank in Rank::iter() {
             for file in File::iter() {
                 let square = Square::from_file_and_rank(file, rank);
-                output[rank as usize][file as usize] = gamestate.is_square_attacked(square);
+                output[rank as usize][file as usize] = gamestate.is_square_attacked(active_color, square);
             }
         }
 
@@ -1126,7 +1150,7 @@ mod tests {
             for rank in Rank::iter().rev() {
                 for file in File::iter() {
                     let square = Square::from_file_and_rank(file, rank);
-                    match gamestate.is_square_attacked(square) {
+                    match gamestate.is_square_attacked(gamestate.active_color, square) {
                         true => print!("X"),
                         false => print!("-"),
                     }
@@ -1268,10 +1292,10 @@ mod tests {
     fn test_gamestate_serialization_en_passant_opening() {
         let expected = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq e6 0 3";
         let input = GamestateBuilder::new_with_fen(expected)
-        .unwrap()
-        .build()
-        .unwrap();
-        
+            .unwrap()
+            .build()
+            .unwrap();
+
         let output = input.to_fen();
         assert_eq!(output, expected);
     }
@@ -1281,10 +1305,10 @@ mod tests {
     fn test_gamestate_serialization_validity_basic_empty() {
         let expected = "8/8/8/8/8/8/8/8 w KQkq - 0 1";
         let input = GamestateBuilder::new_with_fen(expected)
-        .unwrap()
-        .validity_check(ValidityCheck::Basic)
-        .build()
-        .unwrap();
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
 
         let output = input.to_fen();
         assert_eq!(output, expected);
@@ -1294,21 +1318,19 @@ mod tests {
     #[test]
     fn test_gamestate_serialization_validity_strict_empty() {
         let input = "8/8/8/8/8/8/8/8 w KQkq - 0 1";
-        let output = GamestateBuilder::new_with_fen(input)
-        .unwrap()
-        .build();
+        let output = GamestateBuilder::new_with_fen(input).unwrap().build();
 
         let expected = Err(GamestateBuildError::GamestateValidityCheck(
             GamestateValidityCheckError::BoardValidityCheck(
-                BoardValidityCheckError::StrictOneBlackKingOneWhiteKing { 
-                    num_white_kings: 0, num_black_kings: 0 
-                }   
-            )
+                BoardValidityCheckError::StrictOneBlackKingOneWhiteKing {
+                    num_white_kings: 0,
+                    num_black_kings: 0,
+                },
+            ),
         ));
 
         assert_eq!(output, expected);
     }
-
 
     // Deserialization from FEN:
 
@@ -1521,8 +1543,8 @@ mod tests {
                     num_white_kings: 0,
                     num_black_kings: 0,
                 },
-            )),
-        );
+            ),
+        ));
         assert_eq!(output, expected);
     }
 
@@ -1582,8 +1604,8 @@ mod tests {
                     num_white_kings: 1,
                     num_black_kings: 0,
                 },
-            )),
-        );
+            ),
+        ));
         assert_eq!(output, expected);
     }
 }

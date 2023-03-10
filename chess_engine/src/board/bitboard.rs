@@ -40,15 +40,19 @@ pub struct BitBoard(pub u64);
 impl BitBoard {
     /// Counts number of set bits
     pub fn count_bits(&self) -> u8 {
-        let mut count: u8 = 0;
-        let mut b = self.0;
-        while b > 0 {
-            count += 1;
-            // converts the current least significant 1 into 0111... with the -1
-            // then removes trailing 1s into 0s with the & (1000 & 0111 = 0000)
-            b &= b - 1;
-        }
-        count
+        // NOTE: not sure how count_ones is implemented, but these are some useful resources
+        // divide and conquer: https://www.youtube.com/watch?v=ZusiKXcz_ac
+        // https://arxiv.org/pdf/1611.07612.pdf
+        self.0.count_ones() as u8
+        // let mut count: u8 = 0;
+        // let mut b = self.0;
+        // while b > 0 {
+        //     count += 1;
+        //     // converts the current least significant 1 into 0111... with the -1
+        //     // then removes trailing 1s into 0s with the & (1000 & 0111 = 0000)
+        //     b &= b - 1;
+        // }
+        // count
     }
 
     /// Sets the first set LSB to 0 and returns the index corresponding to it
