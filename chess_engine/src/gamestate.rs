@@ -12,11 +12,11 @@ use crate::{
     color::Color,
     error::{
         BoardFenDeserializeError, GamestateBuildError, GamestateFenDeserializeError,
-        GamestateValidityCheckError, RankFenDeserializeError, SquareConversionError,
+        GamestateValidityCheckError, MoveGenError, RankFenDeserializeError, SquareConversionError,
     },
     file::File,
-    moves::Move,
-    piece::{self, Piece, PieceType},
+    moves::{Move, MoveList},
+    piece::{self, Piece, PieceType, WHITE_PAWN_PROMOTION_TARGETS, WHITE_PAWN_VERTICAL_DIRECTION},
     rank::Rank,
     square::{Square, Square64},
     zobrist::Zobrist,
@@ -56,7 +56,7 @@ pub struct Undo {
 ///
 /// Strict: Strict mode adds additional checks to make sure that the board is valid given the rules of regular chess.
 ///
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum ValidityCheck {
     Basic,
     Strict,
@@ -248,7 +248,7 @@ impl GamestateBuilder {
         };
 
         if let ValidityCheck::Strict = self.validity_check {
-            gamestate.check_gamestate(&self.validity_check)?;
+            gamestate.check_gamestate(self.validity_check)?;
         }
 
         Ok(gamestate)
@@ -311,6 +311,210 @@ impl fmt::Display for Gamestate {
 }
 
 impl Gamestate {
+    // TODO: test extensively
+    /// Generates quiet moves (including starting double move forward), captures (including en passant)
+    /// and all promotions
+    fn gen_white_pawn_moves(&self, move_list: &mut MoveList) {
+        let num_pawns = self.board.get_piece_count()[Piece::WhitePawn as usize] as usize;
+        for pawn_index in 0_usize..num_pawns {
+            let square = self.board.get_piece_list()[Piece::WhitePawn as usize][pawn_index];
+
+            // Check Pawn forward moves
+            let square_ahead = (square + WHITE_PAWN_VERTICAL_DIRECTION);
+            if let Ok(square_ahead) = square_ahead {
+                let rank = square.get_rank();
+
+                let mut is_pawn_start = false;
+                let mut is_promotion = false;
+
+                // Add move to move_list if square ahead is empty (possibly two ahead as well)
+                if self.board.pieces[square_ahead as usize].is_none() {
+
+                    match rank {
+                        // Check if pawn start
+                        Rank::Rank2 => {
+                            is_pawn_start = true;
+
+                            // Add pawn moves one ahead
+                            let _move = Move::new(
+                                square,
+                                square_ahead,
+                                None,
+                                false,
+                                is_pawn_start,
+                                None,
+                                false,
+                                Piece::WhitePawn,
+                            );
+
+                            move_list.add_move(_move);
+
+                            // Add move two ahead if square vacant
+                            let square_two_ahead = (square + (WHITE_PAWN_VERTICAL_DIRECTION * 2));
+                            if let Ok(square_two_ahead) = square_two_ahead {
+                                if self.board.pieces[square_two_ahead as usize].is_none() {
+                                    let _move = Move::new(
+                                        square,
+                                        square_two_ahead,
+                                        None,
+                                        false,
+                                        is_pawn_start,
+                                        None,
+                                        false,
+                                        Piece::WhitePawn,
+                                    );
+
+                                    move_list.add_move(_move);
+                                }
+                            }
+                        }
+
+                        // Check if promotion (one ahead)
+                        Rank::Rank7 => {
+                            is_promotion = true; // NOTE: promotion is mandatory
+
+                            for promotion in WHITE_PAWN_PROMOTION_TARGETS {
+                                let _move = Move::new(
+                                    square,
+                                    square_ahead,
+                                    None,
+                                    false,
+                                    is_pawn_start,
+                                    Some(promotion),
+                                    false,
+                                    Piece::WhitePawn,
+                                );
+
+                                move_list.add_move(_move);
+                            }
+                        }
+                        _ => {
+
+                            // Add pawn moves one ahead
+                            let _move = Move::new(
+                                square,
+                                square_ahead,
+                                None,
+                                false,
+                                is_pawn_start,
+                                None,
+                                false,
+                                Piece::WhitePawn,
+                            );
+
+                            move_list.add_move(_move);
+                        },
+                    }
+                }
+
+                // Generate Capture Moves
+                let attack_directions = Piece::WhitePawn.get_attack_directions();
+                for direction in attack_directions {
+                    // Check if there is a valid square in that direction occupied by a Black Piece
+                    // or if the square is an En Passant square. And deal with promotions
+                    let attacked_square = square + direction;
+                    // square in direction valid
+                    if let Ok(attacked_square) = attacked_square {
+                        let piece_captured = self.board.pieces[attacked_square as usize];
+                        match piece_captured {
+                            Some(piece_captured) => {
+                                // square in direction occupied by takeable piece
+                                if piece_captured.get_color() == Color::Black {
+
+                                    match is_promotion {
+                                        // taking piece would result in promotion
+                                        true => {
+                                            for promotion in WHITE_PAWN_PROMOTION_TARGETS {
+                                                let _move = Move::new(
+                                                    square,
+                                                    attacked_square,
+                                                    Some(piece_captured),
+                                                    false,
+                                                    is_pawn_start,
+                                                    Some(promotion),
+                                                    false,
+                                                    Piece::WhitePawn,
+                                                );
+
+                                                move_list.add_move(_move);
+                                            }
+                                        }
+
+                                        false => {
+                                            let _move = Move::new(
+                                                square,
+                                                attacked_square,
+                                                Some(piece_captured),
+                                                false,
+                                                is_pawn_start,
+                                                None,
+                                                false,
+                                                Piece::WhitePawn,
+                                            );
+
+                                            move_list.add_move(_move);
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Could be an En Passant Capture (won't result in promotion)
+                            None => {
+                                if self.en_passant == Some(Square64::from(attacked_square)) {
+                                    // if somehow there is an en_passant square but the square in front
+                                    // of it is invalid, something went very wrong
+                                    let capture_square =
+                                        (attacked_square - WHITE_PAWN_VERTICAL_DIRECTION).expect(
+                                            "Square ahead of En Passant Square should be valid",
+                                        );
+
+                                    // get piece that is being captured via en passant
+                                    // if there isn't a Black Pawn in front of the en passant square
+                                    // we're in trouble
+                                    let piece_captured = self.board.pieces[capture_square as usize]
+                                    .expect("Square in front of En Passant Square needs to be occupied");
+
+                                    assert_eq!(piece_captured,
+                                        Piece::BlackPawn,
+                                        "Square in front of En Passant Square needs to be occupied by Black Pawn");
+
+                                    let _move = Move::new(
+                                        square,
+                                        attacked_square,
+                                        Some(piece_captured), // better be a BlackPawn
+                                        true,
+                                        false, // can't take en passant from a pawn start
+                                        None,  // can't be a promotion
+                                        false,
+                                        Piece::WhitePawn,
+                                    );
+
+                                    move_list.add_move(_move);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Generate all possible moves for the current Gamestate
+    fn gen_move_list(&self) -> Result<MoveList, MoveGenError> {
+        self.check_gamestate(ValidityCheck::Strict)?;
+
+        let mut move_list = MoveList::new();
+
+        match self.active_color {
+            Color::White => {
+                self.gen_white_pawn_moves(&mut move_list);
+            }
+            Color::Black => todo!(),
+        }
+
+        todo!()
+    }
+
     fn gen_position_key(&self) -> u64 {
         let mut position_key: u64 = 0;
 
@@ -336,9 +540,9 @@ impl Gamestate {
     }
 
     /// Check that the gamestate is valid for the given a validity check mode
-    fn check_gamestate(
+    pub fn check_gamestate(
         &self,
-        validity_check: &ValidityCheck,
+        validity_check: ValidityCheck,
     ) -> Result<(), GamestateValidityCheckError> {
         if let ValidityCheck::Strict = validity_check {
             // TODO:
@@ -603,7 +807,19 @@ impl Gamestate {
         // check each square an attacker could be occupying and see if there is in fact
         // the corresponding piece on that attacking square
         for piece in pieces_to_check {
-            let directions = piece.get_attack_directions();
+
+            // TODO: this is technically doing extra work, but it's clearer and
+            // easy for now (could also be nice if we add fantasy pieces with
+            // non-symmetric movements).
+
+            // Reverse directions since we're trying to find where attacks could be
+            // initiated from and not where a piece could move to. Only matters for
+            // pawns
+            let directions = piece.get_attack_directions()
+            .into_iter()
+            .map(|direction| -direction)
+            .collect::<Vec<_>>();
+
             match piece {
                 // To check sliding pieces we need to check squares offset by multiples
                 // of the direction offset, and early out of a direction when we hit a blocking piece
@@ -663,15 +879,368 @@ mod tests {
         gamestate,
     };
 
+    //========================= MOVE GEN ======================================
+    #[test]
+    fn test_gamestate_movegen_white_pawn_moves() {
+        let fen = "rnbqkb1r/pp1p1pPp/8/2p1pP2/1P1P4/3P3P/P1P1P3/RNBQKBNR w KQkq e6 0 1";
+        let gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
+
+        let mut output = MoveList::new();
+        gamestate.gen_white_pawn_moves(&mut output);
+
+        let piece_moved = Piece::WhitePawn;
+        let count = 20;
+
+        let mut expected = MoveList::new();
+        // NOTE: order matters here and is the order of Board's piece_list
+        // WP A2 move ahead one
+        expected.add_move(Move::new(
+            Square::A2,
+            Square::A3,
+            None,
+            false,
+            true,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP A2 move ahead two
+        expected.add_move(Move::new(
+            Square::A2,
+            Square::A4,
+            None,
+            false,
+            true,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP B4 move ahead one
+        expected.add_move(Move::new(
+            Square::B4,
+            Square::B5,
+            None,
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP B4 move capture BP on C5
+        //           31-29   28-25 24   23-20 19 18 17-14 13-7     6-0
+        //           unused  pm    cstl prom  ps ep capt  end      start
+        // 33677236:    000  0001  0    0000  0  0  0111  011_1111 011_0100
+        expected.add_move(Move::new(
+            Square::B4,
+            Square::C5,
+            Some(Piece::BlackPawn),
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP C2 move ahead one
+        expected.add_move(Move::new(
+            Square::C2,
+            Square::C3,
+            None,
+            false,
+            true,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP C2 move ahead two
+        expected.add_move(Move::new(
+            Square::C2,
+            Square::C4,
+            None,
+            false,
+            true,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP D3 is blocked by WP D4
+
+        // WP D4 move ahead one
+        expected.add_move(Move::new(
+            Square::D4,
+            Square::D5,
+            None,
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP D4 move capture BP on C5
+        expected.add_move(Move::new(
+            Square::D4,
+            Square::C5,
+            Some(Piece::BlackPawn),
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+        // WP D4 move capture BP on E5
+        expected.add_move(Move::new(
+            Square::D4,
+            Square::E5,
+            Some(Piece::BlackPawn),
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP E2 move ahead one
+        expected.add_move(Move::new(
+            Square::E2,
+            Square::E3,
+            None,
+            false,
+            true,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP E2 move ahead two
+        expected.add_move(Move::new(
+            Square::E2,
+            Square::E4,
+            None,
+            false,
+            true,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP F5 move ahead one
+        expected.add_move(Move::new(
+            Square::F5,
+            Square::F6,
+            None,
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP F5 move capture BP on E5 via En Passant E6
+        expected.add_move(Move::new(
+            Square::F5,
+            Square::E6,
+            Some(Piece::BlackPawn),
+            true,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP G7 move ahead one promote WhiteKnight
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::G8,
+            None,
+            false,
+            false,
+            Some(Piece::WhiteKnight),
+            false,
+            piece_moved,
+        ));
+
+        // WP G7 move ahead one promote WhiteBishop
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::G8,
+            None,
+            false,
+            false,
+            Some(Piece::WhiteBishop),
+            false,
+            piece_moved,
+        ));
+
+        // WP G7 move ahead one promote WhiteRook
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::G8,
+            None,
+            false,
+            false,
+            Some(Piece::WhiteRook),
+            false,
+            piece_moved,
+        ));
+
+        // WP G7 move ahead one promote WhiteQueen
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::G8,
+            None,
+            false,
+            false,
+            Some(Piece::WhiteQueen),
+            false,
+            piece_moved,
+        ));
+
+        // WP G7 move capture BB on F8 promote WhiteKnight
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::F8,
+            Some(Piece::BlackBishop),
+            false,
+            false,
+            Some(Piece::WhiteKnight),
+            false,
+            piece_moved,
+        ));
+
+        // WP G7 move capture BB on F8 promote WhiteBishop
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::F8,
+            Some(Piece::BlackBishop),
+            false,
+            false,
+            Some(Piece::WhiteBishop),
+            false,
+            piece_moved,
+        ));
+
+        // WP G7 move capture BB on F8 promote WhiteRook
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::F8,
+            Some(Piece::BlackBishop),
+            false,
+            false,
+            Some(Piece::WhiteRook),
+            false,
+            piece_moved,
+        ));
+
+        // WP G7 move capture BB on F8 promote WhiteQueen
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::F8,
+            Some(Piece::BlackBishop),
+            false,
+            false,
+            Some(Piece::WhiteQueen),
+            false,
+            piece_moved,
+        ));
+
+        // WP G7 move capture BR on H8 promote WhiteKnight
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::H8,
+            Some(Piece::BlackRook),
+            false,
+            false,
+            Some(Piece::WhiteKnight),
+            false,
+            piece_moved,
+        ));
+
+        // WP G7 move capture BR on H8 promote WhiteBishop
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::H8,
+            Some(Piece::BlackRook),
+            false,
+            false,
+            Some(Piece::WhiteBishop),
+            false,
+            piece_moved,
+        ));
+
+        // 10 0100 0010 1011 0001 0101 0111
+        // 37,925,207
+        // WP G7 move capture BR on H8 promote WhiteRook
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::H8,
+            Some(Piece::BlackRook),
+            false,
+            false,
+            Some(Piece::WhiteRook),
+            false,
+            piece_moved,
+        ));
+
+        // WP G7 move capture BR on H8 promote WhiteQueen
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::H8,
+            Some(Piece::BlackRook),
+            false,
+            false,
+            Some(Piece::WhiteQueen),
+            false,
+            piece_moved,
+        ));
+
+        // WP H3 move ahead one to H4
+        expected.add_move(Move::new(
+            Square::H3,
+            Square::H4,
+            None,
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        let output_count = output.count;
+        let expected_count = expected.count;
+
+        assert_eq!(output_count, expected_count);
+
+        // Order doesn't need to match exactly right now since the order is
+        // tricky to make intuitive
+        let mut output = output.moves.into_iter().flatten().collect::<Vec<Move>>();
+        let mut expected = expected.moves.into_iter().flatten().collect::<Vec<Move>>();
+        output.sort();
+        expected.sort();
+
+        assert_eq!(expected_count, output.len());
+
+        assert_eq!(output, expected);
+    }
+
     //========================= REUSABLE BUILDER ==============================
     #[test]
     fn test_gamestate_builder_is_reusable() {
         let mut gamestate_builder = GamestateBuilder::new_with_board(
             BoardBuilder::new()
-            .validity_check(ValidityCheck::Basic)
-            .piece(Piece::BlackBishop, Square64::A1)
-            .build()
-            .unwrap()
+                .validity_check(ValidityCheck::Basic)
+                .piece(Piece::BlackBishop, Square64::A1)
+                .build()
+                .unwrap(),
         )
         .validity_check(ValidityCheck::Basic);
 
@@ -680,7 +1249,6 @@ mod tests {
 
         assert_eq!(gamestate_0, gamestate_1);
     }
-
 
     //=========================== FEN parsing tests ===========================
     // Full FEN parsing
@@ -907,7 +1475,8 @@ mod tests {
         for rank in Rank::iter() {
             for file in File::iter() {
                 let square = Square::from_file_and_rank(file, rank);
-                output[rank as usize][file as usize] = gamestate.is_square_attacked(active_color, square);
+                output[rank as usize][file as usize] =
+                    gamestate.is_square_attacked(active_color, square);
             }
         }
 
@@ -1013,7 +1582,8 @@ mod tests {
         for rank in Rank::iter() {
             for file in File::iter() {
                 let square = Square::from_file_and_rank(file, rank);
-                output[rank as usize][file as usize] = gamestate.is_square_attacked(active_color, square);
+                output[rank as usize][file as usize] =
+                    gamestate.is_square_attacked(active_color, square);
             }
         }
 
@@ -1115,7 +1685,8 @@ mod tests {
         for rank in Rank::iter() {
             for file in File::iter() {
                 let square = Square::from_file_and_rank(file, rank);
-                output[rank as usize][file as usize] = gamestate.is_square_attacked(active_color, square);
+                output[rank as usize][file as usize] =
+                    gamestate.is_square_attacked(active_color, square);
             }
         }
 
@@ -1207,7 +1778,7 @@ mod tests {
                                             expected_castle_permissions_start,
                                             expected_position_key_start
                                         );
-        
+
 
         let expected_board_wpe4 = format!("{}{}{}{}{}{}{}{}{}",
                             "8\t♜\t♞\t♝\t♛\t♚\t♝\t♞\t♜\n",

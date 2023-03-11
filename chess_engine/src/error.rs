@@ -21,18 +21,29 @@ pub enum ChessError {
 }
 
 #[derive(Error, Debug, PartialEq)]
+pub enum MoveGenError {
+    #[error("Cannot generate moves for invalid Gamestate")]
+    GamestateValidityCheck(#[from] GamestateValidityCheckError),
+}
+
+#[derive(Error, Debug, PartialEq)]
 pub enum MoveDeserializeError {
+    // Can't pass in _move as String because that would cause
+    // stack overflow on Display/to_string() call
     #[error("The start square {start} is invalid for move:\n {_move}")]
-    Start { start: u32, _move: String },
+    Start { start: u32, _move: u32 },
 
     #[error("The end square {end} is invalid for move:\n {_move}")]
-    End { end: u32, _move: String },
+    End { end: u32, _move: u32 },
 
     #[error("The captured piece {piece} is invalid for move:\n {_move}")]
-    Captured { piece: u32, _move: String },
+    Captured { piece: u32, _move: u32 },
 
     #[error("The promoted piece {piece} is invalid for move:\n {_move}")]
-    Promoted { piece: u32, _move: String },
+    Promoted { piece: u32, _move: u32 },
+
+    #[error("The moved piece {piece} is invalid for move:\n {_move}")]
+    Moved { piece: u32, _move: u32 },
 }
 
 #[derive(Error, Debug, PartialEq)]

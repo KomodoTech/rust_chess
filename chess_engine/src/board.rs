@@ -147,7 +147,7 @@ impl BoardBuilder {
 
         // NOTE: Basic mode doesn't do any extra board checking and that's probably not going to change
         if let ValidityCheck::Strict = self.validity_check {
-            board.check_board(&self.validity_check)?;
+            board.check_board(self.validity_check)?;
         }
         Ok(board)
     }
@@ -311,10 +311,20 @@ impl TryFrom<&str> for Board {
 }
 
 impl Board {
+    //======================== GETTERS ========================================
+    pub fn get_piece_count(&self) -> [u8; Piece::COUNT] {
+        self.piece_count
+    }
+
+    pub fn get_piece_list(&self) -> &[Vec<Square>; Piece::COUNT] {
+        &self.piece_list
+    }
+    //=========================================================================
+
     /// Checks the board to make sure that it is consistent with the ValidityCheck/mode
     pub fn check_board(
         &self,
-        validity_check: &ValidityCheck,
+        validity_check: ValidityCheck,
     ) -> Result<(), BoardValidityCheckError> {
         // TODO:
         // check that there aren't more than 6 pawns in a single file
@@ -865,8 +875,8 @@ mod tests {
                 num_excess_big_pieces_white: 1,
                 num_missing_pawns_white: 0,
                 num_excess_big_pieces_black: 0,
-                num_missing_pawns_black: 8
-            }
+                num_missing_pawns_black: 8,
+            },
         ));
 
         assert_eq!(output, expected);
