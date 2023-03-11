@@ -120,14 +120,14 @@ const STARTING_NUM_PIECES: [u8; Piece::COUNT] = [
 
 /// Given a starting Square (10x12) index, these values are all the offsets where a White Pawn could move to
 const WHITE_PAWN_ATTACK_DIRECTIONS: [i8; 2] = [
-    9,   // Up Left
-    11,  // Up Right
+    9,  // Up Left
+    11, // Up Right
 ];
 
 /// Given a starting Square (10x12) index, these values are all the offsets where a Black Pawn could move to
 const BLACK_PAWN_ATTACK_DIRECTIONS: [i8; 2] = [
-    -11,  // Down Left
-    -9,   // Down Right
+    -11, // Down Left
+    -9,  // Down Right
 ];
 
 /// Given a starting Square (10x12) index, these values are all the offsets where a Knight could move

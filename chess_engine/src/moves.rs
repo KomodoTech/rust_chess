@@ -64,10 +64,10 @@ impl MoveList {
 impl fmt::Display for MoveList {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "MoveList (Count: {})", self.count);
-        writeln!(f, "==========================");
+        writeln!(f, "========================================");
         for (index, _move) in self.moves.iter().flatten().enumerate() {
             writeln!(f, "{}", _move);
-            writeln!(f, "==========================");
+            writeln!(f, "========================================");
         }
         writeln!(f)
     }
@@ -132,12 +132,20 @@ impl Move {
         })
     }
 
+    fn get_start_raw(&self) -> u32 {
+        self._move & MOVE_SQUARE_MASK
+    }
+
     pub fn get_end(&self) -> Result<Square, MoveDeserializeError> {
         let end = (self._move >> MOVE_END_SHIFT) & MOVE_SQUARE_MASK;
         Square::try_from(end).map_err(|_err| MoveDeserializeError::End {
             end,
             _move: self._move,
         })
+    }
+
+    fn get_end_raw(&self) -> u32 {
+        (self._move >> MOVE_END_SHIFT) & MOVE_SQUARE_MASK
     }
 
     pub fn get_piece_captured(&self) -> Result<Option<Piece>, MoveDeserializeError> {
@@ -152,6 +160,10 @@ impl Move {
                 }),
             },
         }
+    }
+
+    fn get_piece_captured_raw(&self) -> u32 {
+        (self._move >> MOVE_PIECE_CAPTURED_SHIFT) & MOVE_PIECE_MASK
     }
 
     pub fn is_en_passant(&self) -> bool {
@@ -176,6 +188,10 @@ impl Move {
         }
     }
 
+    fn get_piece_promoted_raw(&self) -> u32 {
+        (self._move >> MOVE_PIECE_PROMOTED_SHIFT) & MOVE_PIECE_MASK
+    }
+
     pub fn is_castle(&self) -> bool {
         self._move & MOVE_CASTLE_MASK != 0
     }
@@ -195,6 +211,10 @@ impl Move {
                 }),
             },
         }
+    }
+
+    fn get_piece_moved_raw(&self) -> u32 {
+        (self._move >> MOVE_PIECE_MOVED_SHIFT) & MOVE_PIECE_MASK
     }
 
     pub fn is_capture(&self) -> bool {
@@ -234,16 +254,27 @@ impl fmt::Display for Move {
 
         let end = self.get_end().expect("end should always be valid");
 
-        writeln!(f, "Piece Moved: {}", piece_moved);
-        writeln!(f, "Start Square: {}", start);
-        writeln!(f, "End Square: {}", end);
+        writeln!(f, "Dec: {}", self._move);
+        writeln!(f, "Bin: {:032b}", self._move);
+
+        writeln!(f, "Start Square: {} {:07b}", start, self.get_start_raw());
+        writeln!(f, "End Square: {} {:07b}", end, self.get_end_raw());
 
         match piece_captured {
             Some(piece) => {
-                writeln!(f, "Piece Captured: {}", piece);
+                writeln!(
+                    f,
+                    "Piece Captured: {} {:04b}",
+                    piece,
+                    self.get_piece_captured_raw()
+                );
             }
             None => {
-                writeln!(f, "Piece Captured: None");
+                writeln!(
+                    f,
+                    "Piece Captured: None {:04b}",
+                    self.get_piece_captured_raw()
+                );
             }
         }
 
@@ -252,14 +283,30 @@ impl fmt::Display for Move {
 
         match piece_promoted {
             Some(piece) => {
-                writeln!(f, "Piece Promoted: {}", piece);
+                writeln!(
+                    f,
+                    "Piece Promoted: {} {:04b}",
+                    piece,
+                    self.get_piece_promoted_raw()
+                );
             }
             None => {
-                writeln!(f, "Piece Promoted: None");
+                writeln!(
+                    f,
+                    "Piece Promoted: None {:04b}",
+                    self.get_piece_promoted_raw()
+                );
             }
         }
 
-        writeln!(f, "Castling Move: {}", self.is_castle())
+        writeln!(f, "Castling Move: {}", self.is_castle());
+
+        writeln!(
+            f,
+            "Piece Moved: {} {:04b}",
+            piece_moved,
+            self.get_piece_moved_raw()
+        )
     }
 }
 
@@ -270,9 +317,10 @@ mod tests {
     use super::*;
 
     //================================ DISPLAY ================================
+    // TODO: these display tests rely heavily on Gamestate functionality
+    // should right some decoupled tests
     #[test]
     fn test_move_list_display_visual() {
-
         let fen = "rnbqkb1r/pp1p1pPp/8/2p1pP2/1P1P4/3P3P/2P1P3/RNBQKBNR w KQkq e6 0 1";
         let gamestate = GamestateBuilder::new_with_fen(fen)
             .unwrap()
@@ -281,7 +329,6 @@ mod tests {
             .unwrap();
 
         println!("{}", gamestate.gen_move_list().unwrap());
-
     }
 
     #[test]
