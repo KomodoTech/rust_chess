@@ -500,19 +500,23 @@ impl Gamestate {
     }
 
     /// Generate all possible moves for the current Gamestate
-    fn gen_move_list(&self) -> Result<MoveList, MoveGenError> {
+    pub fn gen_move_list(&self) -> Result<MoveList, MoveGenError> {
         self.check_gamestate(ValidityCheck::Strict)?;
 
         let mut move_list = MoveList::new();
 
-        match self.active_color {
-            Color::White => {
-                self.gen_white_pawn_moves(&mut move_list);
-            }
-            Color::Black => todo!(),
-        }
+        self.gen_white_pawn_moves(&mut move_list);
 
-        todo!()
+        Ok(move_list)
+
+        // match self.active_color {
+        //     Color::White => {
+        //         self.gen_white_pawn_moves(&mut move_list);
+        //     }
+        //     Color::Black => todo!(),
+        // }
+
+        // todo!()
     }
 
     fn gen_position_key(&self) -> u64 {
@@ -1222,7 +1226,7 @@ mod tests {
 
         // Order doesn't need to match exactly right now since the order is
         // tricky to make intuitive
-        let mut output = output.moves.into_iter().flatten().collect::<Vec<Move>>();
+        let mut output = output.moves.into_iter().flatten().collect::<Vec<Move>>(); // get rid of Nones
         let mut expected = expected.moves.into_iter().flatten().collect::<Vec<Move>>();
         output.sort();
         expected.sort();

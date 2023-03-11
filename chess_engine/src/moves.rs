@@ -61,6 +61,16 @@ impl MoveList {
     }
 }
 
+impl fmt::Display for MoveList {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "MoveList (Count: {})", self.count);
+        for (index, _move) in self.moves.iter().flatten().enumerate() {
+            writeln!(f, "{}: ", _move);
+        }
+        writeln!(f)
+    }
+}
+
 //============================== MOVE STRUCTURE ===============================
 
 /// Information that defines a move is stored in a 32-bit word with the following format
@@ -258,6 +268,20 @@ mod tests {
     use super::*;
 
     //================================ DISPLAY ================================
+    #[test]
+    fn test_move_list_display_visual() {
+
+        let fen = "rnbqkb1r/pp1p1pPp/8/2p1pP2/1P1P4/3P3P/2P1P3/RNBQKBNR w KQkq e6 0 1";
+        let gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
+
+        println!("{}", gamestate.gen_move_list().unwrap());
+
+    }
+
     #[test]
     fn test_move_display_visual() {
         println!("Game Starting State:");
