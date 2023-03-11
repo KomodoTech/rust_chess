@@ -501,6 +501,8 @@ impl Gamestate {
 
     /// Generate all possible moves for the current Gamestate
     pub fn gen_move_list(&self) -> Result<MoveList, MoveGenError> {
+
+        // TODO: might be useful to turn strict off
         self.check_gamestate(ValidityCheck::Strict)?;
 
         let mut move_list = MoveList::new();

@@ -64,8 +64,10 @@ impl MoveList {
 impl fmt::Display for MoveList {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "MoveList (Count: {})", self.count);
+        writeln!(f, "==========================");
         for (index, _move) in self.moves.iter().flatten().enumerate() {
-            writeln!(f, "{}: ", _move);
+            writeln!(f, "{}", _move);
+            writeln!(f, "==========================");
         }
         writeln!(f)
     }
