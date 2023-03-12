@@ -1,6 +1,7 @@
 use crate::{color::Color, error::PieceConversionError};
 
 use std::fmt::{self, write};
+
 use strum::EnumCount;
 use strum_macros::EnumCount as EnumCountMacro;
 
@@ -9,22 +10,26 @@ const PIECE_BIG: [bool; Piece::COUNT] = [
     //wp     wn    wb    wr    wq    wk    bp     bn    bb    br    bq    bk
     false, true, true, true, true, true, false, true, true, true, true, true,
 ];
+
 // NOTE: in most chess vocabulary King is not a major piece, but here it is considered one
 const PIECE_MAJOR: [bool; Piece::COUNT] = [
     // wp  wn     wb     wr    wq    wk    bp     bn     bb     br    bq    bk
     false, false, false, true, true, true, false, false, false, true, true, true,
 ];
+
 const PIECE_MINOR: [bool; Piece::COUNT] = [
     // wp  wn    wb    wr     wq     wk     bp     bn    bb    br     bq     bk
     false, true, true, false, false, false, false, true, true, false, false, false,
 ];
-const PIECE_SLIDING: [bool; Piece::COUNT] = [
-    // wp  wn     wb    wr    wq    wk     bp     bn     bb    br    bq    bk
-    false, false, true, true, true, false, false, false, true, true, true, false,
-];
+
 const PIECE_VALUE: [u32; Piece::COUNT] = [
     //wp wn   wb   wr   wq     wk      bp   bn   bb   br   bq     bk
     100, 325, 325, 550, 1_000, 50_000, 100, 325, 325, 550, 1_000, 50_000,
+];
+
+const PIECE_SLIDING: [bool; Piece::COUNT] = [
+    // wp  wn     wb    wr    wq    wk     bp     bn     bb    br    bq    bk
+    false, false, true, true, true, false, false, false, true, true, true, false,
 ];
 
 /// Allows us to associate a color with a piece
@@ -401,6 +406,7 @@ impl fmt::Display for Piece {
 mod test {
     use super::*;
 
+    //=========================================================================
     #[test]
     fn test_piece_is_big_true() {
         let input = Piece::WhiteBishop;

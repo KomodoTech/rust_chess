@@ -14,7 +14,7 @@ pub const CASTLE_PERM_FENS: [&str; NUM_CASTLE_PERM] = [
 ];
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, EnumIter, EnumString, EnumDisplay, EnumCountMacro)]
-enum Castle {
+pub enum Castle {
     WhiteKing = 1,
     WhiteQueen = 2,
     BlackKing = 4,

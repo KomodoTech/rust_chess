@@ -8,7 +8,7 @@ use strum_macros::{Display as EnumDisplay, EnumCount as EnumCountMacro};
 
 use crate::{
     board::{Board, BoardBuilder, NUM_BOARD_COLUMNS, NUM_BOARD_ROWS, NUM_BOARD_SQUARES},
-    castle_perm::{self, CastlePerm, NUM_CASTLE_PERM},
+    castle_perm::{self, Castle, CastlePerm, NUM_CASTLE_PERM},
     color::Color,
     error::{
         BoardFenDeserializeError, GamestateBuildError, GamestateFenDeserializeError,
@@ -314,8 +314,224 @@ impl fmt::Display for Gamestate {
 }
 
 impl Gamestate {
+    //================================= MOVE GENERATION =======================
+
+    // TODO: Splitting up move gen functions is nice but has some
+    // performance cost potentially. Measure
+
+    /// Generates castling moves for given Color
+    fn gen_castling_moves(&self, active_color: Color, move_list: &mut MoveList) {
+        // NOTE: Castling Permission will only be available if King hasn't moved
+        // and Rook hasn't either. We won't be checking that here.
+        match active_color {
+            Color::White => {
+                let non_active_color = Color::Black;
+
+                // Check if White has Kingside Castling Permission
+                if (u8::from(self.castle_permissions) & (Castle::WhiteKing as u8)) > 0
+                    // Check that squares between King and Rook are empty
+                    && self.board.pieces[Square::F1 as usize].is_none()
+                    && self.board.pieces[Square::G1 as usize].is_none()
+                    // The King can't start in check and any square the King crosses
+                    // or ends up in can't be attacked.
+                    // NOTE: we won't check the square that the King would land on
+                    // since we will be checking that when actually trying to make the move
+                    // and we don't want to do duplicate work if we can avoid it
+                    && !self.is_square_attacked(non_active_color, Square::E1)
+                    && !self.is_square_attacked(non_active_color, Square::F1)
+                {
+                    move_list.add_move(Move::new(
+                        Square::E1,
+                        Square::G1,
+                        None,
+                        false,
+                        false,
+                        None,
+                        true,
+                        Piece::WhiteKing,
+                    ));
+                }
+
+                // Check if White has Queenside Castling Permission
+                if (u8::from(self.castle_permissions) & (Castle::WhiteQueen as u8)) > 0
+                    && self.board.pieces[Square::D1 as usize].is_none()
+                    && self.board.pieces[Square::C1 as usize].is_none()
+                    && self.board.pieces[Square::B1 as usize].is_none()
+                    && !self.is_square_attacked(non_active_color, Square::E1)
+                    && !self.is_square_attacked(non_active_color, Square::D1)
+                {
+                    move_list.add_move(Move::new(
+                        Square::E1,
+                        Square::C1,
+                        None,
+                        false,
+                        false,
+                        None,
+                        true,
+                        Piece::WhiteKing,
+                    ));
+                }
+            }
+            Color::Black => {
+                let non_active_color = Color::White;
+
+                // Check if Black has Kingside Castling Permission
+                if (u8::from(self.castle_permissions) & (Castle::BlackKing as u8)) > 0
+                    && self.board.pieces[Square::F8 as usize].is_none()
+                    && self.board.pieces[Square::G8 as usize].is_none()
+                    && !self.is_square_attacked(non_active_color, Square::E8)
+                    && !self.is_square_attacked(non_active_color, Square::F8)
+                {
+                    move_list.add_move(Move::new(
+                        Square::E8,
+                        Square::G8,
+                        None,
+                        false,
+                        false,
+                        None,
+                        true,
+                        Piece::BlackKing,
+                    ));
+                }
+
+                // Check if Black has Queenside Castling Permission
+                if (u8::from(self.castle_permissions) & (Castle::BlackQueen as u8)) > 0
+                    && self.board.pieces[Square::D8 as usize].is_none()
+                    && self.board.pieces[Square::C8 as usize].is_none()
+                    && self.board.pieces[Square::B8 as usize].is_none()
+                    && !self.is_square_attacked(non_active_color, Square::E8)
+                    && !self.is_square_attacked(non_active_color, Square::D8)
+                {
+                    move_list.add_move(Move::new(
+                        Square::E8,
+                        Square::C8,
+                        None,
+                        false,
+                        false,
+                        None,
+                        true,
+                        Piece::BlackKing,
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Generates quite moves and captures for non pawn Pieces of specified active Color
+    fn gen_non_pawn_moves(&self, active_color: Color, move_list: &mut MoveList) {
+        let non_sliding_pieces = gen_non_sliding_pieces!(active_color);
+        let sliding_pieces = gen_sliding_pieces!(active_color);
+
+        let non_active_color = match active_color {
+            Color::White => Color::Black,
+            Color::Black => Color::White,
+        };
+
+        for piece in non_sliding_pieces {
+            let piece_count = self.board.get_piece_count()[piece as usize];
+            for piece_index in 0_usize..piece_count as usize {
+                // get square that the current piece we are looking at is on
+                let start_square = self.board.get_piece_list()[piece as usize][piece_index];
+                // get all directions to check move validity
+                let directions = piece.get_attack_directions();
+
+                // check if piece can move to square in each direction
+                for direction in directions {
+                    let end_square = start_square + direction;
+                    if let Ok(end_square) = end_square {
+                        // If the square current piece is trying to move to is empty
+                        // then that move is valid so add it to the move_list
+                        // otherwise it's only a valid move if the occupying piece
+                        // is of the non-active color
+                        match self.board.pieces[end_square as usize] {
+                            // NOTE: you cannot capture while castling
+                            Some(end_piece) => {
+                                // valid capture
+                                if end_piece.get_color() == non_active_color {
+                                    move_list.add_move(Move::new(
+                                        start_square,
+                                        end_square,
+                                        Some(end_piece),
+                                        false,
+                                        false,
+                                        None,
+                                        false,
+                                        piece,
+                                    ));
+                                }
+                            }
+                            None => {
+                                move_list.add_move(Move::new(
+                                    start_square,
+                                    end_square,
+                                    None,
+                                    false,
+                                    false,
+                                    None,
+                                    false,
+                                    piece,
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for piece in sliding_pieces {
+            let piece_count = self.board.get_piece_count()[piece as usize];
+
+            for piece_index in 0_usize..piece_count as usize {
+                let start_square = self.board.get_piece_list()[piece as usize][piece_index];
+                let directions = piece.get_attack_directions();
+
+                for direction in directions {
+                    // deal with sliding
+                    let mut next_square = start_square;
+                    while let Ok(end_square) = next_square + direction {
+                        match self.board.pieces[end_square as usize] {
+                            // capture (can't be castling)
+                            Some(end_piece) => {
+                                // valid capture
+                                if end_piece.get_color() == non_active_color {
+                                    move_list.add_move(Move::new(
+                                        start_square,
+                                        end_square,
+                                        Some(end_piece),
+                                        false,
+                                        false,
+                                        None,
+                                        false,
+                                        piece,
+                                    ));
+                                }
+                                // if you hit a piece you can't keep sliding
+                                break;
+                            }
+                            // No capture
+                            None => {
+                                move_list.add_move(Move::new(
+                                    start_square,
+                                    end_square,
+                                    None,
+                                    false,
+                                    false,
+                                    None,
+                                    false,
+                                    piece,
+                                ));
+                            }
+                        }
+                        // set up for next slide check
+                        next_square = end_square;
+                    }
+                }
+            }
+        }
+    }
+
     /// Generates quiet moves (including starting double move forward), captures (including en passant)
-    /// and all promotions for Pawn of specified Color
+    /// and all promotions for Pawn of specified active Color
     fn gen_pawn_moves(&self, active_color: Color, move_list: &mut MoveList) {
         // Setup all color-dependent values to make the rest of the logic color independent
         let (
@@ -370,15 +586,15 @@ impl Gamestate {
             }
         };
 
-        let num_pawns = self.board.get_piece_count()[pawn as usize] as usize;
+        let pawn_count = self.board.get_piece_count()[pawn as usize] as usize;
 
-        for pawn_index in 0_usize..num_pawns {
-            let square = self.board.get_piece_list()[pawn as usize][pawn_index];
+        for pawn_index in 0_usize..pawn_count {
+            let start_square = self.board.get_piece_list()[pawn as usize][pawn_index];
 
             // Check Pawn forward moves
-            let square_ahead = (square + vertical_direction);
+            let square_ahead = (start_square + vertical_direction);
             if let Ok(square_ahead) = square_ahead {
-                let rank = square.get_rank();
+                let rank = start_square.get_rank();
 
                 let mut is_pawn_start = false;
                 let mut is_promotion = false;
@@ -392,7 +608,7 @@ impl Gamestate {
 
                             // Add pawn moves one ahead
                             let _move = Move::new(
-                                square,
+                                start_square,
                                 square_ahead,
                                 None,
                                 false,
@@ -405,11 +621,11 @@ impl Gamestate {
                             move_list.add_move(_move);
 
                             // Add move two ahead if square vacant
-                            let square_two_ahead = (square + (vertical_direction * 2));
+                            let square_two_ahead = (start_square + (vertical_direction * 2));
                             if let Ok(square_two_ahead) = square_two_ahead {
                                 if self.board.pieces[square_two_ahead as usize].is_none() {
                                     let _move = Move::new(
-                                        square,
+                                        start_square,
                                         square_two_ahead,
                                         None,
                                         false,
@@ -430,7 +646,7 @@ impl Gamestate {
 
                             for promotion in promotion_targets {
                                 let _move = Move::new(
-                                    square,
+                                    start_square,
                                     square_ahead,
                                     None,
                                     false,
@@ -446,7 +662,7 @@ impl Gamestate {
                         _ => {
                             // Add pawn moves one ahead
                             let _move = Move::new(
-                                square,
+                                start_square,
                                 square_ahead,
                                 None,
                                 false,
@@ -465,7 +681,7 @@ impl Gamestate {
                 for &direction in attack_directions.iter() {
                     // Check if there is a valid square in that direction occupied by a non-active color Piece
                     // or if the square is an En Passant square. And deal with promotions
-                    let attacked_square = square + direction;
+                    let attacked_square = start_square + direction;
                     // square in direction valid
                     if let Ok(attacked_square) = attacked_square {
                         let piece_captured = self.board.pieces[attacked_square as usize];
@@ -478,7 +694,7 @@ impl Gamestate {
                                         true => {
                                             for promotion in promotion_targets {
                                                 let _move = Move::new(
-                                                    square,
+                                                    start_square,
                                                     attacked_square,
                                                     Some(piece_captured),
                                                     false,
@@ -494,7 +710,7 @@ impl Gamestate {
 
                                         false => {
                                             let _move = Move::new(
-                                                square,
+                                                start_square,
                                                 attacked_square,
                                                 Some(piece_captured),
                                                 false,
@@ -531,7 +747,7 @@ impl Gamestate {
                                         "Square in front of En Passant Square needs to be occupied by Pawn of non-active color");
 
                                     let _move = Move::new(
-                                        square,
+                                        start_square,
                                         attacked_square,
                                         Some(piece_captured), // better be a Pawn of non-active color
                                         true,
@@ -559,6 +775,8 @@ impl Gamestate {
         let mut move_list = MoveList::new();
 
         self.gen_pawn_moves(self.active_color, &mut move_list);
+        self.gen_non_pawn_moves(self.active_color, &mut move_list);
+        self.gen_castling_moves(self.active_color, &mut move_list);
 
         Ok(move_list)
     }
@@ -928,8 +1146,742 @@ mod tests {
     };
 
     //========================= MOVE GEN ======================================
+
     #[test]
-    fn test_gamestate_movegen_black_pawn_moves() {
+    fn test_gamestate_move_gen_all_moves_tricky_visual() {
+        let fen = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
+        let gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let output = gamestate.gen_move_list().unwrap();
+
+        println!("{}", output);
+        assert_eq!(output.count, 48);
+    }
+
+    #[test]
+    fn test_gamestate_move_gen_castling_moves_basic_black() {
+        let fen = "r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1";
+        let gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let mut output = MoveList::new();
+        gamestate.gen_castling_moves(Color::Black, &mut output);
+
+        let mut expected = MoveList::new();
+
+        // Black Kingside Castle
+        expected.add_move(Move::new(
+            Square::E8,
+            Square::G8,
+            None,
+            false,
+            false,
+            None,
+            true,
+            Piece::BlackKing,
+        ));
+
+        //Black Queenside Castle
+        expected.add_move(Move::new(
+            Square::E8,
+            Square::C8,
+            None,
+            false,
+            false,
+            None,
+            true,
+            Piece::BlackKing,
+        ));
+
+        println!("Output:\n{}", output);
+        println!("Expected:\n{}", expected);
+
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_move_gen_castling_moves_basic_white() {
+        let fen = "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1";
+        let gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let mut output = MoveList::new();
+        gamestate.gen_castling_moves(Color::White, &mut output);
+
+        let mut expected = MoveList::new();
+
+        // White Kingside Castle
+        expected.add_move(Move::new(
+            Square::E1,
+            Square::G1,
+            None,
+            false,
+            false,
+            None,
+            true,
+            Piece::WhiteKing,
+        ));
+
+        // White Queenside Castle
+        expected.add_move(Move::new(
+            Square::E1,
+            Square::C1,
+            None,
+            false,
+            false,
+            None,
+            true,
+            Piece::WhiteKing,
+        ));
+
+        println!("Output:\n{}", output);
+        println!("Expected:\n{}", expected);
+
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_move_gen_castling_moves_under_attack() {
+        let fen = "r3k2r/8/8/8/8/8/6p1/R3K2R w KQk - 0 1";
+        let gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
+
+        let mut output = MoveList::new();
+        gamestate.gen_castling_moves(Color::White, &mut output);
+
+        let mut expected = MoveList::new();
+
+        // White Kingside Castle blocked by Black Pawn on G2
+        // White Queenside Castle is valid
+        expected.add_move(Move::new(
+            Square::E1,
+            Square::C1,
+            None,
+            false,
+            false,
+            None,
+            true,
+            Piece::WhiteKing,
+        ));
+
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_move_gen_sliding_rooks() {
+        let fen = "8/8/2p5/8/1pR1P3/8/8/8 w - - 0 1";
+        let gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
+
+        let mut output = MoveList::new();
+        gamestate.gen_non_pawn_moves(Color::White, &mut output);
+
+        let mut expected = MoveList::new();
+
+        //==================== WHITE ROOK C4 ==================================
+        // WR C4 to C3 (1 Down)
+        expected.add_move(Move::new(
+            Square::C4,
+            Square::C3,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteRook,
+        ));
+
+        // WR C4 to C2 (2 Down)
+        expected.add_move(Move::new(
+            Square::C4,
+            Square::C2,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteRook,
+        ));
+
+        // WR C4 to C1 (3 Down)
+        expected.add_move(Move::new(
+            Square::C4,
+            Square::C1,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteRook,
+        ));
+
+        // WR C4 captures BP on B4 (1 Left)
+        expected.add_move(Move::new(
+            Square::C4,
+            Square::B4,
+            Some(Piece::BlackPawn),
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteRook,
+        ));
+
+        // Further moves in that direction blocked
+
+        // WR C4 to D4 (1 Right)
+        expected.add_move(Move::new(
+            Square::C4,
+            Square::D4,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteRook,
+        ));
+
+        // Further moves in that direction blocked
+
+        // WR C4 to C5 (1 Up)
+        expected.add_move(Move::new(
+            Square::C4,
+            Square::C5,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteRook,
+        ));
+
+        // WR C4 captured BP on C6 (2 Up)
+        expected.add_move(Move::new(
+            Square::C4,
+            Square::C6,
+            Some(Piece::BlackPawn),
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteRook,
+        ));
+
+        let output_count = output.count;
+        let expected_count = expected.count;
+
+        println!("OUTPUT:\n{}", output);
+        println!("\n\n\nEXPECTED:\n{}", expected);
+
+        assert_eq!(output_count, expected_count);
+
+        let mut output = output.moves.into_iter().flatten().collect::<Vec<Move>>(); // get rid of Nones
+        let mut expected = expected.moves.into_iter().flatten().collect::<Vec<Move>>();
+        output.sort();
+        expected.sort();
+
+        assert_eq!(expected_count, output.len());
+
+        assert_eq!(output, expected);
+    }
+
+    // TODO:
+    // Queens
+    // let fen = "6k1/8/4nq2/8/1nQ5/5N2/1N6/6K1 w - - 0 1";
+    // Bishops
+    // let fen = "6k1/1b6/4n3/8/1n4B1/1B3N2/1N6/2b3K1 b - - 0 1";
+
+    #[test]
+    fn test_gamestate_move_gen_knights_kings() {
+        let fen = "5k2/1n6/4n3/6N1/8/3N4/8/5K2 w - - 0 1";
+        let gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
+
+        let mut output = MoveList::new();
+        gamestate.gen_non_pawn_moves(Color::White, &mut output);
+        gamestate.gen_non_pawn_moves(Color::Black, &mut output);
+
+        let mut expected = MoveList::new();
+
+        //==================== WHITE KING ====================
+        // WK F1 to E1 (Left)
+        expected.add_move(Move::new(
+            Square::F1,
+            Square::E1,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKing,
+        ));
+
+        // WK F1 to G1 (Right)
+        expected.add_move(Move::new(
+            Square::F1,
+            Square::G1,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKing,
+        ));
+
+        // WK F1 to E2 (Up Left)
+        expected.add_move(Move::new(
+            Square::F1,
+            Square::E2,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKing,
+        ));
+
+        // WK F1 to F2 (Up)
+        expected.add_move(Move::new(
+            Square::F1,
+            Square::F2,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKing,
+        ));
+
+        // WK F1 to G2 (Up Right)
+        expected.add_move(Move::new(
+            Square::F1,
+            Square::G2,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKing,
+        ));
+
+        //============== WHITE KNIGHT D3 =====================
+
+        // WN D3 to C1 (Down 2 Left 1)
+        expected.add_move(Move::new(
+            Square::D3,
+            Square::C1,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN D3 to E1 (Down 2 Right 1)
+        expected.add_move(Move::new(
+            Square::D3,
+            Square::E1,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN D3 to B2 (Down 1 Left 2)
+        expected.add_move(Move::new(
+            Square::D3,
+            Square::B2,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN D3 to F2 (Down 1 Right 2)
+        expected.add_move(Move::new(
+            Square::D3,
+            Square::F2,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN D3 to B4 (Up 1 Left 2)
+        expected.add_move(Move::new(
+            Square::D3,
+            Square::B4,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN D3 to F4 (Up 1 Right 2)
+        expected.add_move(Move::new(
+            Square::D3,
+            Square::F4,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN D3 to C5 (Up 2 Left 1)
+        expected.add_move(Move::new(
+            Square::D3,
+            Square::C5,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN D3 to E5 (Up 2 Right 1)
+        expected.add_move(Move::new(
+            Square::D3,
+            Square::E5,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        //============== WHITE KNIGHT G5 =====================
+
+        // WN G5 to F3 (Down 2 Left 1)
+        expected.add_move(Move::new(
+            Square::G5,
+            Square::F3,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN G5 to H3 (Down 2 Right 1)
+        expected.add_move(Move::new(
+            Square::G5,
+            Square::H3,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN G5 to E4 (Down 1 Left 2)
+        expected.add_move(Move::new(
+            Square::G5,
+            Square::E4,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN G5 (Down 1 Right 2) is offboard
+
+        // WN G5 Captures BN on E6 (Up 1 Left 2)
+        expected.add_move(Move::new(
+            Square::G5,
+            Square::E6,
+            Some(Piece::BlackKnight),
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN G5 (Up 1 Right 2) is offboard
+
+        // WN G5 to F7 (Up 2 Left 1)
+        expected.add_move(Move::new(
+            Square::G5,
+            Square::F7,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN G5 to H7 (Up 2 Right 1)
+        expected.add_move(Move::new(
+            Square::G5,
+            Square::H7,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        //================== BLACK KNIGHT E6 ==============
+
+        // BN E6 to D4 (Down 2 Left 1)
+        expected.add_move(Move::new(
+            Square::E6,
+            Square::D4,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKnight,
+        ));
+
+        // BK E6 to F4 (Down 2 Right 1)
+        expected.add_move(Move::new(
+            Square::E6,
+            Square::F4,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKnight,
+        ));
+
+        // BK E6 to C5 (Down 1 Left 2)
+        expected.add_move(Move::new(
+            Square::E6,
+            Square::C5,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKnight,
+        ));
+
+        // BK F8 capture WN on G5 (Down 1 Right 2)
+        expected.add_move(Move::new(
+            Square::E6,
+            Square::G5,
+            Some(Piece::WhiteKnight),
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKnight,
+        ));
+
+        // BK E6 to C7 (Up 1 Left 2)
+        expected.add_move(Move::new(
+            Square::E6,
+            Square::C7,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKnight,
+        ));
+
+        // BK E6 to G7 (Up 1 Right 2)
+        expected.add_move(Move::new(
+            Square::E6,
+            Square::G7,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKnight,
+        ));
+
+        // BK E6 to D8 (Up 2 Left 1)
+        expected.add_move(Move::new(
+            Square::E6,
+            Square::D8,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKnight,
+        ));
+
+        // BK E6 to F8 blocked by BK
+
+        //================== BLACK KNIGHT B7 ==============
+
+        // BK B7 to A5 (Down 2 Left 1)
+        expected.add_move(Move::new(
+            Square::B7,
+            Square::A5,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKnight,
+        ));
+
+        // BK B7 to C5 (Down 2 Right 1)
+        expected.add_move(Move::new(
+            Square::B7,
+            Square::C5,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKnight,
+        ));
+
+        // BK B7 (1 Down 2 Left) offboard
+
+        // BK B7 to D6 (1 Down 2 Right)
+        expected.add_move(Move::new(
+            Square::B7,
+            Square::D6,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKnight,
+        ));
+
+        // BK B7 (1 Up 2 Left) offboard
+
+        // BK B7 to D8 (1 Up 2 Right)
+        expected.add_move(Move::new(
+            Square::B7,
+            Square::D8,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKnight,
+        ));
+
+        // BK B7 (2 Up 1 Left) offboard
+        // BK B7 (2 Up 1 Right) offboard
+
+        //================== BLACK KING ===================
+        // BK F8 to E7 (Down Left)
+        expected.add_move(Move::new(
+            Square::F8,
+            Square::E7,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKing,
+        ));
+
+        // BK F8 to F7 (Down)
+        expected.add_move(Move::new(
+            Square::F8,
+            Square::F7,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKing,
+        ));
+
+        // BK F8 to G7 (Down Right)
+        expected.add_move(Move::new(
+            Square::F8,
+            Square::G7,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKing,
+        ));
+
+        // BK F8 to E8 (Left)
+        expected.add_move(Move::new(
+            Square::F8,
+            Square::E8,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKing,
+        ));
+
+        // BK F8 to G8 (Right)
+        expected.add_move(Move::new(
+            Square::F8,
+            Square::G8,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKing,
+        ));
+
+        let output_count = output.count;
+        let expected_count = expected.count;
+
+        println!("OUTPUT:\n{}", output);
+        println!("\n\n\nEXPECTED:\n{}", expected);
+
+        assert_eq!(output_count, expected_count);
+
+        let mut output = output.moves.into_iter().flatten().collect::<Vec<Move>>(); // get rid of Nones
+        let mut expected = expected.moves.into_iter().flatten().collect::<Vec<Move>>();
+        output.sort();
+        expected.sort();
+
+        assert_eq!(expected_count, output.len());
+
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_move_gen_black_pawn() {
         let fen = "rnbqkbnr/p1p1p3/3p3p/1p1p4/2P1Pp2/8/PP1P1PpP/RNBQKB1R b - e3 0 1";
         let gamestate = GamestateBuilder::new_with_fen(fen)
             .unwrap()
@@ -1113,7 +2065,7 @@ mod tests {
             piece_moved,
         ));
 
-        // BP G2 move ahead one promote BlackBishop 
+        // BP G2 move ahead one promote BlackBishop
         expected.add_move(Move::new(
             Square::G2,
             Square::G1,
@@ -1125,7 +2077,7 @@ mod tests {
             piece_moved,
         ));
 
-        // BP G2 move ahead one promote BlackRook 
+        // BP G2 move ahead one promote BlackRook
         expected.add_move(Move::new(
             Square::G2,
             Square::G1,
@@ -1161,7 +2113,7 @@ mod tests {
             piece_moved,
         ));
 
-        // BP G2 move capture WB on F1 promote BlackBishop 
+        // BP G2 move capture WB on F1 promote BlackBishop
         expected.add_move(Move::new(
             Square::G2,
             Square::F1,
@@ -1173,7 +2125,7 @@ mod tests {
             piece_moved,
         ));
 
-        // BP G2 move capture WB on F1 promote BlackRook 
+        // BP G2 move capture WB on F1 promote BlackRook
         expected.add_move(Move::new(
             Square::G2,
             Square::F1,
@@ -1185,7 +2137,7 @@ mod tests {
             piece_moved,
         ));
 
-        // BP G2 move capture WB on F1 promote BlackQueen 
+        // BP G2 move capture WB on F1 promote BlackQueen
         expected.add_move(Move::new(
             Square::G2,
             Square::F1,
@@ -1197,7 +2149,7 @@ mod tests {
             piece_moved,
         ));
 
-        // BP G2 move capture WR on H1 promote BlackKnight 
+        // BP G2 move capture WR on H1 promote BlackKnight
         expected.add_move(Move::new(
             Square::G2,
             Square::H1,
@@ -1209,7 +2161,7 @@ mod tests {
             piece_moved,
         ));
 
-        // BP G2 move capture WR on H1 promote BlackBishop 
+        // BP G2 move capture WR on H1 promote BlackBishop
         expected.add_move(Move::new(
             Square::G2,
             Square::H1,
@@ -1221,7 +2173,7 @@ mod tests {
             piece_moved,
         ));
 
-        // BP G2 move capture WR on H1 promote BlackRook 
+        // BP G2 move capture WR on H1 promote BlackRook
         expected.add_move(Move::new(
             Square::G2,
             Square::H1,
@@ -1233,7 +2185,7 @@ mod tests {
             piece_moved,
         ));
 
-        // BP G2 move capture WR on H1 promote BlackQueen 
+        // BP G2 move capture WR on H1 promote BlackQueen
         expected.add_move(Move::new(
             Square::G2,
             Square::H1,
@@ -1278,7 +2230,7 @@ mod tests {
     }
 
     #[test]
-    fn test_gamestate_movegen_white_pawn_moves() {
+    fn test_gamestate_move_gen_white_pawn() {
         let fen = "rnbqkb1r/pp1p1pPp/8/2p1pP2/1P1P4/3P3P/P1P1P3/RNBQKBNR w KQkq e6 0 1";
         let gamestate = GamestateBuilder::new_with_fen(fen)
             .unwrap()

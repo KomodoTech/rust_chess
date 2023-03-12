@@ -1,6 +1,10 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::module_inception)]
 #![allow(unused)]
+
+#[macro_use]
+mod macros;
+
 pub mod board;
 pub mod castle_perm;
 pub mod color;
