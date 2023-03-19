@@ -118,6 +118,16 @@ impl From<CastlePerm> for u8 {
     }
 }
 
+impl From<CastlePerm> for usize {
+    fn from(value: CastlePerm) -> Self {
+        let mut result: usize = 0;
+        for perm in value.0.into_iter().flatten() {
+            result += perm as usize;
+        }
+        result
+    }
+}
+
 impl TryFrom<u8> for CastlePerm {
     type Error = CastlePermConversionError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {

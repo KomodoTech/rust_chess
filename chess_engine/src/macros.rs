@@ -1,4 +1,9 @@
-use crate::{color::Color, piece::Piece};
+use crate::{
+    board::NUM_INTERNAL_BOARD_SQUARES,
+    color::Color,
+    piece::Piece,
+    square::{Square, Square64},
+};
 use strum::EnumCount;
 use strum_macros::EnumCount as EnumCountMacro;
 
@@ -6,7 +11,6 @@ use strum_macros::EnumCount as EnumCountMacro;
 // sliding pieces this way with a macro. Think through
 // pros and cons more carefully and see if we should
 // do this elsewhere
-#[macro_export]
 macro_rules! gen_sliding_pieces {
     ($active_color: expr) => {{
         /// Holds all sliding pieces and is used for move generation
@@ -41,7 +45,6 @@ macro_rules! gen_sliding_pieces {
     }};
 }
 
-#[macro_export]
 /// Generates [Piece::WhiteKnight, Piece::WhiteKing] for White and
 /// [Piece::BlackKnight, Piece::BlackKing] for Black
 macro_rules! gen_non_sliding_pieces {
@@ -77,6 +80,60 @@ macro_rules! gen_non_sliding_pieces {
     }};
 }
 
+//=========================== 10x12 AND 8x8 INDEX CONVERSION ==================
+///  Converting between 8x8 and 10x12 index to make
+///  certain conversions happen at pre-compile time and avoid the
+///  overhead of converting back and forth between Square64 and Square
+///  when you're just dealing with an index in a context where you know
+///  you have valid Squares.
+///
+///  One such example is when you want to iterate (using enumerate)
+///  through all the Squares in the Board pieces array, but then you want
+///  to pass in a corresponding Square64 index as a usize to some other
+///  array or function. Instead of taking the index you get back from
+///  enumerate which will be a 10x12 index, converting it into a Square,
+///  then converting that into a Square64 only to convert it back into
+///  a usize, you can just call the macro when you know it is safe to do
+///  so.
+
+// TODO: try to improve error handling (Diagnostic on nightly, proc_macro_error crate)
+/// Given a 10x12 index convert it to the corresponding 8x8 index
+/// NOTE: Should only be used when you know for sure that you are
+/// looking at valid Square indices
+macro_rules! idx_120_to_64 {
+    ($idx_120: expr) => {{
+        // TODO: it appears that we don't have to worry about negative values
+        // understand why
+        if ($idx_120 >= SQUARE_120_TO_64_INDEX.len()) {
+            panic!(
+                "index provided is out of bounds. Should be in range
+                0..NUM_INTERNAL_BOARD_SQUARES"
+            );
+        }
+
+    #[rustfmt::skip]
+        const SQUARE_120_TO_64_INDEX: [isize; NUM_INTERNAL_BOARD_SQUARES] = [
+            -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+            -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+            -1,  0,  1,  2,  3,  4,  5,  6,  7, -1,
+            -1,  8,  9, 10, 11, 12, 13, 14, 15, -1,
+            -1, 16, 17, 18, 19, 20, 21, 22, 23, -1,
+            -1, 24, 25, 26, 27, 28, 29, 30, 31, -1,
+            -1, 32, 33, 34, 35, 36, 37, 38, 39, -1,
+            -1, 40, 41, 42, 43, 44, 45, 46, 47, -1,
+            -1, 48, 49, 50, 51, 52, 53, 54, 55, -1,
+            -1, 56, 57, 58, 59, 60, 61, 62, 63, -1,
+            -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+            -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+                ];
+
+        match SQUARE_120_TO_64_INDEX[$idx_120] {
+            -1 => panic!("Result -1. This macro should only be used when you have a valid Square"),
+            idx_64 => usize::try_from(idx_64).expect("idx64 should always be convertible to usize"),
+        }
+    }};
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -98,5 +155,31 @@ mod test {
         let output = gen_non_sliding_pieces!(Color::Black);
         let expected = [Piece::BlackKnight, Piece::BlackKing];
         assert_eq!(output, expected);
+    }
+
+    //========================== INDEX CONVERSION MACRO =======================
+    #[test]
+    fn test_idx_120_to_64_valid() {
+        let valid_square = Square::B7;
+        let valid_idx = valid_square as usize;
+
+        let output: usize = idx_120_to_64!(valid_idx);
+        let expected: usize = 49;
+        assert_eq!(output, expected);
+    }
+
+    #[should_panic]
+    #[test]
+    fn test_idx_120_to_64_invalid_square() {
+        let invalid_idx: usize = 3; // valid usize but not a valid square
+
+        let output: usize = idx_120_to_64!(invalid_idx);
+    }
+
+    #[should_panic]
+    #[test]
+    fn test_idx_120_to_64_invalid_out_of_bounds_too_large() {
+        let invalid_idx = 120; // outside array bounds
+        let output: usize = idx_120_to_64!(invalid_idx);
     }
 }

@@ -153,6 +153,7 @@ name = "chess_engine"
 version = "0.1.0"
 dependencies = [
  "num",
+ "once_cell",
  "rand 0.8.5",
  "rand_pcg",
  "strum",

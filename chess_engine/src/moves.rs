@@ -55,6 +55,7 @@ impl MoveList {
         }
     }
 
+    // TODO: consider performance and think about inline attributes
     pub fn add_move(&mut self, _move: Move) {
         self.moves[self.count] = Some(_move);
         self.count += 1;

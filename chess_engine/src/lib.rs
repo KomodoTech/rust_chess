@@ -13,6 +13,7 @@ pub mod file;
 pub mod gamestate;
 pub mod moves;
 pub mod piece;
+pub mod position_key;
 pub mod rank;
 pub mod square;
 pub mod zobrist;

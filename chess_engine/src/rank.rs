@@ -1,9 +1,12 @@
-use crate::{board::NUM_BOARD_SQUARES, error::RankConversionError};
+use crate::{
+    board::{NUM_EXTERNAL_BOARD_SQUARES, NUM_INTERNAL_BOARD_SQUARES},
+    error::RankConversionError,
+};
 use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::{Display, EnumCount as EnumCountMacro, EnumIter, EnumString};
 
 #[rustfmt::skip]
-pub const RANKS_BOARD_120: [Option<Rank>; NUM_BOARD_SQUARES] = [
+pub const RANKS_BOARD_120: [Option<Rank>; NUM_INTERNAL_BOARD_SQUARES] = [
     None,  None,               None,               None,               None,               None,               None,               None,               None,              None,
     None,  None,               None,               None,               None,               None,               None,               None,               None,              None,
     None,  Some(Rank::Rank1),  Some(Rank::Rank1),  Some(Rank::Rank1),  Some(Rank::Rank1),  Some(Rank::Rank1),  Some(Rank::Rank1),  Some(Rank::Rank1),  Some(Rank::Rank1), None,
@@ -19,7 +22,7 @@ pub const RANKS_BOARD_120: [Option<Rank>; NUM_BOARD_SQUARES] = [
 ];
 
 #[rustfmt::skip]
-pub const RANKS_BOARD_64: [Option<Rank>; 64] = [
+pub const RANKS_BOARD_64: [Option<Rank>; NUM_EXTERNAL_BOARD_SQUARES] = [
     Some(Rank::Rank1),  Some(Rank::Rank1),  Some(Rank::Rank1),  Some(Rank::Rank1),  Some(Rank::Rank1),  Some(Rank::Rank1),  Some(Rank::Rank1),  Some(Rank::Rank1),
     Some(Rank::Rank2),  Some(Rank::Rank2),  Some(Rank::Rank2),  Some(Rank::Rank2),  Some(Rank::Rank2),  Some(Rank::Rank2),  Some(Rank::Rank2),  Some(Rank::Rank2),
     Some(Rank::Rank3),  Some(Rank::Rank3),  Some(Rank::Rank3),  Some(Rank::Rank3),  Some(Rank::Rank3),  Some(Rank::Rank3),  Some(Rank::Rank3),  Some(Rank::Rank3),

@@ -19,15 +19,17 @@ use std::{
 use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 
-/// Number of squares for the internal board (12x12)
-pub const NUM_BOARD_SQUARES: usize = 120;
+/// Number of squares for the internal board (10x12)
+pub const NUM_INTERNAL_BOARD_SQUARES: usize = 120;
+/// Number of squares for the external board (8x8)
+pub const NUM_EXTERNAL_BOARD_SQUARES: usize = 64;
 /// Number of columns for the internal board (10x12)
 pub const NUM_BOARD_COLUMNS: usize = 10;
 /// Number of rows for the internal board (10x12)
 pub const NUM_BOARD_ROWS: usize = 12;
 
 #[rustfmt::skip]
-const STARTING_POSITION_PIECES: [Option<Piece>; NUM_BOARD_SQUARES] = [
+const STARTING_POSITION_PIECES: [Option<Piece>; NUM_INTERNAL_BOARD_SQUARES] = [
     None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
     None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
     None, Some(Piece::WhiteRook), Some(Piece::WhiteKnight), Some(Piece::WhiteBishop), Some(Piece::WhiteQueen), Some(Piece::WhiteKing), Some(Piece::WhiteBishop), Some(Piece::WhiteKnight), Some(Piece::WhiteRook), None,
@@ -45,19 +47,19 @@ const STARTING_POSITION_PIECES: [Option<Piece>; NUM_BOARD_SQUARES] = [
 #[derive(Debug)]
 pub struct BoardBuilder {
     validity_check: ValidityCheck,
-    pieces: [Option<Piece>; NUM_BOARD_SQUARES],
+    pieces: [Option<Piece>; NUM_INTERNAL_BOARD_SQUARES],
 }
 
 impl BoardBuilder {
     pub fn new() -> Self {
         BoardBuilder {
             validity_check: ValidityCheck::Strict,
-            pieces: [None; NUM_BOARD_SQUARES],
+            pieces: [None; NUM_INTERNAL_BOARD_SQUARES],
         }
     }
 
     /// Constructor if you want to pass piece values all at once (you can still overwrite them later)
-    pub fn new_with_pieces(pieces: [Option<Piece>; NUM_BOARD_SQUARES]) -> Self {
+    pub fn new_with_pieces(pieces: [Option<Piece>; NUM_INTERNAL_BOARD_SQUARES]) -> Self {
         BoardBuilder {
             validity_check: ValidityCheck::Strict,
             pieces,
@@ -155,8 +157,8 @@ impl BoardBuilder {
     /// Generates the pieces array of a Board struct given a board fen
     fn pieces_from_fen(
         board_fen: &str,
-    ) -> Result<[Option<Piece>; NUM_BOARD_SQUARES], BoardFenDeserializeError> {
-        let mut pieces = [None; NUM_BOARD_SQUARES];
+    ) -> Result<[Option<Piece>; NUM_INTERNAL_BOARD_SQUARES], BoardFenDeserializeError> {
+        let mut pieces = [None; NUM_INTERNAL_BOARD_SQUARES];
 
         let ranks: Vec<&str> = board_fen.split('/').collect();
         match ranks.len() {
@@ -282,7 +284,7 @@ impl Default for BoardBuilder {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Board {
     // TODO: Consider making board field private
-    pub pieces: [Option<Piece>; NUM_BOARD_SQUARES],
+    pub pieces: [Option<Piece>; NUM_INTERNAL_BOARD_SQUARES],
     pawns: [BitBoard; Color::COUNT],
     kings_square: [Option<Square>; Color::COUNT],
     piece_count: [u8; Piece::COUNT],
@@ -503,7 +505,7 @@ impl Board {
 
     // /// Clears board
     // pub fn clear_board(&mut self) {
-    //     self.pieces = [None; NUM_BOARD_SQUARES];
+    //     self.pieces = [None; NUM_INTERNAL_BOARD_SQUARES];
     //     self.pawns = [BitBoard(0); Color::COUNT];
     //     self.kings_square = [None; Color::COUNT];
     //     self.big_piece_count = [0; Color::COUNT];

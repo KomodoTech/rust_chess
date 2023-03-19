@@ -26,7 +26,7 @@ pub struct BitBoard(pub u64);
 
 // https://stackoverflow.com/questions/30680559/how-to-find-magic-bitboards
 // TODO: generate own Magic Bitboard and implement
-// const BIT_TABLE: [Square; 64] = [
+// const BIT_TABLE: [Square; NUM_EXTERNAL_BOARD_SQUARES = [
 //     Square::H8, Square::G4, Square::D1, Square::A5, Square::B4, Square::B6, Square::G3, Square::B5,
 //     Square::H2, Square::C7, Square::C6, Square::F2, Square::D2, Square::F7, Square::D3, Square::C5,
 //     Square::F8, Square::F4, Square::C1, Square::D7, Square::F3, Square::D6, Square::F6, Square::C2,

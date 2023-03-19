@@ -7,7 +7,7 @@ use strum::EnumCount;
 use strum_macros::{Display as EnumDisplay, EnumCount as EnumCountMacro};
 
 use crate::{
-    board::{Board, BoardBuilder, NUM_BOARD_COLUMNS, NUM_BOARD_ROWS, NUM_BOARD_SQUARES},
+    board::{Board, BoardBuilder, NUM_BOARD_COLUMNS, NUM_BOARD_ROWS, NUM_INTERNAL_BOARD_SQUARES},
     castle_perm::{self, Castle, CastlePerm, NUM_CASTLE_PERM},
     color::Color,
     error::{
@@ -20,9 +20,10 @@ use crate::{
         self, Piece, PieceType, BLACK_PAWN_PROMOTION_TARGETS, BLACK_PAWN_VERTICAL_DIRECTION,
         WHITE_PAWN_PROMOTION_TARGETS, WHITE_PAWN_VERTICAL_DIRECTION,
     },
+    position_key::PositionKey,
     rank::Rank,
     square::{Square, Square64},
-    zobrist::Zobrist,
+    zobrist::ZOBRIST,
 };
 
 // CONSTANTS:
@@ -40,7 +41,7 @@ pub struct Undo {
     castle_permissions: CastlePerm,
     en_passant: Option<Square>,
     halfmove_clock: u8,
-    position_key: u64,
+    position_key: PositionKey,
 }
 
 // NOTE: There might be more variants in the future like Strict, or Chess960
@@ -239,16 +240,19 @@ impl GamestateBuilder {
     }
 
     pub fn build(&self) -> Result<Gamestate, GamestateBuildError> {
-        let gamestate = Gamestate {
+        let mut gamestate = Gamestate {
             board: self.board.clone(),
             active_color: self.active_color,
             castle_permissions: self.castle_permissions,
             en_passant: self.en_passant,
             halfmove_clock: self.halfmove_clock,
             fullmove_number: self.fullmove_number,
+            position_key: PositionKey(0),
             history: self.history.clone(),
-            zobrist: Zobrist::default(),
         };
+
+        // Update Position Key
+        gamestate.init_position_key();
 
         if let ValidityCheck::Strict = self.validity_check {
             gamestate.check_gamestate(self.validity_check)?;
@@ -274,8 +278,8 @@ pub struct Gamestate {
     halfmove_clock: u8,
     /// number of completed turns in the game (incremented when black moves)
     fullmove_number: u32,
+    position_key: PositionKey,
     history: Vec<Undo>,
-    zobrist: Zobrist,
 }
 
 impl Default for Gamestate {
@@ -309,7 +313,7 @@ impl fmt::Display for Gamestate {
             }
         }
         writeln!(f, "Castle Permissions: {}", self.castle_permissions);
-        writeln!(f, "Position Key: {}", self.gen_position_key())
+        writeln!(f, "Position Key: {}", self.position_key)
     }
 }
 
@@ -781,28 +785,55 @@ impl Gamestate {
         Ok(move_list)
     }
 
-    fn gen_position_key(&self) -> u64 {
+    /// Generate a hash that represents the current position via Zobrist Hashing
+    fn init_position_key(&mut self) {
         let mut position_key: u64 = 0;
+
+        // Color (which player's turn) component
+        if self.active_color == Color::White {
+            let color_key = ZOBRIST
+                .lock()
+                .expect("Mutex holding ZOBRIST should not be poisoned")
+                .color_key;
+
+            // Note Color::Black is encoded via absence
+            position_key ^= color_key;
+        };
 
         // Piece location component
         for (square_index, piece_at_square) in self.board.pieces.iter().enumerate() {
             if let Some(piece) = *piece_at_square {
-                position_key ^= self.zobrist.piece_keys[piece as usize][square_index];
+                let piece_keys = ZOBRIST
+                    .lock()
+                    .expect("Mutex holding ZOBRIST should not be poisoned")
+                    .piece_keys;
+
+                // for each piece present on the board find its randomly generated value in the Zobrist
+                // struct's piece_keys array and XOR with the current Gamestate's position_key
+                position_key ^= piece_keys[piece as usize][idx_120_to_64!(square_index)];
             }
         }
-        // Color (which player's turn) component
-        if self.active_color == Color::White {
-            position_key ^= self.zobrist.color_key
-        };
+
         // En Passant component
         if let Some(square) = self.en_passant {
-            position_key ^= self.zobrist.en_passant_keys[square as usize];
-        }
-        // Castle Permissions component
-        let castle_permissions: u8 = self.castle_permissions.into();
-        position_key ^= self.zobrist.castle_keys[castle_permissions as usize];
+            let en_passant_keys = ZOBRIST
+                .lock()
+                .expect("Mutex holding ZOBRIST should not be poisoned")
+                .en_passant_keys;
 
-        position_key
+            position_key ^= en_passant_keys[square.get_file() as usize];
+        }
+
+        // Castle Permissions component
+        let castle_keys = ZOBRIST
+            .lock()
+            .expect("Mutex holding ZOBRIST should not be poisoned")
+            .castle_keys;
+
+        let castle_permissions: usize = self.castle_permissions.into();
+        position_key ^= castle_keys[castle_permissions];
+
+        self.position_key = PositionKey(position_key);
     }
 
     /// Check that the gamestate is valid for the given a validity check mode
@@ -1142,8 +1173,125 @@ mod tests {
         board::bitboard::BitBoard,
         error::{BoardBuildError, BoardValidityCheckError, PieceConversionError},
         file::File,
-        gamestate,
+        gamestate, position_key,
     };
+
+    //======================== POSITION KEY ===================================
+    #[test]
+    fn test_gamestate_init_position_key_one_white_pawn() {
+        let fen = "8/8/8/8/8/8/3P4/8 w - - 0 1";
+        let gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
+
+        let output = gamestate.position_key;
+
+        let mut position_key_value = 0;
+        let zobrist = ZOBRIST.lock().unwrap();
+        let color_key_component = zobrist.color_key;
+        let piece_keys_component =
+            zobrist.piece_keys[Piece::WhitePawn as usize][Square64::D2 as usize];
+        let castle_keys_component = zobrist.castle_keys[0];
+
+        position_key_value ^= color_key_component;
+        position_key_value ^= piece_keys_component;
+        position_key_value ^= castle_keys_component;
+
+        let expected = PositionKey(position_key_value);
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_init_position_key_starting_position() {
+        let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        let gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let output = gamestate.position_key;
+
+        let mut position_key_value = 0;
+        let zobrist = ZOBRIST.lock().unwrap();
+        let color_key_component = zobrist.color_key;
+
+        let mut piece_keys_component = 0;
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhiteRook as usize][Square64::A1 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhiteKnight as usize][Square64::B1 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhiteBishop as usize][Square64::C1 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhiteQueen as usize][Square64::D1 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhiteKing as usize][Square64::E1 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhiteBishop as usize][Square64::F1 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhiteKnight as usize][Square64::G1 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhiteRook as usize][Square64::H1 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhitePawn as usize][Square64::A2 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhitePawn as usize][Square64::B2 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhitePawn as usize][Square64::C2 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhitePawn as usize][Square64::D2 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhitePawn as usize][Square64::E2 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhitePawn as usize][Square64::F2 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhitePawn as usize][Square64::G2 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhitePawn as usize][Square64::H2 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackPawn as usize][Square64::A7 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackPawn as usize][Square64::B7 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackPawn as usize][Square64::C7 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackPawn as usize][Square64::D7 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackPawn as usize][Square64::E7 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackPawn as usize][Square64::F7 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackPawn as usize][Square64::G7 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackPawn as usize][Square64::H7 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackRook as usize][Square64::A8 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackKnight as usize][Square64::B8 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackBishop as usize][Square64::C8 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackQueen as usize][Square64::D8 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackKing as usize][Square64::E8 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackBishop as usize][Square64::F8 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackKnight as usize][Square64::G8 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackRook as usize][Square64::H8 as usize];
+
+        let castle_keys_component = zobrist.castle_keys[15];
+
+        position_key_value ^= color_key_component;
+        position_key_value ^= piece_keys_component;
+        position_key_value ^= castle_keys_component;
+
+        let expected = PositionKey(position_key_value);
+        assert_eq!(output, expected);
+    }
 
     //========================= MOVE GEN ======================================
 
@@ -2682,7 +2830,7 @@ mod tests {
         let halfmove_clock = 0;
         let fullmove_number = 1;
         let history = Vec::new();
-        let zobrist = Zobrist::default();
+        let position_key = PositionKey(6527259550795953174);
 
         let expected = Ok(Gamestate {
             board,
@@ -2692,7 +2840,7 @@ mod tests {
             halfmove_clock,
             fullmove_number,
             history,
-            zobrist,
+            position_key,
         });
 
         // board
@@ -2730,12 +2878,11 @@ mod tests {
             output.as_ref().unwrap().history,
             expected.as_ref().unwrap().history
         );
-        // zobrist
+        // position_key
         assert_eq!(
-            output.as_ref().unwrap().zobrist,
-            expected.as_ref().unwrap().zobrist
+            output.as_ref().unwrap().position_key,
+            expected.as_ref().unwrap().position_key
         );
-        // println!("output zobrist:{:?}\nexpected zobrist:{:?}", output.as_ref().unwrap().zobrist, output.as_ref().unwrap().zobrist);
         assert_eq!(output, expected);
         assert_eq!(default, expected.unwrap());
     }
@@ -2808,7 +2955,10 @@ mod tests {
         let halfmove_clock = 0;
         let fullmove_number = 2;
         let history = Vec::new();
-        let zobrist = Zobrist::default();
+
+        // NOTE: this is why you shouldn't initialize Gamestate like this
+        // The builder is taking care of initiallizing the position key
+        let position_key = PositionKey(0);
 
         let gamestate = Gamestate {
             board,
@@ -2818,7 +2968,7 @@ mod tests {
             halfmove_clock,
             fullmove_number,
             history,
-            zobrist,
+            position_key,
         };
 
         let mut output = [[false; File::COUNT]; Rank::COUNT];
@@ -2915,7 +3065,9 @@ mod tests {
         let halfmove_clock = 0;
         let fullmove_number = 2;
         let history = Vec::new();
-        let zobrist = Zobrist::default();
+
+        // NOTE: should use builder
+        let position_key = PositionKey(0);
 
         let gamestate = Gamestate {
             board,
@@ -2925,7 +3077,7 @@ mod tests {
             halfmove_clock,
             fullmove_number,
             history,
-            zobrist,
+            position_key,
         };
 
         let mut output = [[false; File::COUNT]; Rank::COUNT];
@@ -3018,7 +3170,9 @@ mod tests {
         let halfmove_clock = 0;
         let fullmove_number = 1;
         let history = Vec::new();
-        let zobrist = Zobrist::default();
+
+        // NOTE: should use the builder
+        let position_key = PositionKey(0);
 
         let gamestate = Gamestate {
             board,
@@ -3028,7 +3182,7 @@ mod tests {
             halfmove_clock,
             fullmove_number,
             history,
-            zobrist,
+            position_key,
         };
 
         let mut output = [[false; File::COUNT]; Rank::COUNT];
@@ -3119,7 +3273,7 @@ mod tests {
         let expected_active_color_start = "White";
         let expected_en_passant_start = "None";
         let expected_castle_permissions_start = "KQkq";
-        let expected_position_key_start = gs_start.gen_position_key();
+        let expected_position_key_start = gs_start.position_key;
         let expected_start = format!(
                                             "{}\nActive Color: {}\nEn Passant: {}\nCastle Permissions: {}\nPosition Key: {}\n", 
                                             expected_board_start,
@@ -3144,7 +3298,7 @@ mod tests {
         let expected_active_color_wpe4 = "Black";
         let expected_en_passant_wpe4 = "E3"; 
         let expected_castle_permissions_wpe4 = "KQkq";
-        let expected_position_key_wpe4 = gs_wpe4.gen_position_key();
+        let expected_position_key_wpe4 = gs_wpe4.position_key;
         let expected_wpe4 = format!(
                                             "{}\nActive Color: {}\nEn Passant: {}\nCastle Permissions: {}\nPosition Key: {}\n", 
                                             expected_board_wpe4,
@@ -3168,7 +3322,7 @@ mod tests {
         let expected_active_color_bpc5 = "White";
         let expected_en_passant_bpc5 = "C6"; 
         let expected_castle_permissions_bpc5 = "KQkq";
-        let expected_position_key_bpc5 = gs_bpc5.gen_position_key();
+        let expected_position_key_bpc5 = gs_bpc5.position_key;
         let expected_bpc5 = format!(
                                             "{}\nActive Color: {}\nEn Passant: {}\nCastle Permissions: {}\nPosition Key: {}\n", 
                                             expected_board_bpc5,
@@ -3192,7 +3346,7 @@ mod tests {
         let expected_active_color_wnf3 = "Black";
         let expected_en_passant_wnf3 = "None";
         let expected_castle_permissions_wnf3 = "KQkq";
-        let expected_position_key_wnf3 = gs_wnf3.gen_position_key();
+        let expected_position_key_wnf3 = gs_wnf3.position_key;
         let expected_wnf3 = format!(
                                             "{}\nActive Color: {}\nEn Passant: {}\nCastle Permissions: {}\nPosition Key: {}\n", 
                                             expected_board_wnf3,
