@@ -97,7 +97,7 @@ impl CastlePerm {
                     castle_perms_fen.push('q');
                 }
                 _ => {
-                    panic!()
+                    panic!("expected WhiteKing, WhiteQueen, BlackKing, or BlackQueen")
                 }
             }
         }

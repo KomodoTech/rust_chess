@@ -177,7 +177,9 @@ impl GamestateBuilder {
                                 }
                             })?)
                         }
-                        _ => panic!("index should be in range 0..=5"),
+                        _ => panic!(
+                            "Expected index to be in range 0..=5. Found index greater than 5"
+                        ),
                     }
                 }
 

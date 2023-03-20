@@ -156,7 +156,7 @@ impl From<SquareConversionError> for BoardBuildError {
                 invalid_square_index: index,
                 source: err
             },
-            _ => panic!("Board builder check for pieces on invalid square only expects SquareConversionError of variant FromUsize")
+            _ => panic!("Expected SquareConversionError of variant FromUsize (as BoardBuilder only checks for pieces on invalid squares).")
         }
     }
 }

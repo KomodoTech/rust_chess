@@ -1,8 +1,5 @@
 use crate::{
-    board::{
-        NUM_INTERNAL_BOARD_SQUARES,
-        NUM_EXTERNAL_BOARD_SQUARES
-    },
+    board::{NUM_EXTERNAL_BOARD_SQUARES, NUM_INTERNAL_BOARD_SQUARES},
     color::Color,
     piece::Piece,
     square::{Square, Square64},
@@ -109,8 +106,7 @@ macro_rules! idx_120_to_64 {
         // understand why
         if ($idx_120 >= SQUARE_120_TO_64_INDEX.len()) {
             panic!(
-                "index provided is out of bounds. Should be in range
-                0..{}",
+                "Expected index to be in range: 0..{}",
                 NUM_INTERNAL_BOARD_SQUARES
             );
         }
@@ -132,8 +128,8 @@ macro_rules! idx_120_to_64 {
                 ];
 
         match SQUARE_120_TO_64_INDEX[$idx_120] {
-            -1 => panic!("Result -1. This macro should only be used when you have a valid Square"),
-            idx_64 => usize::try_from(idx_64).expect("idx64 should always be convertible to usize"),
+            -1 => panic!("Expected macro to only be used when you have a valid Square. Found value -1 at index {}", $idx_120),
+            idx_64 => usize::try_from(idx_64).expect("Expected idx_64 to successfully convert to usize."),
         }
     }};
 }
@@ -145,8 +141,7 @@ macro_rules! idx_64_to_120 {
     ($idx_64: expr) => {{
         if ($idx_64 >= SQUARE_64_TO_120_INDEX.len()) {
             panic!(
-                "index provided is out of bounds. Should be in range
-                0..{}",
+                "Expected index to be in range: 0..{}",
                 NUM_EXTERNAL_BOARD_SQUARES
             );
         }
@@ -161,12 +156,11 @@ macro_rules! idx_64_to_120 {
             71, 72, 73, 74, 75, 76, 77, 78,
             81, 82, 83, 84, 85, 86, 87, 88,
             91, 92, 93, 94, 95, 96, 97, 98,
-        ];
+            ];
 
         SQUARE_64_TO_120_INDEX[$idx_64]
     }};
 }
-
 
 #[cfg(test)]
 mod test {
