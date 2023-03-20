@@ -253,7 +253,7 @@ impl GamestateBuilder {
             history: self.history.clone(),
         };
 
-        // Update Position Key
+        // Update position_key
         gamestate.init_position_key();
 
         if let ValidityCheck::Strict = self.validity_check {

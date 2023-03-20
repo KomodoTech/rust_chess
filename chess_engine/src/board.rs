@@ -97,6 +97,7 @@ impl BoardBuilder {
         let mut big_piece_count: [u8; Color::COUNT] = [0; Color::COUNT];
         let mut major_piece_count: [u8; Color::COUNT] = [0; Color::COUNT];
         let mut minor_piece_count: [u8; Color::COUNT] = [0; Color::COUNT];
+        let mut material_score: [u32; Color::COUNT] = [0; Color::COUNT];
         let mut piece_list: [Vec<Square>; Piece::COUNT] = Default::default();
 
         // Note: pieces are being cloned here so that we can create multiple boards.
@@ -111,6 +112,9 @@ impl BoardBuilder {
                 let color = piece.get_color();
 
                 piece_count[piece as usize] += 1;
+
+                // update material_score
+                material_score[piece.get_color() as usize] += piece.get_value();
 
                 match piece {
                     pawn if piece.get_piece_type() == PieceType::Pawn => {
@@ -144,6 +148,7 @@ impl BoardBuilder {
             big_piece_count,
             major_piece_count,
             minor_piece_count,
+            material_score,
             piece_list,
         };
 
@@ -291,6 +296,7 @@ pub struct Board {
     big_piece_count: [u8; Color::COUNT],
     major_piece_count: [u8; Color::COUNT],
     minor_piece_count: [u8; Color::COUNT],
+    material_score: [u32; Color::COUNT],
     /// Stores position of each piece to avoid searching through all squares
     piece_list: [Vec<Square>; Piece::COUNT],
 }
@@ -610,6 +616,7 @@ mod tests {
         big_piece_count: [0, 0],
         major_piece_count: [0, 0],
         minor_piece_count: [0, 0],
+        material_score: [0, 0],
         piece_list: [ vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![]]
     };
 
@@ -675,6 +682,7 @@ mod tests {
             // NOTE: King considered major piece for us
             major_piece_count: [4, 4],
             minor_piece_count: [4, 4],
+            material_score: [54_200, 54_200],
             piece_list: [
                 // WhitePawns
                 vec![Square::A2, Square::B2, Square::C2, Square::D2, Square::E2, Square::F2, Square::G2, Square::H2],
@@ -942,6 +950,7 @@ mod tests {
             big_piece_count: [1, 1],
             major_piece_count: [1, 1],
             minor_piece_count: [0, 0],
+            material_score: [50_000, 50_100],
             piece_list: [
                 // WhitePawns
                 vec![],
@@ -1146,6 +1155,7 @@ mod tests {
             big_piece_count: [0, 1],
             major_piece_count: [0, 0],
             minor_piece_count: [0, 1],
+            material_score: [0, 0],
             piece_list: [
                 // WhitePawns
                 vec![],
@@ -1206,6 +1216,7 @@ mod tests {
             big_piece_count: [4, 6],
             major_piece_count: [3, 4],
             minor_piece_count: [1, 2],
+            material_score: [51_425, 52_750],
             piece_list: [
                 // WhitePawns
                 vec![],
@@ -1303,7 +1314,7 @@ mod tests {
             big_piece_count: [8, 8],
             major_piece_count: [4, 4],
             minor_piece_count: [4, 4],
-
+            material_score: [54_200, 54_200],
             piece_list: [
                 // WhitePawns
                 vec![Square::B2, Square::C2, Square::F2, Square::G2, Square::H2, Square::A3, Square::D3, Square::E4],
