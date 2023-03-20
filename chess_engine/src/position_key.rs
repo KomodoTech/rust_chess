@@ -7,6 +7,8 @@ use crate::{
 };
 use std::fmt;
 
+// TODO: make builder for PositionKey to allow building it up in pieces if performance allows it
+
 /// Holds the Zobrist hashed key for the current Gamestate
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PositionKey(pub u64);
@@ -59,7 +61,7 @@ impl PositionKey {
             .expect("Mutex holding ZOBRIST should not be poisoned")
             .castle_keys;
 
-        self.0 ^= castle_keys[usize::from(*castle_perm)];
+        self.0 ^= castle_keys[castle_perm.0 as usize];
     }
 }
 

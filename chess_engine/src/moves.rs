@@ -97,6 +97,7 @@ pub struct Move {
     score: u16,
 }
 
+// TODO: make builder for Move if performance allows it
 impl Move {
     /// IMPORTANT: Keep in mind that Piece 0 is a White Pawn but inside move 0
     /// symbolizes absence.

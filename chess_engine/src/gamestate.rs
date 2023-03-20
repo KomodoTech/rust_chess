@@ -334,7 +334,7 @@ impl Gamestate {
                 let non_active_color = Color::Black;
 
                 // Check if White has Kingside Castling Permission
-                if (u8::from(self.castle_permissions) & (Castle::WhiteKing as u8)) > 0
+                if (self.castle_permissions.0 & (Castle::WhiteKing as u8)) > 0
                     // Check that squares between King and Rook are empty
                     && self.board.pieces[Square::F1 as usize].is_none()
                     && self.board.pieces[Square::G1 as usize].is_none()
@@ -359,7 +359,7 @@ impl Gamestate {
                 }
 
                 // Check if White has Queenside Castling Permission
-                if (u8::from(self.castle_permissions) & (Castle::WhiteQueen as u8)) > 0
+                if (self.castle_permissions.0 & (Castle::WhiteQueen as u8)) > 0
                     && self.board.pieces[Square::D1 as usize].is_none()
                     && self.board.pieces[Square::C1 as usize].is_none()
                     && self.board.pieces[Square::B1 as usize].is_none()
@@ -382,7 +382,7 @@ impl Gamestate {
                 let non_active_color = Color::White;
 
                 // Check if Black has Kingside Castling Permission
-                if (u8::from(self.castle_permissions) & (Castle::BlackKing as u8)) > 0
+                if (self.castle_permissions.0 & (Castle::BlackKing as u8)) > 0
                     && self.board.pieces[Square::F8 as usize].is_none()
                     && self.board.pieces[Square::G8 as usize].is_none()
                     && !self.is_square_attacked(non_active_color, Square::E8)
@@ -401,7 +401,7 @@ impl Gamestate {
                 }
 
                 // Check if Black has Queenside Castling Permission
-                if (u8::from(self.castle_permissions) & (Castle::BlackQueen as u8)) > 0
+                if (self.castle_permissions.0 & (Castle::BlackQueen as u8)) > 0
                     && self.board.pieces[Square::D8 as usize].is_none()
                     && self.board.pieces[Square::C8 as usize].is_none()
                     && self.board.pieces[Square::B8 as usize].is_none()
@@ -832,8 +832,7 @@ impl Gamestate {
             .expect("Mutex holding ZOBRIST should not be poisoned")
             .castle_keys;
 
-        let castle_permissions: usize = self.castle_permissions.into();
-        position_key ^= castle_keys[castle_permissions];
+        position_key ^= castle_keys[self.castle_permissions.0 as usize];
 
         self.position_key = PositionKey(position_key);
     }
