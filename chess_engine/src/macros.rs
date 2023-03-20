@@ -1,5 +1,8 @@
 use crate::{
-    board::NUM_INTERNAL_BOARD_SQUARES,
+    board::{
+        NUM_INTERNAL_BOARD_SQUARES,
+        NUM_EXTERNAL_BOARD_SQUARES
+    },
     color::Color,
     piece::Piece,
     square::{Square, Square64},
@@ -107,7 +110,8 @@ macro_rules! idx_120_to_64 {
         if ($idx_120 >= SQUARE_120_TO_64_INDEX.len()) {
             panic!(
                 "index provided is out of bounds. Should be in range
-                0..NUM_INTERNAL_BOARD_SQUARES"
+                0..{}",
+                NUM_INTERNAL_BOARD_SQUARES
             );
         }
 
@@ -133,6 +137,36 @@ macro_rules! idx_120_to_64 {
         }
     }};
 }
+
+/// Given a 8x8 index convert it to the corresponding 8x8 index
+/// NOTE: Should only be used when you know for sure that you are
+/// looking at valid Square indices
+macro_rules! idx_64_to_120 {
+    ($idx_64: expr) => {{
+        if ($idx_64 >= SQUARE_64_TO_120_INDEX.len()) {
+            panic!(
+                "index provided is out of bounds. Should be in range
+                0..{}",
+                NUM_EXTERNAL_BOARD_SQUARES
+            );
+        }
+
+    #[rustfmt::skip]
+        const SQUARE_64_TO_120_INDEX: [usize; NUM_EXTERNAL_BOARD_SQUARES] = [
+            21, 22, 23, 24, 25, 26, 27, 28,
+            31, 32, 33, 34, 35, 36, 37, 38,
+            41, 42, 43, 44, 45, 46, 47, 48,
+            51, 52, 53, 54, 55, 56, 57, 58,
+            61, 62, 63, 64, 65, 66, 67, 68,
+            71, 72, 73, 74, 75, 76, 77, 78,
+            81, 82, 83, 84, 85, 86, 87, 88,
+            91, 92, 93, 94, 95, 96, 97, 98,
+        ];
+
+        SQUARE_64_TO_120_INDEX[$idx_64]
+    }};
+}
+
 
 #[cfg(test)]
 mod test {
@@ -181,5 +215,22 @@ mod test {
     fn test_idx_120_to_64_invalid_out_of_bounds_too_large() {
         let invalid_idx = 120; // outside array bounds
         let output: usize = idx_120_to_64!(invalid_idx);
+    }
+
+    #[test]
+    fn test_idx_64_to_120_valid() {
+        let valid_square_64 = Square64::B7;
+        let valid_idx = valid_square_64 as usize;
+
+        let output: usize = idx_64_to_120!(valid_idx);
+        let expected: usize = 82;
+        assert_eq!(output, expected);
+    }
+
+    #[should_panic]
+    #[test]
+    fn test_idx_64_to_120_invalid_out_of_bounds_too_large() {
+        let invalid_idx = 64; // outside array bounds
+        let output: usize = idx_64_to_120!(invalid_idx);
     }
 }
