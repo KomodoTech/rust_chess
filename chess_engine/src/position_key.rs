@@ -2,7 +2,7 @@ use crate::{
     castle_perm::{self, CastlePerm},
     color::Color,
     piece::Piece,
-    square::Square64,
+    square::{Square, Square64},
     zobrist::{Zobrist, ZOBRIST},
 };
 use std::fmt;
@@ -31,19 +31,20 @@ impl PositionKey {
     /// Piece and a Square, to the PositionKey.
     /// Used when Gamestate is updated and a Piece gets added to or cleared
     /// from a Square to keep the PositionKey up to date
-    pub fn hash_piece(&mut self, piece: Piece, square: Square64) {
+    pub fn hash_piece(&mut self, piece: Piece, square: Square) {
         let piece_keys = ZOBRIST
             .lock()
             .expect("Mutex holding ZOBRIST should not be poisoned")
             .piece_keys;
 
-        self.0 ^= piece_keys[piece as usize][square as usize];
+        // NOTE: ZOBRIST piece_keys are 12x64
+        self.0 ^= piece_keys[piece as usize][Square64::from(square) as usize];
     }
 
     /// Hash in a random number stored in the Zobrist struct corresponding to
     /// the en passant square. Only gets called when
     /// Used when Gamestate detects a change to its en_passant field
-    pub fn hash_en_passant(&mut self, en_passant: Square64) {
+    pub fn hash_en_passant(&mut self, en_passant: Square) {
         let en_passant_keys = ZOBRIST
             .lock()
             .expect("Mutex holding ZOBRIST should not be poisoned")

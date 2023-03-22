@@ -290,15 +290,15 @@ impl Default for BoardBuilder {
 pub struct Board {
     // TODO: Consider making board field private
     pub pieces: [Option<Piece>; NUM_INTERNAL_BOARD_SQUARES],
-    pawns: [BitBoard; Color::COUNT],
-    kings_square: [Option<Square>; Color::COUNT],
-    piece_count: [u8; Piece::COUNT],
-    big_piece_count: [u8; Color::COUNT],
-    major_piece_count: [u8; Color::COUNT],
-    minor_piece_count: [u8; Color::COUNT],
-    material_score: [u32; Color::COUNT],
+    pub pawns: [BitBoard; Color::COUNT],
+    pub kings_square: [Option<Square>; Color::COUNT],
+    pub piece_count: [u8; Piece::COUNT],
+    pub big_piece_count: [u8; Color::COUNT],
+    pub major_piece_count: [u8; Color::COUNT],
+    pub minor_piece_count: [u8; Color::COUNT],
+    pub material_score: [u32; Color::COUNT],
     /// Stores position of each piece to avoid searching through all squares
-    piece_list: [Vec<Square>; Piece::COUNT],
+    pub piece_list: [Vec<Square>; Piece::COUNT],
 }
 
 /// Returns an a Board with the default starting position in regular chess.
@@ -319,9 +319,10 @@ impl TryFrom<&str> for Board {
 }
 
 impl Board {
+    // TODO: get rid of these
     //======================== GETTERS ========================================
-    pub fn get_piece_count(&self) -> [u8; Piece::COUNT] {
-        self.piece_count
+    pub fn get_piece_count(&self) -> &[u8; Piece::COUNT] {
+        &self.piece_count
     }
 
     pub fn get_piece_list(&self) -> &[Vec<Square>; Piece::COUNT] {
@@ -401,7 +402,6 @@ impl Board {
 
             // NOTE: this check is trying to detect obvious promoted pieces in conflict with number of missing pawns
             // but if you lost a piece and then promoted to the same piece type, that can't be detected from the board
-
             // check that there aren't more excess big pieces than missing pawns per color
             if num_excess_big_pieces[Color::White as usize]
                 > num_missing_pawns[Color::White as usize]
@@ -420,7 +420,8 @@ impl Board {
 
             for (index, piece) in self.pieces.into_iter().enumerate() {
                 if let Some(piece) = piece {
-                    let square = Square::try_from(index).expect("building the board should guarantee that there are no pieces on invalid squares");
+                    let square = Square::try_from(index)
+                    .expect("building the board should guarantee that there are no pieces on invalid squares");
                     match piece {
                         Piece::WhitePawn => {
                             // check that there aren't any WhitePawns in first rank

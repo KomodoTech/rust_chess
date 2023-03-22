@@ -15,9 +15,15 @@ use strum::{EnumCount, ParseError as StrumParseError};
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq)]
-pub enum ChessError {
-    #[error("illegal move attempted: {illegal_move}")]
-    IllegalMove { illegal_move: Move },
+pub enum MakeMoveError {
+    #[error("Cannot clear square {empty_square}, since it is already empty")]
+    NoPieceToClear { empty_square: Square },
+
+    #[error("Cannot find square {missing_square} in piece_list under piece {piece}")]
+    SquareNotFoundInPieceList {
+        missing_square: Square,
+        piece: Piece,
+    },
 }
 
 #[derive(Error, Debug, PartialEq)]

@@ -12,7 +12,8 @@ use crate::{
     color::Color,
     error::{
         BoardFenDeserializeError, GamestateBuildError, GamestateFenDeserializeError,
-        GamestateValidityCheckError, MoveGenError, RankFenDeserializeError, SquareConversionError,
+        GamestateValidityCheckError, MakeMoveError, MoveGenError, RankFenDeserializeError,
+        SquareConversionError,
     },
     file::File,
     moves::{Move, MoveList},
@@ -87,10 +88,11 @@ impl GamestateBuilder {
         GamestateBuilder {
             validity_check: ValidityCheck::Strict,
             board: BoardBuilder::new()
+                .validity_check(ValidityCheck::Basic)
                 .build()
                 .expect("new() version of board should never fail"),
             active_color: Color::White,
-            castle_permissions: CastlePerm::default(),
+            castle_permissions: CastlePerm::new(),
             en_passant: None,
             halfmove_clock: 0,
             fullmove_number: 1,
@@ -320,6 +322,71 @@ impl fmt::Display for Gamestate {
 }
 
 impl Gamestate {
+    //================================= MAKING MOVES ==========================
+
+    pub fn clear_piece(&mut self, square: Square) -> Result<Piece, MakeMoveError> {
+
+        let piece = self.board.pieces[square as usize].ok_or(MakeMoveError::NoPieceToClear {
+            empty_square: square,
+        })?;
+
+        // update pieces
+        self.board.pieces[square as usize] = None;
+
+        let color = piece.get_color();
+        let piece_type = piece.get_piece_type();
+
+        // update piece_list
+        let mut found_in_piece_list = false;
+        let squares_for_piece = &mut self.board.piece_list[piece_type as usize];
+        for (sq_index, &sq) in squares_for_piece.iter().enumerate() {
+            if sq == square {
+                // TODO: swap_remove is faster but makes testing harder...
+                // test performance difference
+                // NOTE: swap_remove is O(1) but changes the order of our
+                // piece_list.
+                squares_for_piece.remove(sq_index);
+                found_in_piece_list = true;
+                break; // non-lexical lifetime
+            }
+        }
+        // if square was not found in piece_list something went wrong
+        if !found_in_piece_list {
+            return Err(MakeMoveError::SquareNotFoundInPieceList {
+                missing_square: square,
+                piece,
+            });
+        }
+
+        // update piece counts
+        match piece {
+            big_piece if piece.is_big() => {
+                self.board.big_piece_count[color as usize] -= 1;
+                match big_piece {
+                    major_piece if big_piece.is_major() => {
+                        self.board.major_piece_count[color as usize] -= 1;
+                    }
+                    minor_piece => {
+                        self.board.minor_piece_count[color as usize] -= 1;
+                    }
+                }
+            }
+            // Update pawns (not big, major nor minor)
+            pawn => {
+                self.board.pawns[color as usize].unset_bit(Square64::from(square));
+            }
+        }
+        self.board.piece_count[color as usize] -= 1;
+
+        // update position_key (hash it out)
+        self.position_key.hash_piece(piece, square);
+
+        // update material_score
+        self.board.material_score[color as usize] -= piece.get_value();
+
+        Ok(piece)
+    }
+
     //================================= MOVE GENERATION =======================
 
     // TODO: Splitting up move gen functions is nice but has some
@@ -787,6 +854,8 @@ impl Gamestate {
         Ok(move_list)
     }
 
+    //=========================== BUILDING ==============================
+
     /// Generate a hash that represents the current position via Zobrist Hashing
     fn init_position_key(&mut self) {
         let mut position_key: u64 = 0;
@@ -1177,7 +1246,70 @@ mod tests {
         gamestate, position_key,
     };
 
+    //======================== MAKE MOVES =====================================
+    #[test]
+    fn test_gamestate_clear_piece_valid() {
+        let fen = "8/8/8/8/8/8/3P4/8 w - - 0 1";
+        let mut output = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
+
+        output.clear_piece(Square::D2);
+
+        let expected = GamestateBuilder::new()
+        .validity_check(ValidityCheck::Basic)
+        .build()
+        .unwrap();
+
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_clear_piece_start_valid() {
+        let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        let mut output = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
+
+        output.clear_piece(Square::D2);
+
+        let fen_after_clear = "rnbqkbnr/pppppppp/8/8/8/8/PPP1PPPP/RNBQKBNR w KQkq - 0 1";
+        let mut expected = GamestateBuilder::new_with_fen(fen_after_clear)
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
+
+        assert_eq!(output, expected);
+    }
+
+
+    #[test]
+    fn test_gamestate_clear_piece_invalid() {
+        let fen = "8/8/8/8/8/8/3P4/8 w - - 0 1";
+        let mut input = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
+
+        let output = input.clear_piece(Square::D1);
+
+        let expected = Err(
+            MakeMoveError::NoPieceToClear { 
+                empty_square: Square::D1 
+            }
+        );
+
+        assert_eq!(output, expected);
+    }
+
     //======================== POSITION KEY ===================================
+
     #[test]
     fn test_gamestate_init_position_key_one_white_pawn() {
         let fen = "8/8/8/8/8/8/3P4/8 w - - 0 1";

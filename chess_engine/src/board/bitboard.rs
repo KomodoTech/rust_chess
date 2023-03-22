@@ -1,5 +1,4 @@
 use crate::{
-    error::ChessError as Error,
     file::File,
     rank::Rank,
     square::{Square, Square64},
@@ -95,7 +94,7 @@ impl BitBoard {
     }
 
     /// Sets bit at index to 0
-    fn unset_bit(&mut self, index: Square64) {
+    pub fn unset_bit(&mut self, index: Square64) {
         // XOR will toggle value at index so we should only call it
         // if the bit at index was already set
         if self.check_bit(index) {
