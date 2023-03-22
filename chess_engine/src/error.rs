@@ -231,13 +231,13 @@ pub enum GamestateValidityCheckError {
         "Fullmove number: {fullmove_number} should be in range 1..={}",
         MAX_GAME_MOVES
     )]
-    StrictFullmoveNumberNotInRange { fullmove_number: u32 },
+    StrictFullmoveNumberNotInRange { fullmove_number: usize },
 
     #[error(
         "Given halfmove clock: {halfmove_clock}, fullmove number: {fullmove_number} is too small"
     )]
     StrictFullmoveNumberLessThanHalfmoveClockDividedByTwo {
-        fullmove_number: u32,
+        fullmove_number: usize,
         halfmove_clock: u8,
     },
 

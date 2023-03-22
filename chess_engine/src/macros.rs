@@ -7,6 +7,17 @@ use crate::{
 use strum::EnumCount;
 use strum_macros::EnumCount as EnumCountMacro;
 
+//=============================== FULLMOVE TO PLY =============================
+/// Ply is the number of total halfmoves played during the game.
+macro_rules! to_ply {
+    ($fullmove_number: expr, $active_color: expr) => {{
+        let fullmove_number: usize = $fullmove_number;
+        let active_color: Color = $active_color;
+        (fullmove_number * 2) + (active_color as usize)
+    }};
+}
+
+//============================ SLIDING PIECES =================================
 // TODO: It's probably not necessary to generate
 // sliding pieces this way with a macro. Think through
 // pros and cons more carefully and see if we should
@@ -156,7 +167,7 @@ macro_rules! idx_64_to_120 {
             71, 72, 73, 74, 75, 76, 77, 78,
             81, 82, 83, 84, 85, 86, 87, 88,
             91, 92, 93, 94, 95, 96, 97, 98,
-                ];
+                    ];
 
         SQUARE_64_TO_120_INDEX[$idx_64]
     }};
@@ -165,6 +176,28 @@ macro_rules! idx_64_to_120 {
 #[cfg(test)]
 mod test {
     use super::*;
+
+    //======================== FULLMOVE_NUMBER TO PLY =========================
+    #[test]
+    fn test_to_ply_macro_valid_white() {
+        let active_color = Color::White;
+        // Black just moved so 8 plys are expected
+        let fullmove_number = 4;
+        let output = to_ply!(fullmove_number, active_color);
+        let expected = 8;
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_to_ply_macro_valid_black() {
+        let active_color = Color::Black;
+        // White just moved so 9 plys are expected
+        let fullmove_number = 4;
+        let output = to_ply!(fullmove_number, active_color);
+        let expected = 9;
+        assert_eq!(output, expected);
+    }
+
     //======================== MOVEGEN MACRO ==================================
     #[test]
     fn test_gen_sliding_pieces_macro() {

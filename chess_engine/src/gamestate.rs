@@ -75,7 +75,7 @@ pub struct GamestateBuilder {
     castle_permissions: CastlePerm,
     en_passant: Option<Square64>,
     halfmove_clock: u8,
-    fullmove_number: u32,
+    fullmove_number: usize,
     history: Vec<Undo>,
 }
 
@@ -173,7 +173,7 @@ impl GamestateBuilder {
                             })?)
                         }
                         5 => {
-                            fullmove_number = Some(section.parse::<u32>().map_err(|_err| {
+                            fullmove_number = Some(section.parse::<usize>().map_err(|_err| {
                                 GamestateFenDeserializeError::FullmoveNumber {
                                     fullmove_fen: section.to_owned(),
                                 }
@@ -233,7 +233,7 @@ impl GamestateBuilder {
         self
     }
 
-    pub fn fullmove_number(mut self, fullmove_number: u32) -> Self {
+    pub fn fullmove_number(mut self, fullmove_number: usize) -> Self {
         self.fullmove_number = fullmove_number;
         self
     }
@@ -281,7 +281,7 @@ pub struct Gamestate {
     /// number of moves both players have made since last pawn advance of piece capture
     halfmove_clock: u8,
     /// number of completed turns in the game (incremented when black moves)
-    fullmove_number: u32,
+    fullmove_number: usize,
     position_key: PositionKey,
     history: Vec<Undo>,
 }
@@ -324,6 +324,13 @@ impl fmt::Display for Gamestate {
 
 impl Gamestate {
     //================================= MAKING MOVES ==========================
+
+    // pub fn make_move(&mut self, _move: Move) -> Result<(), MakeMoveError> {
+    //     // add current position_key to history before changing it
+    //     self.history[to_ply!(self.fullmove_number, self.active_color)].position_key = self.position_key;
+
+    //     Ok(())
+    // }
 
     /// Moves a piece and updates all appropriate places in the Board as well as
     /// the position key. Returns an Err if there is no piece on start_square
@@ -1045,7 +1052,7 @@ impl Gamestate {
             }
 
             // check that fullmove number is in valid range 1..=MAX_GAME_MOVES
-            if !(1..=MAX_GAME_MOVES).contains(&(self.fullmove_number as usize)) {
+            if !(1..=MAX_GAME_MOVES).contains(&(self.fullmove_number)) {
                 return Err(
                     GamestateValidityCheckError::StrictFullmoveNumberNotInRange {
                         fullmove_number: self.fullmove_number,
@@ -1067,8 +1074,8 @@ impl Gamestate {
             // but let's say that we get back color: white, fullmove: 1, halfmove: 2
             // in order to get halfmove: 2, white had to play a knight, then black had to play a knight
             // as well which should have incremented fullmove. That's what's being caught here
-            if (2 * (self.fullmove_number - 1) + self.active_color as u32)
-                < self.halfmove_clock as u32
+            if (2 * (self.fullmove_number - 1) + self.active_color as usize)
+                < self.halfmove_clock as usize
             {
                 return Err(
                 GamestateValidityCheckError::StrictFullmoveNumberLessThanHalfmoveClockDividedByTwo {
@@ -4032,7 +4039,7 @@ mod tests {
 
     #[test]
     fn test_gamestate_try_from_invalid_fullmove_exceeds_max() {
-        let fullmove: u32 = 1025;
+        let fullmove: usize = 1025;
         let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq - 0 1025";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateBuildError::GamestateValidityCheck(
@@ -4045,7 +4052,7 @@ mod tests {
 
     #[test]
     fn test_gamestate_try_from_invalid_fullmove_zero() {
-        let fullmove: u32 = 0;
+        let fullmove: usize = 0;
         let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq - 0 0";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateBuildError::GamestateValidityCheck(
