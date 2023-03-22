@@ -24,6 +24,24 @@ pub enum MakeMoveError {
         missing_square: Square,
         piece: Piece,
     },
+
+    #[error("Cannot add to square {occupied_square}, since it is already occupied by a {piece_at_square}")]
+    AddToOccupiedSquare {
+        occupied_square: Square,
+        piece_at_square: Piece,
+    },
+
+    #[error("Cannot clear square {start_square}, since it is already empty")]
+    NoPieceAtMoveStart { start_square: Square },
+
+    #[error(
+        "Cannot move piece {piece} to {end_square}, since it is already occupied by a {end_piece}"
+    )]
+    MoveEndsOnOccupiedSquare {
+        piece: Piece,
+        end_square: Square,
+        end_piece: Piece,
+    },
 }
 
 #[derive(Error, Debug, PartialEq)]

@@ -84,21 +84,21 @@ impl BitBoard {
     // }
 
     /// Check if bit at index is set
-    pub fn check_bit(&self, index: Square64) -> bool {
-        self.0 & (1 << (index as u8)) != 0
+    pub fn check_bit(&self, square: Square64) -> bool {
+        self.0 & (1 << (square as u8)) != 0
     }
 
     /// Sets bit at index
-    pub fn set_bit(&mut self, index: Square64) {
-        self.0 |= 1 << (index as u8);
+    pub fn set_bit(&mut self, square: Square64) {
+        self.0 |= 1 << (square as u8);
     }
 
     /// Sets bit at index to 0
-    pub fn unset_bit(&mut self, index: Square64) {
+    pub fn unset_bit(&mut self, square: Square64) {
         // XOR will toggle value at index so we should only call it
         // if the bit at index was already set
-        if self.check_bit(index) {
-            self.0 ^= 1 << (index as u8);
+        if self.check_bit(square) {
+            self.0 ^= 1 << (square as u8);
         }
     }
 }

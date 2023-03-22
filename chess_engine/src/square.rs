@@ -46,7 +46,7 @@ pub const SQUARE_64_TO_120: [Option<Square>; NUM_EXTERNAL_BOARD_SQUARES] = [
 
 // TODO: Create Square Trait and Change Square to Square120
 
-#[derive(Display, Debug, Clone, Copy, PartialEq, Eq, EnumIter, EnumString, EnumCountMacro)]
+#[derive(Display, Debug, Clone, Copy, PartialEq, Eq, EnumIter, EnumString, EnumCountMacro, PartialOrd, Ord)]
 #[rustfmt::skip]
 #[strum(use_phf)]
 pub enum Square64 {
@@ -160,7 +160,7 @@ impl Square64 {
     }
 }
 
-#[derive(Display, Debug, Clone, Copy, PartialEq, Eq, EnumIter, EnumString, EnumCountMacro)]
+#[derive(Display, Debug, Clone, Copy, PartialEq, Eq, EnumIter, EnumString, EnumCountMacro, PartialOrd, Ord)]
 #[rustfmt::skip]
 #[strum(use_phf)]
 pub enum Square {

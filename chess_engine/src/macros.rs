@@ -125,7 +125,7 @@ macro_rules! idx_120_to_64 {
             -1, 56, 57, 58, 59, 60, 61, 62, 63, -1,
             -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
             -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
-                ];
+        ];
 
         match SQUARE_120_TO_64_INDEX[$idx_120] {
             -1 => panic!("Expected macro to only be used when you have a valid Square. Found value -1 at index {}", $idx_120),
@@ -156,7 +156,7 @@ macro_rules! idx_64_to_120 {
             71, 72, 73, 74, 75, 76, 77, 78,
             81, 82, 83, 84, 85, 86, 87, 88,
             91, 92, 93, 94, 95, 96, 97, 98,
-                                            ];
+                ];
 
         SQUARE_64_TO_120_INDEX[$idx_64]
     }};

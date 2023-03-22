@@ -105,7 +105,7 @@ impl GamestateBuilder {
             validity_check: ValidityCheck::Strict,
             board,
             active_color: Color::White,
-            castle_permissions: CastlePerm::default(),
+            castle_permissions: CastlePerm::new(),
             en_passant: None,
             halfmove_clock: 0,
             fullmove_number: 1,
@@ -290,6 +290,7 @@ impl Default for Gamestate {
     fn default() -> Self {
         GamestateBuilder::new_with_board(Board::default())
             .validity_check(ValidityCheck::Basic)
+            .castle_permissions(CastlePerm(0b_1111))
             .build()
             .expect("starting gamestate should never fail to build")
     }
@@ -324,8 +325,124 @@ impl fmt::Display for Gamestate {
 impl Gamestate {
     //================================= MAKING MOVES ==========================
 
-    pub fn clear_piece(&mut self, square: Square) -> Result<Piece, MakeMoveError> {
+    /// Moves a piece and updates all appropriate places in the Board as well as
+    /// the position key. Returns an Err if there is no piece on start_square
+    /// or a capture is attempted (or if piece not found in piece_list).
+    fn move_piece(
+        &mut self,
+        start_square: Square,
+        end_square: Square,
+    ) -> Result<(), MakeMoveError> {
+        let piece = self.board.pieces[start_square as usize]
+            .ok_or(MakeMoveError::NoPieceAtMoveStart { start_square })?;
 
+        let color = piece.get_color();
+        let piece_type = piece.get_piece_type();
+
+        let piece_on_end_square = self.board.pieces[end_square as usize];
+        match piece_on_end_square {
+            Some(end_piece) => {
+                return Err(MakeMoveError::MoveEndsOnOccupiedSquare {
+                    piece,
+                    end_square,
+                    end_piece,
+                });
+            }
+            None => {
+                // update pieces
+                self.board.pieces[start_square as usize] = None;
+                self.board.pieces[end_square as usize] = Some(piece);
+
+                // update piece_list
+                let mut found_in_piece_list = false;
+                let squares_for_piece = &mut self.board.piece_list[piece as usize];
+                for (sq_index, &sq) in squares_for_piece.iter().enumerate() {
+                    if sq == start_square {
+                        squares_for_piece[sq_index] = end_square;
+                        found_in_piece_list = true;
+                        break; // non-lexical lifetime
+                    }
+                }
+                // if square was not found in piece_list something went wrong
+                if !found_in_piece_list {
+                    return Err(MakeMoveError::SquareNotFoundInPieceList {
+                        missing_square: start_square,
+                        piece,
+                    });
+                }
+
+                // update pawns
+                if piece_type == PieceType::Pawn {
+                    self.board.pawns[color as usize].unset_bit(Square64::from(start_square));
+                    self.board.pawns[color as usize].set_bit(Square64::from(end_square));
+                }
+
+                // update position key (hash piece out and back with changed square)
+                self.position_key.hash_piece(piece, start_square);
+                self.position_key.hash_piece(piece, end_square);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Adds a piece to all the appropriate places in the Board and updates the
+    /// position_key. Returns an Err if you try to add a Piece to an occupied
+    /// square.
+    fn add_piece(&mut self, square: Square, piece: Piece) -> Result<(), MakeMoveError> {
+        let piece_on_square = self.board.pieces[square as usize];
+
+        match piece_on_square {
+            Some(occupying_piece) => {
+                return Err(MakeMoveError::AddToOccupiedSquare {
+                    occupied_square: square,
+                    piece_at_square: occupying_piece,
+                });
+            }
+            None => {
+                // update pieces
+                self.board.pieces[square as usize] = Some(piece);
+
+                let color = piece.get_color();
+                let piece_type = piece.get_piece_type();
+
+                // update piece_list
+                self.board.piece_list[piece as usize].push(square);
+
+                // update piece counts
+                match piece {
+                    big_piece if piece.is_big() => {
+                        self.board.big_piece_count[color as usize] += 1;
+                        match big_piece {
+                            major_piece if big_piece.is_major() => {
+                                self.board.major_piece_count[color as usize] += 1;
+                            }
+                            minor_piece => {
+                                self.board.minor_piece_count[color as usize] += 1;
+                            }
+                        }
+                    }
+                    // Update pawns (not big, major nor minor)
+                    pawn => {
+                        self.board.pawns[color as usize].set_bit(Square64::from(square));
+                    }
+                }
+                self.board.piece_count[piece as usize] += 1;
+
+                // update position_key (hash it in)
+                self.position_key.hash_piece(piece, square);
+
+                // update material_score
+                self.board.material_score[color as usize] += piece.get_value();
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Removes a piece from all appropriate places in the Board and updates
+    /// the position_key. Returns an Err if you try to clear an empty Square.
+    fn clear_piece(&mut self, square: Square) -> Result<Piece, MakeMoveError> {
         let piece = self.board.pieces[square as usize].ok_or(MakeMoveError::NoPieceToClear {
             empty_square: square,
         })?;
@@ -338,14 +455,12 @@ impl Gamestate {
 
         // update piece_list
         let mut found_in_piece_list = false;
-        let squares_for_piece = &mut self.board.piece_list[piece_type as usize];
+        let squares_for_piece = &mut self.board.piece_list[piece as usize];
         for (sq_index, &sq) in squares_for_piece.iter().enumerate() {
             if sq == square {
-                // TODO: swap_remove is faster but makes testing harder...
-                // test performance difference
                 // NOTE: swap_remove is O(1) but changes the order of our
                 // piece_list.
-                squares_for_piece.remove(sq_index);
+                squares_for_piece.swap_remove(sq_index);
                 found_in_piece_list = true;
                 break; // non-lexical lifetime
             }
@@ -376,7 +491,7 @@ impl Gamestate {
                 self.board.pawns[color as usize].unset_bit(Square64::from(square));
             }
         }
-        self.board.piece_count[color as usize] -= 1;
+        self.board.piece_count[piece as usize] -= 1;
 
         // update position_key (hash it out)
         self.position_key.hash_piece(piece, square);
@@ -1246,7 +1361,182 @@ mod tests {
         gamestate, position_key,
     };
 
+    fn assert_fuzzy_eq(output: &Gamestate, expected: &Gamestate) {
+        // board.pieces
+        assert_eq!(output.board.pieces, expected.board.pieces);
+        // board.pawns
+        assert_eq!(output.board.pawns, expected.board.pawns);
+        // board.kings_square
+        assert_eq!(output.board.kings_square, expected.board.kings_square);
+        // board.piece_count
+        assert_eq!(output.board.piece_count, expected.board.piece_count);
+        // board.big_piece_count
+        assert_eq!(output.board.big_piece_count, expected.board.big_piece_count);
+        // board.major_piece_count
+        assert_eq!(
+            output.board.major_piece_count,
+            expected.board.major_piece_count
+        );
+        // board.minor_piece_count
+        assert_eq!(
+            output.board.minor_piece_count,
+            expected.board.minor_piece_count
+        );
+        // board.material_score
+        assert_eq!(output.board.material_score, expected.board.material_score);
+
+        // board.piece_list order doesn't matter
+        let mut output_piece_list_sorted = [
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+        ];
+        for (index, _squares) in output.board.piece_list.iter().enumerate() {
+            output_piece_list_sorted[index] = _squares.clone();
+            output_piece_list_sorted[index].sort();
+        }
+        let mut expected_piece_list_sorted = [
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+        ];
+        for (index, _squares) in expected.board.piece_list.iter().enumerate() {
+            expected_piece_list_sorted[index] = _squares.clone();
+            expected_piece_list_sorted[index].sort();
+        }
+        assert_eq!(output_piece_list_sorted, expected_piece_list_sorted);
+
+        // active_color
+        assert_eq!(output.active_color, expected.active_color);
+        // castle_permissions
+        assert_eq!(output.castle_permissions, expected.castle_permissions);
+        // en_passant
+        assert_eq!(output.en_passant, expected.en_passant);
+        // halfmove_clock
+        assert_eq!(output.halfmove_clock, expected.halfmove_clock);
+        // fullmove_number
+        assert_eq!(output.fullmove_number, expected.fullmove_number);
+        // history
+        assert_eq!(output.history, expected.history);
+        // position_key
+        assert_eq!(output.position_key, expected.position_key);
+    }
+
     //======================== MAKE MOVES =====================================
+
+    // MOVE PIECE
+    #[test]
+    fn test_gamestate_move_piece_valid() {
+        let fen = DEFAULT_FEN;
+        let mut output = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // move WhiteKnight from B1 to C3 which is empty
+        output.move_piece(Square::B1, Square::C3);
+
+        let fen_after_add = "rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR w KQkq - 0 1";
+        let expected = GamestateBuilder::new_with_fen(fen_after_add)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        assert_fuzzy_eq(&output, &expected);
+    }
+
+    #[test]
+    fn test_gamestate_move_piece_invalid_no_piece_on_start_square() {
+        let fen = DEFAULT_FEN;
+        let mut input = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // try to move B3 which is empty
+        let output = input.move_piece(Square::B3, Square::B4);
+        let expected = Err(MakeMoveError::NoPieceAtMoveStart {
+            start_square: Square::B3,
+        });
+
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_move_piece_invalid_attempted_capture() {
+        let fen = "rnbqkbnr/ppp1pppp/8/3p4/8/2N5/PPPPPPPP/R1BQKBNR w KQkq - 0 1";
+        let mut input = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // try to move WhiteKnight on C3 to D5 which is occupied by BlackPawn
+        let output = input.move_piece(Square::C3, Square::D5);
+        let expected = Err(MakeMoveError::MoveEndsOnOccupiedSquare {
+            piece: Piece::WhiteKnight,
+            end_square: Square::D5,
+            end_piece: Piece::BlackPawn,
+        });
+        assert_eq!(output, expected);
+    }
+
+    // ADD PIECE
+    #[test]
+    fn test_gamestate_add_piece_valid() {
+        let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/R1BQKBNR w KQkq - 0 1";
+        let mut output = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // add WhiteKnight to C3
+        output.add_piece(Square::C3, Piece::WhiteKnight);
+
+        let fen_after_add = "rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR w KQkq - 0 1";
+        let expected = GamestateBuilder::new_with_fen(fen_after_add)
+            .unwrap()
+            .build()
+            .unwrap();
+    }
+
+    #[test]
+    fn test_gamestate_add_piece_invalid_square_occupied() {
+        let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/R1BQKBNR w KQkq - 0 1";
+        let mut input = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // add WhiteKnight to D2 which is occupied by WhitePawn
+        let output = input.add_piece(Square::D2, Piece::WhiteKnight);
+
+        let expected = Err(MakeMoveError::AddToOccupiedSquare {
+            occupied_square: Square::D2,
+            piece_at_square: Piece::WhitePawn,
+        });
+
+        assert_eq!(output, expected);
+    }
+
+    // CLEAR PIECE
     #[test]
     fn test_gamestate_clear_piece_valid() {
         let fen = "8/8/8/8/8/8/3P4/8 w - - 0 1";
@@ -1259,6 +1549,36 @@ mod tests {
         output.clear_piece(Square::D2);
 
         let expected = GamestateBuilder::new()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
+
+        assert_eq!(output, expected);
+    }
+
+    // NOTE: it's important to test a non white pawn move/add/clear since you can easily mix up Piece and PieceType values
+    // and for a white pawn both convert to usize 0
+    #[test]
+    fn test_gamestate_clear_piece_non_white_pawn_valid() {
+        // Black Knight's Piece usize value is 7 but PieceType is 1
+        // output.board.piece_list[piece_type as usize] is the vec for WhiteKnight
+        // so this fen should doubly cause an issue if we mess this up
+        let fen = "N7/8/8/8/8/8/3n4/8 w - - 0 1";
+        let mut output = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
+
+        output.clear_piece(Square::D2);
+
+        let expected = GamestateBuilder::new_with_board(
+            BoardBuilder::new()
+                .validity_check(ValidityCheck::Basic)
+                .piece(Piece::WhiteKnight, Square64::A8)
+                .build()
+                .unwrap(),
+        )
         .validity_check(ValidityCheck::Basic)
         .build()
         .unwrap();
@@ -1268,7 +1588,7 @@ mod tests {
 
     #[test]
     fn test_gamestate_clear_piece_start_valid() {
-        let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        let fen = DEFAULT_FEN;
         let mut output = GamestateBuilder::new_with_fen(fen)
             .unwrap()
             .validity_check(ValidityCheck::Basic)
@@ -1284,9 +1604,8 @@ mod tests {
             .build()
             .unwrap();
 
-        assert_eq!(output, expected);
+        assert_fuzzy_eq(&output, &expected);
     }
-
 
     #[test]
     fn test_gamestate_clear_piece_invalid() {
@@ -1299,11 +1618,9 @@ mod tests {
 
         let output = input.clear_piece(Square::D1);
 
-        let expected = Err(
-            MakeMoveError::NoPieceToClear { 
-                empty_square: Square::D1 
-            }
-        );
+        let expected = Err(MakeMoveError::NoPieceToClear {
+            empty_square: Square::D1,
+        });
 
         assert_eq!(output, expected);
     }
