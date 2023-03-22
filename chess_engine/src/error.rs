@@ -228,16 +228,16 @@ pub enum GamestateValidityCheckError {
     StrictHalfmoveClockExceedsMax { halfmove_clock: u8 },
 
     #[error(
-        "Fullmove number: {fullmove_number} should be in range 1..={}",
+        "Fullmove count: {fullmove_count} should be in range 1..={}",
         MAX_GAME_MOVES
     )]
-    StrictFullmoveNumberNotInRange { fullmove_number: usize },
+    StrictFullmoveCountNotInRange { fullmove_count: usize },
 
     #[error(
-        "Given halfmove clock: {halfmove_clock}, fullmove number: {fullmove_number} is too small"
+        "Given halfmove clock: {halfmove_clock}, fullmove count: {fullmove_count} is too small"
     )]
-    StrictFullmoveNumberLessThanHalfmoveClockDividedByTwo {
-        fullmove_number: usize,
+    StrictFullmoveCountLessThanHalfmoveClockDividedByTwo {
+        fullmove_count: usize,
         halfmove_clock: u8,
     },
 
@@ -256,10 +256,10 @@ pub enum GamestateFenDeserializeError {
     #[error("Gamestate failed to deserialize due to en passant section of FEN not representing a valid Square")]
     EnPassant(#[from] StrumParseError),
 
-    #[error("Gamestate failed to deserialize due to full move number section of FEN {fullmove_fen} not representing a valid number")]
-    FullmoveNumber { fullmove_fen: String },
+    #[error("Gamestate failed to deserialize due to full move count section of FEN {fullmove_fen} not representing a valid number")]
+    FullmoveCount { fullmove_fen: String },
 
-    #[error("Gamestate failed to deserialize due to half move number section of FEN {halfmove_fen} not representing a valid number")]
+    #[error("Gamestate failed to deserialize due to half move clock section of FEN {halfmove_fen} not representing a valid number")]
     HalfmoveClock { halfmove_fen: String },
 
     #[error(

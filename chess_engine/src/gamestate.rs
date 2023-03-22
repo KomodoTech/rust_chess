@@ -75,7 +75,7 @@ pub struct GamestateBuilder {
     castle_permissions: CastlePerm,
     en_passant: Option<Square64>,
     halfmove_clock: u8,
-    fullmove_number: usize,
+    fullmove_count: usize,
     history: Vec<Undo>,
 }
 
@@ -95,7 +95,7 @@ impl GamestateBuilder {
             castle_permissions: CastlePerm::new(),
             en_passant: None,
             halfmove_clock: 0,
-            fullmove_number: 1,
+            fullmove_count: 1,
             history: vec![],
         }
     }
@@ -108,7 +108,7 @@ impl GamestateBuilder {
             castle_permissions: CastlePerm::new(),
             en_passant: None,
             halfmove_clock: 0,
-            fullmove_number: 1,
+            fullmove_count: 1,
             history: vec![],
         }
     }
@@ -121,7 +121,7 @@ impl GamestateBuilder {
         let mut castle_permissions = None;
         let mut en_passant = None;
         let mut halfmove_clock = None;
-        let mut fullmove_number = None;
+        let mut fullmove_count = None;
 
         // Allow for extra spaces in between sections but not in the middle of sections
         let fen_sections = gamestate_fen
@@ -173,8 +173,8 @@ impl GamestateBuilder {
                             })?)
                         }
                         5 => {
-                            fullmove_number = Some(section.parse::<usize>().map_err(|_err| {
-                                GamestateFenDeserializeError::FullmoveNumber {
+                            fullmove_count = Some(section.parse::<usize>().map_err(|_err| {
+                                GamestateFenDeserializeError::FullmoveCount {
                                     fullmove_fen: section.to_owned(),
                                 }
                             })?)
@@ -189,7 +189,7 @@ impl GamestateBuilder {
                 let active_color = active_color.unwrap();
                 let castle_permissions = castle_permissions.unwrap();
                 let halfmove_clock = halfmove_clock.unwrap();
-                let fullmove_number = fullmove_number.unwrap();
+                let fullmove_count = fullmove_count.unwrap();
 
                 Ok(GamestateBuilder {
                     validity_check: ValidityCheck::Strict,
@@ -198,7 +198,7 @@ impl GamestateBuilder {
                     castle_permissions,
                     en_passant,
                     halfmove_clock,
-                    fullmove_number,
+                    fullmove_count,
                     history: vec![],
                 })
             }
@@ -233,8 +233,8 @@ impl GamestateBuilder {
         self
     }
 
-    pub fn fullmove_number(mut self, fullmove_number: usize) -> Self {
-        self.fullmove_number = fullmove_number;
+    pub fn fullmove_count(mut self, fullmove_count: usize) -> Self {
+        self.fullmove_count = fullmove_count;
         self
     }
 
@@ -250,7 +250,7 @@ impl GamestateBuilder {
             castle_permissions: self.castle_permissions,
             en_passant: self.en_passant,
             halfmove_clock: self.halfmove_clock,
-            fullmove_number: self.fullmove_number,
+            fullmove_count: self.fullmove_count,
             position_key: PositionKey(0),
             history: self.history.clone(),
         };
@@ -281,7 +281,7 @@ pub struct Gamestate {
     /// number of moves both players have made since last pawn advance of piece capture
     halfmove_clock: u8,
     /// number of completed turns in the game (incremented when black moves)
-    fullmove_number: usize,
+    fullmove_count: usize,
     position_key: PositionKey,
     history: Vec<Undo>,
 }
@@ -325,12 +325,13 @@ impl fmt::Display for Gamestate {
 impl Gamestate {
     //================================= MAKING MOVES ==========================
 
-    // pub fn make_move(&mut self, _move: Move) -> Result<(), MakeMoveError> {
-    //     // add current position_key to history before changing it
-    //     self.history[to_ply!(self.fullmove_number, self.active_color)].position_key = self.position_key;
+    pub fn make_move(&mut self, _move: Move) -> Result<(), MakeMoveError> {
+        // add current position_key to history before changing it
+        self.history[to_ply_count!(self.fullmove_count, self.active_color)].position_key =
+            self.position_key;
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
 
     /// Moves a piece and updates all appropriate places in the Board as well as
     /// the position key. Returns an Err if there is no piece on start_square
@@ -1051,17 +1052,15 @@ impl Gamestate {
                 });
             }
 
-            // check that fullmove number is in valid range 1..=MAX_GAME_MOVES
-            if !(1..=MAX_GAME_MOVES).contains(&(self.fullmove_number)) {
-                return Err(
-                    GamestateValidityCheckError::StrictFullmoveNumberNotInRange {
-                        fullmove_number: self.fullmove_number,
-                    },
-                );
+            // check that fullmove count is in valid range 1..=MAX_GAME_MOVES
+            if !(1..=MAX_GAME_MOVES).contains(&self.fullmove_count) {
+                return Err(GamestateValidityCheckError::StrictFullmoveCountNotInRange {
+                    fullmove_count: self.fullmove_count,
+                });
             }
 
-            // check that fullmove number and halfmove clock are plausible
-            // NOTE: fullmove_number starts at 1 and increments every time black moves
+            // check that fullmove count and halfmove clock are plausible
+            // NOTE: fullmove_count starts at 1 and increments every time black moves
             // halfmove_clock starts at 0 and increases everytime a player makes a move that does not
             // move a pawn or capture a piece.
             // Initial setup is active color: white, fullmove: 1, halfmove: 0
@@ -1074,12 +1073,12 @@ impl Gamestate {
             // but let's say that we get back color: white, fullmove: 1, halfmove: 2
             // in order to get halfmove: 2, white had to play a knight, then black had to play a knight
             // as well which should have incremented fullmove. That's what's being caught here
-            if (2 * (self.fullmove_number - 1) + self.active_color as usize)
+            if (2 * (self.fullmove_count - 1) + self.active_color as usize)
                 < self.halfmove_clock as usize
             {
                 return Err(
-                GamestateValidityCheckError::StrictFullmoveNumberLessThanHalfmoveClockDividedByTwo {
-                    fullmove_number: self.fullmove_number,
+                GamestateValidityCheckError::StrictFullmoveCountLessThanHalfmoveClockDividedByTwo {
+                    fullmove_count: self.fullmove_count,
                     halfmove_clock: self.halfmove_clock,
                 });
             }
@@ -1259,8 +1258,8 @@ impl Gamestate {
         fen.push_str(self.halfmove_clock.to_string().as_str());
         fen.push(' ');
 
-        // fullmove_number
-        fen.push_str(self.fullmove_number.to_string().as_str());
+        // fullmove_count
+        fen.push_str(self.fullmove_count.to_string().as_str());
 
         fen
     }
@@ -1439,8 +1438,8 @@ mod tests {
         assert_eq!(output.en_passant, expected.en_passant);
         // halfmove_clock
         assert_eq!(output.halfmove_clock, expected.halfmove_clock);
-        // fullmove_number
-        assert_eq!(output.fullmove_number, expected.fullmove_number);
+        // fullmove_count
+        assert_eq!(output.fullmove_count, expected.fullmove_count);
         // history
         assert_eq!(output.history, expected.history);
         // position_key
@@ -3285,7 +3284,7 @@ mod tests {
         let castle_permissions = CastlePerm::default();
         let en_passant = None;
         let halfmove_clock = 0;
-        let fullmove_number = 1;
+        let fullmove_count = 1;
         let history = Vec::new();
         let position_key = PositionKey(6527259550795953174);
 
@@ -3295,7 +3294,7 @@ mod tests {
             castle_permissions,
             en_passant,
             halfmove_clock,
-            fullmove_number,
+            fullmove_count,
             history,
             position_key,
         });
@@ -3325,10 +3324,10 @@ mod tests {
             output.as_ref().unwrap().halfmove_clock,
             expected.as_ref().unwrap().halfmove_clock
         );
-        // fullmove_number
+        // fullmove_count
         assert_eq!(
-            output.as_ref().unwrap().fullmove_number,
-            expected.as_ref().unwrap().fullmove_number
+            output.as_ref().unwrap().fullmove_count,
+            expected.as_ref().unwrap().fullmove_count
         );
         // history
         assert_eq!(
@@ -3410,7 +3409,7 @@ mod tests {
         let castle_permissions = CastlePerm::try_from(0).unwrap();
         let en_passant = None;
         let halfmove_clock = 0;
-        let fullmove_number = 2;
+        let fullmove_count = 2;
         let history = Vec::new();
 
         // NOTE: this is why you shouldn't initialize Gamestate like this
@@ -3423,7 +3422,7 @@ mod tests {
             castle_permissions,
             en_passant,
             halfmove_clock,
-            fullmove_number,
+            fullmove_count,
             history,
             position_key,
         };
@@ -3520,7 +3519,7 @@ mod tests {
         let castle_permissions = CastlePerm::try_from(0).unwrap();
         let en_passant = None;
         let halfmove_clock = 0;
-        let fullmove_number = 2;
+        let fullmove_count = 2;
         let history = Vec::new();
 
         // NOTE: should use builder
@@ -3532,7 +3531,7 @@ mod tests {
             castle_permissions,
             en_passant,
             halfmove_clock,
-            fullmove_number,
+            fullmove_count,
             history,
             position_key,
         };
@@ -3625,7 +3624,7 @@ mod tests {
         let castle_permissions = CastlePerm::try_from(0).unwrap();
         let en_passant = None;
         let halfmove_clock = 0;
-        let fullmove_number = 1;
+        let fullmove_count = 1;
         let history = Vec::new();
 
         // NOTE: should use the builder
@@ -3637,7 +3636,7 @@ mod tests {
             castle_permissions,
             en_passant,
             halfmove_clock,
-            fullmove_number,
+            fullmove_count,
             history,
             position_key,
         };
@@ -3953,7 +3952,7 @@ mod tests {
         .castle_permissions(CastlePerm::default())
         .en_passant(Some(Square64::E6))
         .halfmove_clock(0)
-        .fullmove_number(3)
+        .fullmove_count(3)
         .build();
         assert_eq!(output, expected);
     }
@@ -4043,8 +4042,8 @@ mod tests {
         let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq - 0 1025";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateBuildError::GamestateValidityCheck(
-            GamestateValidityCheckError::StrictFullmoveNumberNotInRange {
-                fullmove_number: fullmove,
+            GamestateValidityCheckError::StrictFullmoveCountNotInRange {
+                fullmove_count: fullmove,
             },
         ));
         assert_eq!(output, expected);
@@ -4056,8 +4055,8 @@ mod tests {
         let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq - 0 0";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateBuildError::GamestateValidityCheck(
-            GamestateValidityCheckError::StrictFullmoveNumberNotInRange {
-                fullmove_number: fullmove,
+            GamestateValidityCheckError::StrictFullmoveCountNotInRange {
+                fullmove_count: fullmove,
             },
         ));
         assert_eq!(output, expected);
