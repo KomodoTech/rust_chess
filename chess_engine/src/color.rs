@@ -15,3 +15,34 @@ impl From<Color> for char {
         }
     }
 }
+
+impl Color {
+    pub fn toggle(&mut self) {
+        match self {
+            Color::White => *self = Color::Black,
+            Color::Black => *self = Color::White,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_color_toggle_once() {
+        let mut output = Color::White;
+        output.toggle();
+        let expected = Color::Black;
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_color_toggle_twice() {
+        let mut output = Color::White;
+        output.toggle();
+        output.toggle();
+        let expected = Color::White;
+        assert_eq!(output, expected);
+    }
+}

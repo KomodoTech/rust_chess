@@ -42,8 +42,7 @@ impl PositionKey {
     }
 
     /// Hash in a random number stored in the Zobrist struct corresponding to
-    /// the en passant square. Only gets called when
-    /// Used when Gamestate detects a change to its en_passant field
+    /// the en passant square. Used when making moves
     pub fn hash_en_passant(&mut self, en_passant: Square) {
         let en_passant_keys = ZOBRIST
             .lock()
@@ -56,7 +55,7 @@ impl PositionKey {
     /// Hash in a random number stored in the Zobrist struct corresponding to a
     /// set of Castle Permissions
     /// Used when Gamestate is updated and a move change the castling rights
-    pub fn hash_castle_perm(&mut self, castle_perm: &CastlePerm) {
+    pub fn hash_castle_perm(&mut self, castle_perm: CastlePerm) {
         let castle_keys = ZOBRIST
             .lock()
             .expect("Mutex holding ZOBRIST should not be poisoned")

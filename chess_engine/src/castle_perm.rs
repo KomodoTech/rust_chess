@@ -18,17 +18,22 @@ pub const CASTLE_PERM_FENS: [&str; NUM_CASTLE_PERM] = [
 /// current CastlePerm's value and the value received when indexing into
 /// CASTLE_PERM at the index corresponding the to the move's start square.
 #[rustfmt::skip]
-pub const CASTLE_PERM: [u8; NUM_INTERNAL_BOARD_SQUARES] = [
+const CASTLE_PERM: [u8; NUM_INTERNAL_BOARD_SQUARES] = [
     0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 
     0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 
+    //         13                                  12                         14
     0b_1111, 0b_1101, 0b_1111, 0b_1111, 0b_1111, 0b_1100, 0b_1111, 0b_1111, 0b_1110, 0b_1111, 
+
     0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 
     0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 
     0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 
     0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 
     0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 
     0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 
+
     0b_1111, 0b_0111, 0b_1111, 0b_1111, 0b_1111, 0b_0011, 0b_1111, 0b_1111, 0b_1011, 0b_1111, 
+    //          7                                    3                         11
+
     0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 
     0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 0b_1111, 
 ];
@@ -123,9 +128,13 @@ impl CastlePerm {
         }
     }
 
-    /// Update the CastlePermissions given start square of Move
-    pub fn update(&mut self, start_square: Square) {
+    /// Update the CastlePermissions given start and end squared of a Move
+    /// NOTE: you need to take into count both the start and the end square
+    /// for such situations as one rook capturing another:
+    /// WR H1 to H8 -> 1111 &= 1110 -> 1110 -> 1110 &= 1011 = 1010 Qq
+    pub fn update(&mut self, start_square: Square, end_square: Square) {
         self.0 &= CASTLE_PERM[start_square as usize];
+        self.0 &= CASTLE_PERM[end_square as usize];
     }
 }
 
@@ -163,8 +172,9 @@ mod tests {
     fn test_castle_perm_update_no_change() {
         // Not one of the squares we care about
         let start_square = Square::B1;
+        let end_square = Square::C3;
         let mut output = CastlePerm(0x_0B);
-        output.update(start_square);
+        output.update(start_square, end_square);
         let expected = CastlePerm(0x_0B);
         assert_eq!(output, expected);
     }
@@ -172,8 +182,10 @@ mod tests {
     #[test]
     fn test_castle_perm_update_lose_white_queenside_perm() {
         let start_square = Square::A1; // White Queenside Rook
+        let end_square = Square::A3;
         let mut output = CastlePerm(0x_0F);
-        output.update(start_square);
+        output.update(start_square, end_square);
+        // 1111 &= 1101
         let expected = CastlePerm(0b_1101);
         assert_eq!(output, expected);
     }
@@ -183,10 +195,23 @@ mod tests {
     #[test]
     fn test_castle_perm_update_idempotent() {
         let start_square = Square::A1; // White Queenside Rook
+        let end_square = Square::A3;
         let mut output = CastlePerm(0x_0F);
-        output.update(start_square);
-        output.update(start_square);
+        output.update(start_square, end_square);
+        output.update(start_square, end_square);
         let expected = CastlePerm(0b_1101);
+        assert_eq!(output, expected);
+    }
+
+    // This test would fail if we didn't take into account the end_square
+    #[test]
+    fn test_castle_perm_update_rook_captures_rook() {
+        let start_square = Square::A8;
+        let end_square = Square::A1;
+        let mut output = CastlePerm(0x_0F);
+        output.update(start_square, end_square);
+        // 1111 &= 0111 -> 0111 -> 0111 &= 1101 -> 0101 Kk
+        let expected = CastlePerm(0x_05);
         assert_eq!(output, expected);
     }
 

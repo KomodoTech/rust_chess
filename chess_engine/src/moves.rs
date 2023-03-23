@@ -2,9 +2,10 @@ use std::fmt;
 
 use crate::{
     color::Color,
-    error::MoveDeserializeError,
+    error::{MoveDeserializeError, MoveValidityError},
     gamestate::{Gamestate, ValidityCheck},
     piece::Piece,
+    rank::Rank,
     square::{Square, Square64},
 };
 
@@ -82,7 +83,7 @@ impl fmt::Display for MoveList {
 /// 0000 0000 0000 0000 0011 1111 1000 0000 END:            >> 7, 0x7F bits 7-13 represent the Square120 where the move ended
 /// 0000 0000 0000 0011 1100 0000 0000 0000 PIECE_CAPTURED: >> 14, 0xF bits 14-17 represent the Piece that was captured (in None then 0)
 /// 0000 0000 0000 0100 0000 0000 0000 0000 EN_PASSANT:     0x40000    bit 18 represents whether or not a capture was an en passant capture
-/// 0000 0000 0000 1000 0000 0000 0000 0000 PAWN_START:     0x80000    bit 19 represents whether the move was a starting pawn move (which can move two spaces)
+/// 0000 0000 0000 1000 0000 0000 0000 0000 PAWN_START:     0x80000    bit 19 represents whether the move was a starting pawn move that moved two spaces
 /// 0000 0000 1111 0000 0000 0000 0000 0000 PIECE_PROMOTED: >> 20, 0xF bits 20-23 represent what piece a pawn was promoted to (if None then 0)
 /// 0000 0001 0000 0000 0000 0000 0000 0000 CASTLE:         0x1000000  bit 24 represents whether or not a move was a castling move
 /// 0001 1110 0000 0000 0000 0000 0000 0000 PIECE_MOVED:    >> 25 0x7F bits 25-28 represent which piece was initially moved
@@ -93,7 +94,7 @@ impl fmt::Display for MoveList {
 /// NOTE: The number of pieces can fit in 4 bits while the number of 120 squares can fit in 7 bits
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 pub struct Move {
-    _move: u32,
+    move_: u32,
     score: u16,
 }
 
@@ -111,7 +112,7 @@ impl Move {
         castle: bool,
         piece_moved: Piece,
     ) -> Self {
-        let _move = (start as u32)
+        let move_ = (start as u32)
             | ((end as u32) << MOVE_END_SHIFT)
             | (piece_captured.map_or_else(
                 || 0,
@@ -123,108 +124,205 @@ impl Move {
             | ((castle as u32) * MOVE_CASTLE_MASK)
             | (((piece_moved as u32) + 1) << MOVE_PIECE_MOVED_SHIFT);
 
-        Move { _move, score: 0 }
+        Move { move_, score: 0 }
+    }
+
+    // TODO: revisit when performance tuning. Some of these checks are probably not be needed
+    /// Additional checks that can be made when making moves to make sure that
+    /// the move is consistent
+    pub fn check_move(&self, active_color: Color) -> Result<(), MoveValidityError> {
+        let start_square = self.get_start()?;
+        let start_rank = start_square.get_rank();
+
+        let en_passant = self.is_en_passant();
+        let pawn_start = self.is_pawn_start();
+        let piece_promoted = self.get_piece_promoted()?;
+        let captured = self.get_piece_captured()?;
+        let castle = self.is_castle();
+        let piece_moved = self.get_piece_moved()?;
+
+        // Check that active_color matches the piece moved
+        if piece_moved.get_color() != active_color {
+            return Err(MoveValidityError::PieceMovedActiveColorMismatch {
+                piece_moved,
+                active_color,
+            });
+        }
+
+        // Check that if piece is captured, it's of the opposite color
+        match captured {
+            Some(captured_piece) => match active_color {
+                Color::White => {
+                    if let Color::White = captured_piece.get_color() {
+                        return Err(MoveValidityError::CaptureActiveColor { captured_piece });
+                    }
+                }
+                Color::Black => {
+                    if let Color::Black = captured_piece.get_color() {
+                        return Err(MoveValidityError::CaptureActiveColor { captured_piece });
+                    }
+                }
+            },
+            // if no piece was captured, then en_passant can't be true
+            None => {
+                if en_passant {
+                    return Err(MoveValidityError::EnPassantNoCapture);
+                }
+            }
+        }
+
+        if pawn_start {
+            // pawn_starts can't be captures, castling, en passant, nor promotions
+            if (captured.is_some() || castle || en_passant || piece_promoted.is_some()) {
+                return Err(MoveValidityError::PawnStartExclusive);
+            }
+
+            // check that pawn_start is consistent with rank
+            let expected_rank = match active_color {
+                Color::White => Rank::Rank3,
+                Color::Black => Rank::Rank6,
+            };
+
+            if start_rank != expected_rank {
+                return Err(MoveValidityError::RankPawnStartMismatch {
+                    active_color,
+                    start_square,
+                    start_rank,
+                });
+            }
+        }
+
+        if castle {
+            // a castling move cannot be a promotion nor an en passant
+            if (en_passant || piece_promoted.is_some()) {
+                return Err(MoveValidityError::CastleExclusive);
+            }
+            // Check that castle move initiates from the appropriate king
+            match piece_moved {
+                Piece::WhiteKing => {
+                    if active_color == Color::Black {
+                        return Err(MoveValidityError::WrongKingCastled);
+                    }
+                }
+                Piece::BlackKing => {
+                    if active_color == Color::White {
+                        return Err(MoveValidityError::WrongKingCastled);
+                    }
+                }
+                _ => return Err(MoveValidityError::NonKingInitiatedCastle),
+            }
+        }
+
+        // Can't promote to pawn
+        if let Some(piece) = piece_promoted {
+            if piece.is_pawn() {
+                return Err(MoveValidityError::PromotionToPawn);
+            }
+        }
+
+        Ok(())
     }
 
     pub fn get_start(&self) -> Result<Square, MoveDeserializeError> {
-        let start = self._move & MOVE_SQUARE_MASK;
+        let start = self.move_ & MOVE_SQUARE_MASK;
         Square::try_from(start).map_err(|_err| MoveDeserializeError::Start {
             start,
-            _move: self._move,
+            move_: self.move_,
         })
     }
 
-    fn get_start_raw(&self) -> u32 {
-        self._move & MOVE_SQUARE_MASK
+    pub fn get_start_raw(&self) -> u32 {
+        self.move_ & MOVE_SQUARE_MASK
     }
 
     pub fn get_end(&self) -> Result<Square, MoveDeserializeError> {
-        let end = (self._move >> MOVE_END_SHIFT) & MOVE_SQUARE_MASK;
+        let end = (self.move_ >> MOVE_END_SHIFT) & MOVE_SQUARE_MASK;
         Square::try_from(end).map_err(|_err| MoveDeserializeError::End {
             end,
-            _move: self._move,
+            move_: self.move_,
         })
     }
 
-    fn get_end_raw(&self) -> u32 {
-        (self._move >> MOVE_END_SHIFT) & MOVE_SQUARE_MASK
+    pub fn get_end_raw(&self) -> u32 {
+        (self.move_ >> MOVE_END_SHIFT) & MOVE_SQUARE_MASK
     }
 
     pub fn get_piece_captured(&self) -> Result<Option<Piece>, MoveDeserializeError> {
-        let piece = (self._move >> MOVE_PIECE_CAPTURED_SHIFT) & MOVE_PIECE_MASK;
+        let piece = (self.move_ >> MOVE_PIECE_CAPTURED_SHIFT) & MOVE_PIECE_MASK;
         match piece {
             0 => Ok(None),
             _ => match Piece::try_from(piece - 1) {
                 Ok(piece) => Ok(Some(piece)),
                 Err(_) => Err(MoveDeserializeError::Captured {
                     piece,
-                    _move: self._move,
+                    move_: self.move_,
                 }),
             },
         }
     }
 
-    fn get_piece_captured_raw(&self) -> u32 {
-        (self._move >> MOVE_PIECE_CAPTURED_SHIFT) & MOVE_PIECE_MASK
+    pub fn get_piece_captured_raw(&self) -> u32 {
+        (self.move_ >> MOVE_PIECE_CAPTURED_SHIFT) & MOVE_PIECE_MASK
     }
 
     pub fn is_en_passant(&self) -> bool {
-        self._move & MOVE_EN_PASSANT_MASK != 0
+        self.move_ & MOVE_EN_PASSANT_MASK != 0
     }
 
+    /// Tells us whether or not this was a pawn moved up two positions
     pub fn is_pawn_start(&self) -> bool {
-        self._move & MOVE_PAWN_START_MASK != 0
+        self.move_ & MOVE_PAWN_START_MASK != 0
     }
 
     pub fn get_piece_promoted(&self) -> Result<Option<Piece>, MoveDeserializeError> {
-        let piece = (self._move >> MOVE_PIECE_PROMOTED_SHIFT) & MOVE_PIECE_MASK;
+        let piece = (self.move_ >> MOVE_PIECE_PROMOTED_SHIFT) & MOVE_PIECE_MASK;
         match piece {
             0 => Ok(None),
             _ => match Piece::try_from(piece - 1) {
                 Ok(piece) => Ok(Some(piece)),
                 Err(_) => Err(MoveDeserializeError::Promoted {
                     piece,
-                    _move: self._move,
+                    move_: self.move_,
                 }),
             },
         }
     }
 
     fn get_piece_promoted_raw(&self) -> u32 {
-        (self._move >> MOVE_PIECE_PROMOTED_SHIFT) & MOVE_PIECE_MASK
+        (self.move_ >> MOVE_PIECE_PROMOTED_SHIFT) & MOVE_PIECE_MASK
     }
 
     pub fn is_castle(&self) -> bool {
-        self._move & MOVE_CASTLE_MASK != 0
+        self.move_ & MOVE_CASTLE_MASK != 0
     }
 
     pub fn get_piece_moved(&self) -> Result<Piece, MoveDeserializeError> {
-        let piece = (self._move >> MOVE_PIECE_MOVED_SHIFT) & MOVE_PIECE_MASK;
+        let piece = (self.move_ >> MOVE_PIECE_MOVED_SHIFT) & MOVE_PIECE_MASK;
         match piece {
             0 => Err(MoveDeserializeError::Moved {
                 piece,
-                _move: self._move,
+                move_: self.move_,
             }),
             _ => match Piece::try_from(piece - 1) {
                 Ok(piece) => Ok(piece),
                 Err(_) => Err(MoveDeserializeError::Moved {
                     piece,
-                    _move: self._move,
+                    move_: self.move_,
                 }),
             },
         }
     }
 
-    fn get_piece_moved_raw(&self) -> u32 {
-        (self._move >> MOVE_PIECE_MOVED_SHIFT) & MOVE_PIECE_MASK
+    fn get_piecemove_d_raw(&self) -> u32 {
+        (self.move_ >> MOVE_PIECE_MOVED_SHIFT) & MOVE_PIECE_MASK
     }
 
     pub fn is_capture(&self) -> bool {
-        (self._move & MOVE_IS_CAPTURE_MASK) != 0
+        (self.move_ & MOVE_IS_CAPTURE_MASK) != 0
     }
 
     pub fn is_promotion(&self) -> bool {
-        (self._move & MOVE_IS_PROMOTED_MASK) != 0
+        (self.move_ & MOVE_IS_PROMOTED_MASK) != 0
     }
 
     pub fn get_score(&self) -> u16 {
@@ -248,16 +346,16 @@ impl fmt::Display for Move {
         since we should always be able to parse bits into a valid piece",
         );
 
-        let piece_moved = self
+        let piecemove_d = self
             .get_piece_moved()
-            .expect("piece_moved should always be valid");
+            .expect("piecemove_d should always be valid");
 
         let start = self.get_start().expect("start should always be valid");
 
         let end = self.get_end().expect("end should always be valid");
 
-        writeln!(f, "Dec: {}", self._move);
-        writeln!(f, "Bin: {:032b}", self._move);
+        writeln!(f, "Dec: {}", self.move_);
+        writeln!(f, "Bin: {:032b}", self.move_);
 
         writeln!(f, "Start Square: {} {:07b}", start, self.get_start_raw());
         writeln!(f, "End Square: {} {:07b}", end, self.get_end_raw());
@@ -306,8 +404,8 @@ impl fmt::Display for Move {
         writeln!(
             f,
             "Piece Moved: {} {:04b}",
-            piece_moved,
-            self.get_piece_moved_raw()
+            piecemove_d,
+            self.get_piecemove_d_raw()
         )
     }
 }
@@ -349,7 +447,7 @@ mod tests {
         #[allow(clippy::unusual_byte_groupings)]
         let move_1 = Move {
             //        unused  pm   cstl prom ps ep capt end     start
-            _move: 0b_0000000_0001_0____0000_0__1__0111_1001011_1000000,
+            move_: 0b_0000000_0001_0____0000_0__1__0111_1001011_1000000,
             score: 0,
         };
         println!("{}", move_1);
@@ -366,7 +464,7 @@ mod tests {
         #[allow(clippy::unusual_byte_groupings)]
         let move_2 = Move {
             //        unused  pm   cstl prom ps ep capt end     start
-            _move: 0b_0000000_1001_0____0000_0__0__0001_1001011_1011101,
+            move_: 0b_0000000_1001_0____0000_0__0__0001_1001011_1011101,
             score: 0,
         };
         println!("{}", move_2);
@@ -383,60 +481,60 @@ mod tests {
     #[should_panic]
     fn test_move_display_invalid_piece_captured_panic() {
         #[allow(clippy::unusual_byte_groupings)]
-        let invalid_move = Move {
+        let invalidmove_ = Move {
             //        unused  pm   cstl prom ps ep capt end     start
-            _move: 0b_0000000_0001_0____0000_0__1__1111_1001011_1000000,
+            move_: 0b_0000000_0001_0____0000_0__1__1111_1001011_1000000,
             score: 0,
         };
-        println!("{}", invalid_move);
+        println!("{}", invalidmove_);
     }
 
     #[test]
     #[should_panic]
     fn test_move_display_invalid_piece_promoted_panic() {
         #[allow(clippy::unusual_byte_groupings)]
-        let invalid_move = Move {
+        let invalidmove_ = Move {
             //        unused  pm   cstl prom ps ep capt end     start
-            _move: 0b_0000000_0001_0____1111_0__1__0001_1001011_1000000,
+            move_: 0b_0000000_0001_0____1111_0__1__0001_1001011_1000000,
             score: 0,
         };
-        println!("{}", invalid_move);
+        println!("{}", invalidmove_);
     }
 
     #[test]
     #[should_panic]
-    fn test_move_display_invalid_piece_moved_panic() {
+    fn test_move_display_invalid_piecemove_d_panic() {
         #[allow(clippy::unusual_byte_groupings)]
-        let invalid_move = Move {
+        let invalidmove_ = Move {
             //        unused  pm   cstl prom ps ep capt end     start
-            _move: 0b_0000000_1111_0____0000_0__1__0111_1001011_1000000,
+            move_: 0b_0000000_1111_0____0000_0__1__0111_1001011_1000000,
             score: 0,
         };
-        println!("{}", invalid_move);
+        println!("{}", invalidmove_);
     }
 
     #[test]
     #[should_panic]
     fn test_move_display_invalid_start_panic() {
         #[allow(clippy::unusual_byte_groupings)]
-        let invalid_move = Move {
+        let invalidmove_ = Move {
             //        unused  pm   cstl prom ps ep capt end     start
-            _move: 0b_0000000_0001_0____0000_0__1__0111_1001011_1111111,
+            move_: 0b_0000000_0001_0____0000_0__1__0111_1001011_1111111,
             score: 0,
         };
-        println!("{}", invalid_move);
+        println!("{}", invalidmove_);
     }
 
     #[test]
     #[should_panic]
     fn test_move_display_invalid_end_panic() {
         #[allow(clippy::unusual_byte_groupings)]
-        let invalid_move = Move {
+        let invalidmove_ = Move {
             //        unused  pm   cstl prom ps ep capt end     start
-            _move: 0b_0000000_0001_0____0000_0__1__0111_1111111_1000000,
+            move_: 0b_0000000_0001_0____0000_0__1__0111_1111111_1000000,
             score: 0,
         };
-        println!("{}", invalid_move);
+        println!("{}", invalidmove_);
     }
 
     //================================= BUILD =================================
@@ -454,7 +552,7 @@ mod tests {
         let piece_promoted = None;
         let castle = false;
 
-        let piece_moved = Piece::WhitePawn;
+        let piecemove_d = Piece::WhitePawn;
 
         let output = Move::new(
             start,
@@ -464,7 +562,7 @@ mod tests {
             pawn_start,
             piece_promoted,
             castle,
-            piece_moved,
+            piecemove_d,
         );
 
         // start is 0x40
@@ -474,7 +572,7 @@ mod tests {
         let expected = Move {
             #[allow(clippy::unusual_byte_groupings)]
             //        unused  pm   cstl prom ps ep capt end     start
-            _move: 0b_0000000_0001_0____0000_0__1__0111_1001011_1000000,
+            move_: 0b_0000000_0001_0____0000_0__1__0111_1001011_1000000,
             score: 0
         };
 
@@ -484,8 +582,8 @@ mod tests {
     // #[test]
     // fn test_from_uci() {
     //     let ref_string = "e2e4";
-    //     let new_move: Move = Move::from_uci(ref_string);
-    //     let output_string = new_move.to_string();
+    //     let newmove_: Move = Move::from_uci(ref_string);
+    //     let output_string = newmove_.to_string();
     //     assert_eq!(ref_string, output_string);
     // }
 }

@@ -40,7 +40,7 @@ const DEFAULT_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 
 pub struct Undo {
     move_: Move,
     castle_permissions: CastlePerm,
-    en_passant: Option<Square>,
+    en_passant: Option<Square64>,
     halfmove_clock: u8,
     position_key: PositionKey,
 }
@@ -325,10 +325,160 @@ impl fmt::Display for Gamestate {
 impl Gamestate {
     //================================= MAKING MOVES ==========================
 
-    pub fn make_move(&mut self, _move: Move) -> Result<(), MakeMoveError> {
-        // add current position_key to history before changing it
-        self.history[to_ply_count!(self.fullmove_count, self.active_color)].position_key =
-            self.position_key;
+    pub fn make_move(&mut self, move_: Move) -> Result<(), MakeMoveError> {
+        // Save current active_color before we toggle it
+        let initial_active_color = self.active_color;
+
+        // Check if move_ is valid
+        move_.check_move(self.active_color)?;
+
+        // Set up ability to Undo this move
+        let undo = Undo {
+            move_,
+            castle_permissions: self.castle_permissions,
+            en_passant: self.en_passant,
+            halfmove_clock: self.halfmove_clock,
+            position_key: self.position_key,
+        };
+        self.history.push(undo);
+
+        // Use raw versions of functions since validity was checked in check_move call
+        let start_square = Square::try_from(move_.get_start_raw())?;
+        let end_square = Square::try_from(move_.get_end_raw())?;
+
+        // deal with en_passant moves
+        if move_.is_en_passant() {
+            match self.active_color {
+                Color::White => {
+                    // clear the square/piece that is being captured via en_passant
+                    let square_to_clear = (end_square - (NUM_BOARD_COLUMNS as i8))?;
+                    self.clear_piece(square_to_clear)?;
+                }
+                Color::Black => {
+                    let square_to_clear = (end_square + (NUM_BOARD_COLUMNS as i8))?;
+                    self.clear_piece(square_to_clear)?;
+                }
+            }
+        }
+
+        // deal with castling move
+        if move_.is_castle() {
+            match end_square {
+                // White Queenside Castle. Move Rook from A1 to D1.
+                // Presumably King has moved from E1 to C1
+                Square::C1 => {
+                    self.move_piece(Square::A1, Square::D1);
+                }
+                // White Kingside Castle. Move Rook from H1 to F1.
+                // Presumably King has moved from E1 to G1
+                Square::G1 => {
+                    self.move_piece(Square::H1, Square::F1);
+                }
+                // Black Queenside Castle. Move Rook from A8 to D8.
+                // Presumably King has moved from E8 to C8
+                Square::C8 => {
+                    self.move_piece(Square::A1, Square::D1);
+                }
+                // Black Kingside Castle. Move Rook from H8 to F8.
+                // Presumably King has moved from E8 to G8
+                Square::G8 => {
+                    self.move_piece(Square::H8, Square::F8);
+                }
+                _ => {
+                    return Err(MakeMoveError::CastleEndSquare { end_square });
+                }
+            }
+        }
+
+        // Reset en_passant (they expire after a move)
+        self.en_passant = None;
+
+        // Reset position_key
+        if let Some(en_passant) = self.en_passant {
+            self.position_key.hash_en_passant(Square::from(en_passant));
+        }
+        self.position_key.hash_castle_perm(self.castle_permissions);
+
+        // Update castle_permissions
+        self.castle_permissions.update(start_square, end_square);
+        // Update position_key for updated castle_permissions (may or may not
+        // have changed)
+        self.position_key.hash_castle_perm(self.castle_permissions);
+
+        // Deal with captured pieces and fifty-move rule
+        match move_.get_piece_captured()? {
+            Some(captured_piece) => {
+                self.clear_piece(end_square);
+                self.halfmove_clock = 0;
+            }
+            None => {
+                self.halfmove_clock += 1;
+            }
+        }
+
+        // Update fullmove_count if this is Black's move
+        if self.active_color == Color::Black {
+            self.fullmove_count += 1;
+        }
+
+        // Check if new en_passant square was created
+        let moved_piece =
+            self.board.pieces[start_square as usize].ok_or(MakeMoveError::MovedPieceNotInPieces)?;
+
+        if moved_piece.is_pawn() {
+            // fifty-move rule. reset half moves since last capture or pawn move
+            self.halfmove_clock = 0;
+            // pawn starts (move up 2) create en_passant squares
+            if move_.is_pawn_start() {
+                match self.active_color {
+                    Color::White => {
+                        self.en_passant =
+                            Some(Square64::from((start_square + NUM_BOARD_COLUMNS as i8)?));
+                    }
+                    Color::Black => {
+                        self.en_passant =
+                            Some(Square64::from((start_square - NUM_BOARD_COLUMNS as i8)?));
+                    }
+                }
+                // hash in new en passant square
+                self.position_key
+                    .hash_en_passant(Square::from(self.en_passant.expect(
+                    "Expected en passant to be Some(square) since we generated one right above.",
+                )));
+            }
+        }
+
+        // Actually move our piece
+        self.move_piece(start_square, end_square);
+
+        // Deal with promotions
+        if let Some(promoted_piece) = move_.get_piece_promoted()? {
+            self.clear_piece(end_square);
+            self.add_piece(end_square, promoted_piece);
+        }
+
+        // TODO: check if can be removed. probably redundant
+        // Update king
+        if moved_piece.is_king() {
+            self.board.kings_square[self.active_color as usize] = Some(end_square);
+        }
+
+        // change active_color and hash it in
+        self.active_color.toggle();
+        self.position_key.hash_color();
+
+        // TODO: is this necessary?
+        self.check_gamestate(ValidityCheck::Strict)?;
+
+        // check if move puts active color in check
+        if (self.is_square_attacked(
+            self.active_color,
+            self.board.kings_square[initial_active_color as usize]
+                .expect("Expected King's square to be stored in kings_square"),
+        )) {
+            // TODO: Call self.undo_move()
+            return Err(MakeMoveError::MoveWouldPutMovingSideInCheck);
+        }
 
         Ok(())
     }

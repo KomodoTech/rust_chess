@@ -16,6 +16,25 @@ use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum MakeMoveError {
+    #[error(transparent)]
+    GamestateValidity(#[from] GamestateValidityCheckError),
+
+    #[error(transparent)]
+    MoveValidity(#[from] MoveValidityError),
+
+    // TODO: figure out why I have to do this right now?
+    #[error(transparent)]
+    MoveDeserialize(#[from] MoveDeserializeError),
+
+    #[error("Square in front of (aka holding the piece that should be captured) en_passant square is not a valid Square")]
+    SquareConversion(#[from] SquareConversionError),
+
+    #[error("Captured Piece is invalid")]
+    PieceConversion(#[from] PieceConversionError),
+
+    #[error("Move that was encoded as a castling move ends on {end_square} which is not a valid ending square for a castling move")]
+    CastleEndSquare { end_square: Square },
+
     #[error("Cannot clear square {empty_square}, since it is already empty")]
     NoPieceToClear { empty_square: Square },
 
@@ -42,32 +61,82 @@ pub enum MakeMoveError {
         end_square: Square,
         end_piece: Piece,
     },
+
+    #[error("Moved Piece was not found in Board pieces array")]
+    MovedPieceNotInPieces,
+
+    #[error("Cannot move into position that would put the moving side in check")]
+    MoveWouldPutMovingSideInCheck,
+}
+
+#[derive(Error, Debug, PartialEq)]
+pub enum MoveValidityError {
+    #[error(transparent)]
+    MoveDeserialize(#[from] MoveDeserializeError),
+
+    #[error("This is a pawn start move, but the move begins with {active_color} at square {start_square}, which is on {start_rank} which is a contradiction.")]
+    RankPawnStartMismatch {
+        active_color: Color,
+        start_square: Square,
+        start_rank: Rank,
+    },
+
+    #[error(
+        "The piece moved {piece_moved} is not of the same color as the active color {active_color}"
+    )]
+    PieceMovedActiveColorMismatch {
+        piece_moved: Piece,
+        active_color: Color,
+    },
+
+    #[error("Move encodes an attempt to capture a {captured_piece} of the same color as the active color")]
+    CaptureActiveColor { captured_piece: Piece },
+
+    #[error("En passant move has no captured piece")]
+    EnPassantNoCapture,
+
+    #[error("If Move is encoded as being a pawn start, it cannot be a capture, a promotion, an en passant move, nor a castling move")]
+    PawnStartExclusive,
+
+    #[error(
+        "If Move is encoded as being a castling move, it cannot be an en passant nor a promotion"
+    )]
+    CastleExclusive,
+
+    #[error("Castling was initiated by king but the color of the king was wrong")]
+    WrongKingCastled,
+
+    #[error("Only kings can initiate castle")]
+    NonKingInitiatedCastle,
+
+    #[error("Cannot promote into a pawn")]
+    PromotionToPawn,
+}
+
+#[derive(Error, Debug, PartialEq)]
+pub enum MoveDeserializeError {
+    // Can't pass in move_ as String because that would cause
+    // stack overflow on Display/to_string() call
+    #[error("The start square {start} is invalid for move:\n {move_}")]
+    Start { start: u32, move_: u32 },
+
+    #[error("The end square {end} is invalid for move:\n {move_}")]
+    End { end: u32, move_: u32 },
+
+    #[error("The captured piece {piece} is invalid for move:\n {move_}")]
+    Captured { piece: u32, move_: u32 },
+
+    #[error("The promoted piece {piece} is invalid for move:\n {move_}")]
+    Promoted { piece: u32, move_: u32 },
+
+    #[error("The moved piece {piece} is invalid for move:\n {move_}")]
+    Moved { piece: u32, move_: u32 },
 }
 
 #[derive(Error, Debug, PartialEq)]
 pub enum MoveGenError {
     #[error("Cannot generate moves for invalid Gamestate")]
     GamestateValidityCheck(#[from] GamestateValidityCheckError),
-}
-
-#[derive(Error, Debug, PartialEq)]
-pub enum MoveDeserializeError {
-    // Can't pass in _move as String because that would cause
-    // stack overflow on Display/to_string() call
-    #[error("The start square {start} is invalid for move:\n {_move}")]
-    Start { start: u32, _move: u32 },
-
-    #[error("The end square {end} is invalid for move:\n {_move}")]
-    End { end: u32, _move: u32 },
-
-    #[error("The captured piece {piece} is invalid for move:\n {_move}")]
-    Captured { piece: u32, _move: u32 },
-
-    #[error("The promoted piece {piece} is invalid for move:\n {_move}")]
-    Promoted { piece: u32, _move: u32 },
-
-    #[error("The moved piece {piece} is invalid for move:\n {_move}")]
-    Moved { piece: u32, _move: u32 },
 }
 
 #[derive(Error, Debug, PartialEq)]
