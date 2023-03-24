@@ -423,11 +423,11 @@ impl Gamestate {
         // Reset en_passant (they expire after a move)
         self.en_passant = None;
 
-        let moved_piece =
+        let piece_moved =
             self.board.pieces[start_square as usize].ok_or(MakeMoveError::MovedPieceNotInPieces)?;
 
         // Check if new en_passant square was created
-        if moved_piece.is_pawn() {
+        if piece_moved.is_pawn() {
             // fifty-move rule. reset half moves since last capture or pawn move
             self.halfmove_clock = 0;
             // pawn starts (move up 2) create en_passant squares
@@ -461,7 +461,7 @@ impl Gamestate {
 
         // TODO: check if can be removed.
         // Update king
-        if moved_piece.is_king() {
+        if piece_moved.is_king() {
             self.board.kings_square[self.active_color as usize] = Some(end_square);
         }
 
