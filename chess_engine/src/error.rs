@@ -74,19 +74,14 @@ pub enum MoveValidityError {
     #[error(transparent)]
     MoveDeserialize(#[from] MoveDeserializeError),
 
+    #[error(transparent)]
+    SquareConversion(#[from] SquareConversionError),
+
     #[error("This is a pawn start move, but the move begins with {active_color} at square {start_square}, which is on {start_rank} which is a contradiction.")]
     RankPawnStartMismatch {
         active_color: Color,
         start_square: Square,
         start_rank: Rank,
-    },
-
-    #[error(
-        "The piece moved {piece_moved} is not of the same color as the active color {active_color}"
-    )]
-    PieceMovedActiveColorMismatch {
-        piece_moved: Piece,
-        active_color: Color,
     },
 
     #[error("Move encodes an attempt to capture a {captured_piece} of the same color as the active color")]
@@ -95,22 +90,63 @@ pub enum MoveValidityError {
     #[error("En passant move has no captured piece")]
     EnPassantNoCapture,
 
+    #[error("Move is encoded as an en passant move, but ends on square {end_square}, which has the wrong rank. The expected rank is: {expected_rank}")]
+    EnPassantWrongRank {
+        end_square: Square,
+        expected_rank: Rank,
+    },
+
+    #[error("Move is encoded as an en passant move, but the piece that is moved should be a {expected_piece} but is in fact a {piece_moved}")]
+    EnPassantWrongPieceMoved {
+        expected_piece: Piece,
+        piece_moved: Piece,
+    },
+
     #[error("If Move is encoded as being a pawn start, it cannot be a capture, a promotion, an en passant move, nor a castling move")]
     PawnStartExclusive,
 
-    #[error(
-        "If Move is encoded as being a castling move, it cannot be an en passant nor a promotion"
-    )]
-    CastleExclusive,
+    #[error("Move is encoded as pawn start but moved piece {piece_moved} is not a pawn")]
+    PawnStartNonPawnMoved { piece_moved: Piece },
 
-    #[error("Castling was initiated by king but the color of the king was wrong")]
-    WrongKingCastled,
+    #[error("Move is encoded as pawn start but the pawn is not moving two 'ahead' as it should.\nStart square: {start_square}\nEnd square:{end_square}")]
+    PawnStartNotMovingTwoSpacesAhead {
+        start_square: Square,
+        end_square: Square,
+    },
+
+    #[error(
+        "The square {end_square} is not a valid end square for castling with the {piece_moved}"
+    )]
+    CastleEndSquare {
+        end_square: Square,
+        piece_moved: Piece,
+    },
+
+    #[error(
+        "The square {start_square} is not a valid end square for castling with the {piece_moved}"
+    )]
+    CastleStartSquare {
+        start_square: Square,
+        piece_moved: Piece,
+    },
 
     #[error("Only kings can initiate castle")]
     NonKingInitiatedCastle,
 
     #[error("Cannot promote into a pawn")]
     PromotionToPawn,
+
+    #[error("Cannot promote to a piece of the non-active color")]
+    PromotedToNonActiveColorPiece,
+
+    #[error("The square {end_square} is not of the valid rank for a promotion for {active_color}")]
+    PromotionEndRank {
+        end_square: Square,
+        active_color: Color,
+    },
+
+    #[error("Move encodes a promotion but the piece moved {piece_moved} is not a pawn")]
+    PromotionNonPawnMoved { piece_moved: Piece },
 }
 
 #[derive(Error, Debug, PartialEq)]

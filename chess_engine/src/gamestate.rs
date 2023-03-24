@@ -329,8 +329,9 @@ impl Gamestate {
         // Save current active_color before we toggle it
         let initial_active_color = self.active_color;
 
+        // TODO: some of these checks are expensive and redundant
         // Check if move_ is valid
-        move_.check_move(self.active_color)?;
+        move_.check_move()?;
 
         // Set up ability to Undo this move
         let undo = Undo {
