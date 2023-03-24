@@ -39,7 +39,7 @@ const DEFAULT_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Undo {
     move_: Move,
-    castle_permissions: CastlePerm,
+    castle_perm: CastlePerm,
     en_passant: Option<Square64>,
     halfmove_clock: u8,
     position_key: PositionKey,
@@ -72,7 +72,7 @@ pub struct GamestateBuilder {
     validity_check: ValidityCheck,
     board: Board,
     active_color: Color,
-    castle_permissions: CastlePerm,
+    castle_perm: CastlePerm,
     en_passant: Option<Square64>,
     halfmove_clock: u8,
     fullmove_count: usize,
@@ -92,7 +92,7 @@ impl GamestateBuilder {
                 .build()
                 .expect("new() version of board should never fail"),
             active_color: Color::White,
-            castle_permissions: CastlePerm::new(),
+            castle_perm: CastlePerm::new(),
             en_passant: None,
             halfmove_clock: 0,
             fullmove_count: 1,
@@ -105,7 +105,7 @@ impl GamestateBuilder {
             validity_check: ValidityCheck::Strict,
             board,
             active_color: Color::White,
-            castle_permissions: CastlePerm::new(),
+            castle_perm: CastlePerm::new(),
             en_passant: None,
             halfmove_clock: 0,
             fullmove_count: 1,
@@ -118,7 +118,7 @@ impl GamestateBuilder {
     pub fn new_with_fen(gamestate_fen: &str) -> Result<Self, GamestateFenDeserializeError> {
         let mut board = None;
         let mut active_color = None;
-        let mut castle_permissions = None;
+        let mut castle_perm = None;
         let mut en_passant = None;
         let mut halfmove_clock = None;
         let mut fullmove_count = None;
@@ -158,7 +158,7 @@ impl GamestateBuilder {
                                 }
                             }
                         }
-                        2 => castle_permissions = Some(CastlePerm::try_from(section)?),
+                        2 => castle_perm = Some(CastlePerm::try_from(section)?),
                         3 => {
                             en_passant = match section {
                                 "-" => None,
@@ -187,7 +187,7 @@ impl GamestateBuilder {
 
                 let board = board.unwrap();
                 let active_color = active_color.unwrap();
-                let castle_permissions = castle_permissions.unwrap();
+                let castle_perm = castle_perm.unwrap();
                 let halfmove_clock = halfmove_clock.unwrap();
                 let fullmove_count = fullmove_count.unwrap();
 
@@ -195,7 +195,7 @@ impl GamestateBuilder {
                     validity_check: ValidityCheck::Strict,
                     board,
                     active_color,
-                    castle_permissions,
+                    castle_perm,
                     en_passant,
                     halfmove_clock,
                     fullmove_count,
@@ -218,8 +218,8 @@ impl GamestateBuilder {
         self
     }
 
-    pub fn castle_permissions(mut self, castle_permissions: CastlePerm) -> Self {
-        self.castle_permissions = castle_permissions;
+    pub fn castle_perm(mut self, castle_perm: CastlePerm) -> Self {
+        self.castle_perm = castle_perm;
         self
     }
 
@@ -247,7 +247,7 @@ impl GamestateBuilder {
         let mut gamestate = Gamestate {
             board: self.board.clone(),
             active_color: self.active_color,
-            castle_permissions: self.castle_permissions,
+            castle_perm: self.castle_perm,
             en_passant: self.en_passant,
             halfmove_clock: self.halfmove_clock,
             fullmove_count: self.fullmove_count,
@@ -276,7 +276,7 @@ impl Default for GamestateBuilder {
 pub struct Gamestate {
     board: Board,
     active_color: Color,
-    castle_permissions: CastlePerm,
+    castle_perm: CastlePerm,
     en_passant: Option<Square64>,
     /// number of moves both players have made since last pawn advance of piece capture
     halfmove_clock: u8,
@@ -290,7 +290,7 @@ impl Default for Gamestate {
     fn default() -> Self {
         GamestateBuilder::new_with_board(Board::default())
             .validity_check(ValidityCheck::Basic)
-            .castle_permissions(CastlePerm(0b_1111))
+            .castle_perm(CastlePerm(0b_1111))
             .build()
             .expect("starting gamestate should never fail to build")
     }
@@ -317,7 +317,7 @@ impl fmt::Display for Gamestate {
                 writeln!(f, "None");
             }
         }
-        writeln!(f, "Castle Permissions: {}", self.castle_permissions);
+        writeln!(f, "Castle Permissions: {}", self.castle_perm);
         writeln!(f, "Position Key: {}", self.position_key)
     }
 }
@@ -329,14 +329,14 @@ impl Gamestate {
         // Save current active_color before we toggle it
         let initial_active_color = self.active_color;
 
-        // TODO: some of these checks are expensive and redundant
+        // TODO: consider tradeoff with calling self.check_gamestate()
         // Check if move_ is valid
         move_.check_move()?;
 
         // Set up ability to Undo this move
         let undo = Undo {
             move_,
-            castle_permissions: self.castle_permissions,
+            castle_perm: self.castle_perm,
             en_passant: self.en_passant,
             halfmove_clock: self.halfmove_clock,
             position_key: self.position_key,
@@ -362,7 +362,7 @@ impl Gamestate {
             }
         }
 
-        // deal with castling move
+        // For castling move move associated Rook
         if move_.is_castle() {
             match end_square {
                 // White Queenside Castle. Move Rook from A1 to D1.
@@ -391,20 +391,18 @@ impl Gamestate {
             }
         }
 
-        // Reset en_passant (they expire after a move)
-        self.en_passant = None;
-
         // Reset position_key
         if let Some(en_passant) = self.en_passant {
             self.position_key.hash_en_passant(Square::from(en_passant));
         }
-        self.position_key.hash_castle_perm(self.castle_permissions);
+        self.position_key.hash_castle_perm(self.castle_perm);
 
-        // Update castle_permissions
-        self.castle_permissions.update(start_square, end_square);
-        // Update position_key for updated castle_permissions (may or may not
+
+        // Update castle_perm
+        self.castle_perm.update(start_square, end_square);
+        // Update position_key for updated castle_perm (may or may not
         // have changed)
-        self.position_key.hash_castle_perm(self.castle_permissions);
+        self.position_key.hash_castle_perm(self.castle_perm);
 
         // Deal with captured pieces and fifty-move rule
         match move_.get_piece_captured()? {
@@ -422,10 +420,13 @@ impl Gamestate {
             self.fullmove_count += 1;
         }
 
-        // Check if new en_passant square was created
+        // Reset en_passant (they expire after a move)
+        self.en_passant = None;
+
         let moved_piece =
             self.board.pieces[start_square as usize].ok_or(MakeMoveError::MovedPieceNotInPieces)?;
 
+        // Check if new en_passant square was created
         if moved_piece.is_pawn() {
             // fifty-move rule. reset half moves since last capture or pawn move
             self.halfmove_clock = 0;
@@ -458,7 +459,7 @@ impl Gamestate {
             self.add_piece(end_square, promoted_piece);
         }
 
-        // TODO: check if can be removed. probably redundant
+        // TODO: check if can be removed.
         // Update king
         if moved_piece.is_king() {
             self.board.kings_square[self.active_color as usize] = Some(end_square);
@@ -675,7 +676,7 @@ impl Gamestate {
                 let non_active_color = Color::Black;
 
                 // Check if White has Kingside Castling Permission
-                if (self.castle_permissions.0 & (Castle::WhiteKing as u8)) > 0
+                if (self.castle_perm.0 & (Castle::WhiteKing as u8)) > 0
                     // Check that squares between King and Rook are empty
                     && self.board.pieces[Square::F1 as usize].is_none()
                     && self.board.pieces[Square::G1 as usize].is_none()
@@ -700,7 +701,7 @@ impl Gamestate {
                 }
 
                 // Check if White has Queenside Castling Permission
-                if (self.castle_permissions.0 & (Castle::WhiteQueen as u8)) > 0
+                if (self.castle_perm.0 & (Castle::WhiteQueen as u8)) > 0
                     && self.board.pieces[Square::D1 as usize].is_none()
                     && self.board.pieces[Square::C1 as usize].is_none()
                     && self.board.pieces[Square::B1 as usize].is_none()
@@ -723,7 +724,7 @@ impl Gamestate {
                 let non_active_color = Color::White;
 
                 // Check if Black has Kingside Castling Permission
-                if (self.castle_permissions.0 & (Castle::BlackKing as u8)) > 0
+                if (self.castle_perm.0 & (Castle::BlackKing as u8)) > 0
                     && self.board.pieces[Square::F8 as usize].is_none()
                     && self.board.pieces[Square::G8 as usize].is_none()
                     && !self.is_square_attacked(non_active_color, Square::E8)
@@ -742,7 +743,7 @@ impl Gamestate {
                 }
 
                 // Check if Black has Queenside Castling Permission
-                if (self.castle_permissions.0 & (Castle::BlackQueen as u8)) > 0
+                if (self.castle_perm.0 & (Castle::BlackQueen as u8)) > 0
                     && self.board.pieces[Square::D8 as usize].is_none()
                     && self.board.pieces[Square::C8 as usize].is_none()
                     && self.board.pieces[Square::B8 as usize].is_none()
@@ -1175,7 +1176,7 @@ impl Gamestate {
             .expect("Mutex holding ZOBRIST should not be poisoned")
             .castle_keys;
 
-        position_key ^= castle_keys[self.castle_permissions.0 as usize];
+        position_key ^= castle_keys[self.castle_perm.0 as usize];
 
         self.position_key = PositionKey(position_key);
     }
@@ -1390,8 +1391,8 @@ impl Gamestate {
         fen.push(self.active_color.into());
         fen.push(' ');
 
-        // castle_permissions
-        fen.push_str(self.castle_permissions.to_string().as_str());
+        // castle_perm
+        fen.push_str(self.castle_perm.to_string().as_str());
         fen.push(' ');
 
         // en_passant
@@ -1583,8 +1584,8 @@ mod tests {
 
         // active_color
         assert_eq!(output.active_color, expected.active_color);
-        // castle_permissions
-        assert_eq!(output.castle_permissions, expected.castle_permissions);
+        // castle_perm
+        assert_eq!(output.castle_perm, expected.castle_perm);
         // en_passant
         assert_eq!(output.en_passant, expected.en_passant);
         // halfmove_clock
@@ -3432,7 +3433,7 @@ mod tests {
         // };
 
         let active_color = Color::White;
-        let castle_permissions = CastlePerm::default();
+        let castle_perm = CastlePerm::default();
         let en_passant = None;
         let halfmove_clock = 0;
         let fullmove_count = 1;
@@ -3442,7 +3443,7 @@ mod tests {
         let expected = Ok(Gamestate {
             board,
             active_color,
-            castle_permissions,
+            castle_perm,
             en_passant,
             halfmove_clock,
             fullmove_count,
@@ -3460,10 +3461,10 @@ mod tests {
             output.as_ref().unwrap().active_color,
             expected.as_ref().unwrap().active_color
         );
-        // castle_permissions
+        // castle_perm
         assert_eq!(
-            output.as_ref().unwrap().castle_permissions,
-            expected.as_ref().unwrap().castle_permissions
+            output.as_ref().unwrap().castle_perm,
+            expected.as_ref().unwrap().castle_perm
         );
         // en_passant
         assert_eq!(
@@ -3557,7 +3558,7 @@ mod tests {
         // };
 
         let active_color = Color::White;
-        let castle_permissions = CastlePerm::try_from(0).unwrap();
+        let castle_perm = CastlePerm::try_from(0).unwrap();
         let en_passant = None;
         let halfmove_clock = 0;
         let fullmove_count = 2;
@@ -3570,7 +3571,7 @@ mod tests {
         let gamestate = Gamestate {
             board,
             active_color,
-            castle_permissions,
+            castle_perm,
             en_passant,
             halfmove_clock,
             fullmove_count,
@@ -3667,7 +3668,7 @@ mod tests {
         println!("{}", board);
 
         let active_color = Color::White;
-        let castle_permissions = CastlePerm::try_from(0).unwrap();
+        let castle_perm = CastlePerm::try_from(0).unwrap();
         let en_passant = None;
         let halfmove_clock = 0;
         let fullmove_count = 2;
@@ -3679,7 +3680,7 @@ mod tests {
         let gamestate = Gamestate {
             board,
             active_color,
-            castle_permissions,
+            castle_perm,
             en_passant,
             halfmove_clock,
             fullmove_count,
@@ -3772,7 +3773,7 @@ mod tests {
         //     ]
         // };
         let active_color = Color::White;
-        let castle_permissions = CastlePerm::try_from(0).unwrap();
+        let castle_perm = CastlePerm::try_from(0).unwrap();
         let en_passant = None;
         let halfmove_clock = 0;
         let fullmove_count = 1;
@@ -3784,7 +3785,7 @@ mod tests {
         let gamestate = Gamestate {
             board,
             active_color,
-            castle_permissions,
+            castle_perm,
             en_passant,
             halfmove_clock,
             fullmove_count,
@@ -3879,14 +3880,14 @@ mod tests {
                         );
         let expected_active_color_start = "White";
         let expected_en_passant_start = "None";
-        let expected_castle_permissions_start = "KQkq";
+        let expected_castle_perm_start = "KQkq";
         let expected_position_key_start = gs_start.position_key;
         let expected_start = format!(
                                             "{}\nActive Color: {}\nEn Passant: {}\nCastle Permissions: {}\nPosition Key: {}\n", 
                                             expected_board_start,
                                             expected_active_color_start,
                                             expected_en_passant_start,
-                                            expected_castle_permissions_start,
+                                            expected_castle_perm_start,
                                             expected_position_key_start
                                         );
 
@@ -3904,14 +3905,14 @@ mod tests {
                         );
         let expected_active_color_wpe4 = "Black";
         let expected_en_passant_wpe4 = "E3"; 
-        let expected_castle_permissions_wpe4 = "KQkq";
+        let expected_castle_perm_wpe4 = "KQkq";
         let expected_position_key_wpe4 = gs_wpe4.position_key;
         let expected_wpe4 = format!(
                                             "{}\nActive Color: {}\nEn Passant: {}\nCastle Permissions: {}\nPosition Key: {}\n", 
                                             expected_board_wpe4,
                                             expected_active_color_wpe4,
                                             expected_en_passant_wpe4,
-                                            expected_castle_permissions_wpe4,
+                                            expected_castle_perm_wpe4,
                                             expected_position_key_wpe4
                                         );
 
@@ -3928,14 +3929,14 @@ mod tests {
                         );
         let expected_active_color_bpc5 = "White";
         let expected_en_passant_bpc5 = "C6"; 
-        let expected_castle_permissions_bpc5 = "KQkq";
+        let expected_castle_perm_bpc5 = "KQkq";
         let expected_position_key_bpc5 = gs_bpc5.position_key;
         let expected_bpc5 = format!(
                                             "{}\nActive Color: {}\nEn Passant: {}\nCastle Permissions: {}\nPosition Key: {}\n", 
                                             expected_board_bpc5,
                                             expected_active_color_bpc5,
                                             expected_en_passant_bpc5,
-                                            expected_castle_permissions_bpc5,
+                                            expected_castle_perm_bpc5,
                                             expected_position_key_bpc5
                                         );
 
@@ -3952,14 +3953,14 @@ mod tests {
                         );
         let expected_active_color_wnf3 = "Black";
         let expected_en_passant_wnf3 = "None";
-        let expected_castle_permissions_wnf3 = "KQkq";
+        let expected_castle_perm_wnf3 = "KQkq";
         let expected_position_key_wnf3 = gs_wnf3.position_key;
         let expected_wnf3 = format!(
                                             "{}\nActive Color: {}\nEn Passant: {}\nCastle Permissions: {}\nPosition Key: {}\n", 
                                             expected_board_wnf3,
                                             expected_active_color_wnf3,
                                             expected_en_passant_wnf3,
-                                            expected_castle_permissions_wnf3,
+                                            expected_castle_perm_wnf3,
                                             expected_position_key_wnf3
                                         );
 
@@ -4100,7 +4101,7 @@ mod tests {
             BoardBuilder::new_with_pieces(pieces).build().unwrap(),
         )
         .active_color(Color::White)
-        .castle_permissions(CastlePerm::default())
+        .castle_perm(CastlePerm::default())
         .en_passant(Some(Square64::E6))
         .halfmove_clock(0)
         .fullmove_count(3)

@@ -218,6 +218,7 @@ impl Move {
             }
         }
 
+        // TODO: expected Rank check is not redundant
         if en_passant {
             // check that moved piece is the appropriate pawn given the en_passant
             let mut expected_piece = Piece::WhitePawn;
@@ -305,6 +306,7 @@ impl Move {
                 _ => return Err(MoveValidityError::PromotionNonPawnMoved { piece_moved }),
             }
 
+            // TODO: Non-redundant check
             // Can't promote to pawn
             if piece.is_pawn() {
                 return Err(MoveValidityError::PromotionToPawn);
