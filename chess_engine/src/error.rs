@@ -70,6 +70,12 @@ pub enum MakeMoveError {
 }
 
 #[derive(Error, Debug, PartialEq)]
+pub enum MoveBuilderError {
+    #[error(transparent)]
+    MoveValidity(#[from] MoveValidityError),
+}
+
+#[derive(Error, Debug, PartialEq)]
 pub enum MoveValidityError {
     #[error(transparent)]
     MoveDeserialize(#[from] MoveDeserializeError),

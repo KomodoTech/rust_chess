@@ -3,7 +3,7 @@ use std::fmt;
 use crate::{
     board::NUM_BOARD_COLUMNS,
     color::Color,
-    error::{MoveDeserializeError, MoveValidityError},
+    error::{MoveBuilderError, MoveDeserializeError, MoveValidityError},
     gamestate::{Gamestate, ValidityCheck},
     piece::{Piece, PieceType},
     rank::Rank,
@@ -76,6 +76,92 @@ impl fmt::Display for MoveList {
     }
 }
 
+//============================== MOVE BUILDER =================================
+#[derive(Debug)]
+pub struct MoveBuilder {
+    validity_check: ValidityCheck,
+    start: Square,
+    end: Square,
+    piece_captured: Option<Piece>,
+    en_passant: bool,
+    pawn_start: bool,
+    piece_promoted: Option<Piece>,
+    castle: bool,
+    piece_moved: Piece,
+}
+
+impl MoveBuilder {
+    pub fn new(start: Square, end: Square, piece_moved: Piece) -> Self {
+        MoveBuilder {
+            validity_check: ValidityCheck::Basic,
+            start,
+            end,
+            piece_captured: None,
+            en_passant: false,
+            pawn_start: false,
+            piece_promoted: None,
+            castle: false,
+            piece_moved,
+        }
+    }
+
+    pub fn validity_check(&mut self, validity_check: ValidityCheck) -> &mut Self {
+        self.validity_check = validity_check;
+        self
+    }
+
+    pub fn piece_captured(&mut self, piece_captured: Option<Piece>) -> &mut Self {
+        self.piece_captured = piece_captured;
+        self
+    }
+
+    pub fn en_passant(&mut self, piece_captured: Option<Piece>) -> &mut Self {
+        self.en_passant = true;
+        self.piece_captured = piece_captured;
+        self
+    }
+
+    pub fn pawn_start(&mut self) -> &mut Self {
+        self.pawn_start = true;
+        self
+    }
+
+    pub fn piece_promoted(&mut self, piece_promoted: Option<Piece>) -> &mut Self {
+        self.piece_promoted = piece_promoted;
+        self
+    }
+
+    pub fn castle(&mut self) -> &mut Self {
+        self.castle = true;
+        self
+    }
+
+    pub fn build(&mut self) -> Result<Move, MoveBuilderError> {
+        let move_ = Move {
+            move_: (self.start as u32)
+                | ((self.end as u32) << MOVE_END_SHIFT)
+                | (self.piece_captured.map_or_else(
+                    || 0,
+                    |p| (p as u32) + 1, // add 1 to make room for 0 to indicate absence
+                ) << MOVE_PIECE_CAPTURED_SHIFT)
+                | ((self.en_passant as u32) * MOVE_EN_PASSANT_MASK)
+                | ((self.pawn_start as u32) * MOVE_PAWN_START_MASK)
+                | (self.piece_promoted.map_or_else(|| 0, |p| (p as u32) + 1)
+                    << MOVE_PIECE_PROMOTED_SHIFT)
+                | ((self.castle as u32) * MOVE_CASTLE_MASK)
+                | (((self.piece_moved as u32) + 1) << MOVE_PIECE_MOVED_SHIFT),
+            score: 0,
+        };
+
+        match self.validity_check {
+            ValidityCheck::Strict => Ok(*move_.check_move_strict()?),
+            // TODO: for now do redundant checks and then after we have a good perft setup we will refactor
+            ValidityCheck::Move => Ok(*move_.check_move_strict()?),
+            ValidityCheck::Basic => Ok(*move_.check_move()?),
+        }
+    }
+}
+
 //============================== MOVE STRUCTURE ===============================
 
 /// Information that defines a move is stored in a 32-bit word with the following format
@@ -99,7 +185,7 @@ pub struct Move {
     score: u16,
 }
 
-// TODO: make builder for Move if performance allows it
+// TODO: remove direct constructor if performance allows
 impl Move {
     /// IMPORTANT: Keep in mind that Piece 0 is a White Pawn but inside move 0
     /// symbolizes absence.
@@ -132,10 +218,191 @@ impl Move {
     // have a real performance cost, and a lot of these are redundant. Evaluate carefully
     // Once perft testing is done, maybe comment a bunch of them out. The one that probably
     // needs to stay is the promotion check to make sure you aren't promoting into a pawn
+    pub fn check_move(&self) -> Result<&Self, MoveValidityError> {
+        let start_square = self.get_start()?;
+        let start_rank = start_square.get_rank();
+        let end_square = self.get_end()?;
+        let end_rank = end_square.get_rank();
+
+        let en_passant = self.is_en_passant();
+        let pawn_start = self.is_pawn_start();
+        let piece_promoted = self.get_piece_promoted()?;
+        let piece_captured = self.get_piece_captured()?;
+        let castle = self.is_castle();
+        let piece_moved = self.get_piece_moved()?;
+
+        let active_color = piece_moved.get_color();
+        let piece_moved_type = piece_moved.get_piece_type();
+
+        // Check that if piece is captured, it's of the opposite color
+        match piece_captured {
+            Some(captured_piece) => match active_color {
+                Color::White => {
+                    if let Color::White = captured_piece.get_color() {
+                        return Err(MoveValidityError::CaptureActiveColor { captured_piece });
+                    }
+                }
+                Color::Black => {
+                    if let Color::Black = captured_piece.get_color() {
+                        return Err(MoveValidityError::CaptureActiveColor { captured_piece });
+                    }
+                }
+            },
+            // if no piece was captured, then en_passant can't be true
+            None => {
+                if en_passant {
+                    return Err(MoveValidityError::EnPassantNoCapture);
+                }
+            }
+        }
+
+        if pawn_start {
+            // pawn start implies a pawn move
+            if piece_moved_type != PieceType::Pawn {
+                return Err(MoveValidityError::PawnStartNonPawnMoved { piece_moved });
+            }
+
+            // pawn_starts can't be captures, castling, en passant, nor promotions
+            if (piece_captured.is_some() || castle || en_passant || piece_promoted.is_some()) {
+                return Err(MoveValidityError::PawnStartExclusive);
+            }
+
+            // check that pawn_start is consistent with rank
+            let mut pawn_start_expected_rank = Rank::Rank2;
+            // check that pawn_start ends two spaces "ahead"
+            let mut pawn_start_consistent_end_square = false;
+            match active_color {
+                Color::White => {
+                    if (end_square - (2 * NUM_BOARD_COLUMNS) as i8)? == start_square {
+                        pawn_start_consistent_end_square = true;
+                    }
+                }
+                Color::Black => {
+                    pawn_start_expected_rank = Rank::Rank7;
+                    if (end_square + (2 * NUM_BOARD_COLUMNS) as i8)? == start_square {
+                        pawn_start_consistent_end_square = true;
+                    }
+                }
+            }
+
+            if start_rank != pawn_start_expected_rank {
+                return Err(MoveValidityError::RankPawnStartMismatch {
+                    active_color,
+                    start_square,
+                    start_rank,
+                });
+            }
+
+            if !pawn_start_consistent_end_square {
+                return Err(MoveValidityError::PawnStartNotMovingTwoSpacesAhead {
+                    start_square,
+                    end_square,
+                });
+            }
+        }
+
+        if en_passant {
+            // check that moved piece is the appropriate pawn given the en_passant
+            let mut expected_piece = Piece::WhitePawn;
+            // check that end square is on right rank given that move is en_passant
+            let mut en_passant_expected_rank = Rank::Rank6;
+
+            if let Color::Black = active_color {
+                expected_piece = Piece::BlackPawn;
+                en_passant_expected_rank = Rank::Rank3;
+            }
+
+            if piece_moved != expected_piece {
+                return Err(MoveValidityError::EnPassantWrongPieceMoved {
+                    piece_moved,
+                    expected_piece,
+                });
+            }
+
+            if end_rank != en_passant_expected_rank {
+                return Err(MoveValidityError::EnPassantWrongRank {
+                    end_square,
+                    expected_rank: en_passant_expected_rank,
+                });
+            }
+        }
+
+        if castle {
+            match piece_moved {
+                // Check that castle move initiated by king
+                Piece::WhiteKing => {
+                    // Check that the start_square and the end_square are consistent
+                    if start_square != Square::E1 {
+                        return Err(MoveValidityError::CastleStartSquare {
+                            start_square,
+                            piece_moved,
+                        });
+                    }
+                    if (end_square != Square::C1) && (end_square != Square::G1) {
+                        return Err(MoveValidityError::CastleEndSquare {
+                            end_square,
+                            piece_moved,
+                        });
+                    }
+                }
+                Piece::BlackKing => {
+                    if start_square != Square::E8 {
+                        return Err(MoveValidityError::CastleStartSquare {
+                            start_square,
+                            piece_moved,
+                        });
+                    }
+                    if (end_square != Square::C8) && (end_square != Square::G8) {
+                        return Err(MoveValidityError::CastleEndSquare {
+                            end_square,
+                            piece_moved,
+                        });
+                    }
+                }
+                _ => return Err(MoveValidityError::NonKingInitiatedCastle),
+            }
+        }
+
+        if let Some(piece) = piece_promoted {
+            // Check that piece_moved is the appropriate pawn
+            // Check that the end_square is of the appropriate rank
+            match piece_moved {
+                Piece::WhitePawn => {
+                    if end_rank != Rank::Rank8 {
+                        return Err(MoveValidityError::PromotionEndRank {
+                            end_square,
+                            active_color,
+                        });
+                    }
+                }
+                Piece::BlackPawn => {
+                    if end_rank != Rank::Rank1 {
+                        return Err(MoveValidityError::PromotionEndRank {
+                            end_square,
+                            active_color,
+                        });
+                    }
+                }
+                _ => return Err(MoveValidityError::PromotionNonPawnMoved { piece_moved }),
+            }
+
+            // Can't promote to pawn
+            if piece.is_pawn() {
+                return Err(MoveValidityError::PromotionToPawn);
+            }
+
+            // Check that promotion is matching color
+            if piece.get_color() != active_color {
+                return Err(MoveValidityError::PromotedToNonActiveColorPiece);
+            }
+        }
+
+        Ok(self)
+    }
 
     /// Additional checks that can be made when making moves to make sure that
     /// the move is consistent
-    pub fn check_move(&self) -> Result<(), MoveValidityError> {
+    pub fn check_move_strict(&self) -> Result<&Self, MoveValidityError> {
         let start_square = self.get_start()?;
         let start_rank = start_square.get_rank();
         let end_square = self.get_end()?;
@@ -318,7 +585,7 @@ impl Move {
             }
         }
 
-        Ok(())
+        Ok(self)
     }
 
     pub fn get_start(&self) -> Result<Square, MoveDeserializeError> {

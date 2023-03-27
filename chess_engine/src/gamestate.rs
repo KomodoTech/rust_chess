@@ -45,26 +45,28 @@ pub struct Undo {
     position_key: PositionKey,
 }
 
-// NOTE: There might be more variants in the future like Strict, or Chess960
-// TODO: consider actually using the builder pattern here to construct more flexible group of checks down the road
-// TODO: the invalid square check is not necessary when you create a board from a FEN actually. Potentially
-// rework the modes in order to remove that extra work. If Validity Checks get built with builders this could
-// actually be fairly easy to do. Create a director class to have easy "recipes" for building from FEN for example
-
-/// Mode explanation:
+// NOTE: There might be more variants in the future like Chess960, or editor mode
+/// MODE EXPLANATION:
 ///
-/// For Board:
-/// Basic : If you pass in pieces, the type system will give you basic guarantees. If you pass in a FEN,
-/// then Basic mode will make sure that that FEN has 8 sections, each rank FEN corresponds to the correct number of squares,
-/// and each symbol corresponds to a valid Piece. This mode can be useful for testing purposes.
+/// Strict: Denotes a bunch of checks that will, in isolation, try to make sure that your
+///         Gamestate/Board are valid (as much as posible). This one should be used when
+///         initially building the Gamestate/Board.
 ///
+/// Move: Denotes the tests that are going to be run
+///       each time a move is made. These tests are not sufficient in isolation to
+///       check for validity, but these should be the subset of tests that aren't
+///       redundant given that there are other parts of the code testing things.
+///       We do this for performance. This mode should be used when a move is made.
+///       Making a move can assume that the Gamestate/Board are valid.
 ///
-/// Strict: Strict mode adds additional checks to make sure that the board is valid given the rules of regular chess.
-///
+/// Basic: tests as little as possible. Just enough so that you can get tests up and
+///        running (e.g. FEN is parseable, etc.). Used for testing, and other circumstances
+///        where you don't care about validity.
 #[derive(Debug, Clone, Copy)]
 pub enum ValidityCheck {
-    Basic,
     Strict,
+    Move,
+    Basic,
 }
 
 #[derive(Debug)]
@@ -325,11 +327,115 @@ impl fmt::Display for Gamestate {
 impl Gamestate {
     //================================= MAKING MOVES ==========================
 
+    /// If successful it will return the Move that was undone
+    pub fn undo_move(&mut self) -> Result<Move, MakeMoveError> {
+        self.check_gamestate(ValidityCheck::Move);
+
+        // Rewind fullmove_count if you're undoing Black's Move (aka currently White's Move)
+        if self.active_color == Color::White {
+            self.fullmove_count -= 1;
+        }
+
+        let history_ply = to_ply_count!(self.fullmove_count, self.active_color);
+
+        // Grab the Move that you want to undo
+        let move_ = self.history[history_ply].move_;
+
+        // Move we are trying to undo can be assumed to have been properly encoded
+        let start_square = Square::try_from(move_.get_start_raw())?;
+        let end_square = Square::try_from(move_.get_end_raw())?;
+
+        // Reset current state in position key
+        if let Some(en_passant) = self.en_passant {
+            self.position_key.hash_en_passant(Square::from(en_passant));
+        }
+        self.position_key.hash_castle_perm(self.castle_perm);
+
+        // Reset to previous state
+        self.castle_perm = self.history[history_ply].castle_perm;
+        self.halfmove_clock = self.history[history_ply].halfmove_clock;
+        self.en_passant = self.history[history_ply].en_passant;
+
+        if let Some(en_passant) = self.en_passant {
+            self.position_key.hash_en_passant(Square::from(en_passant));
+        }
+        self.position_key.hash_castle_perm(self.castle_perm);
+
+        self.active_color.toggle();
+        self.position_key.hash_color();
+
+        // deal with the previous Move being an en_passant Move
+        if move_.is_en_passant() {
+            match self.active_color {
+                // active_color is now who played in the previous Move
+                Color::White => {
+                    // add the pawn back
+                    let square_to_add = (end_square - (NUM_BOARD_COLUMNS as i8))?;
+                    self.add_piece(square_to_add, Piece::BlackPawn)?;
+                }
+                Color::Black => {
+                    let square_to_add = (end_square + (NUM_BOARD_COLUMNS as i8))?;
+                    self.add_piece(square_to_add, Piece::WhitePawn)?;
+                }
+            }
+        } else if move_.is_castle() {
+            // Move rooks back
+            match end_square {
+                Square::C1 => {
+                    self.move_piece(Square::D1, Square::A1);
+                }
+                Square::G1 => {
+                    self.move_piece(Square::F1, Square::H1);
+                }
+                Square::C8 => {
+                    self.move_piece(Square::D8, Square::A8);
+                }
+                Square::G8 => {
+                    self.move_piece(Square::F8, Square::H8);
+                }
+                _ => {
+                    return Err(MakeMoveError::CastleEndSquare { end_square });
+                }
+            }
+        }
+
+        // Move piece that was moved back to previous position
+        self.move_piece(end_square, start_square);
+
+        let piece_moved = move_.get_piece_moved()?;
+
+        // Reset kings_square if needed
+        if piece_moved.is_king() {
+            self.board.kings_square[self.active_color as usize] = Some(end_square);
+        }
+
+        // Reset any captured pieces
+        if let Some(captured_piece) = move_.get_piece_captured()? {
+            if self.en_passant.is_none() {
+                self.add_piece(end_square, captured_piece);
+            }
+        }
+
+        if move_.is_promotion() {
+            // when we call move_piece earlier we would have moved the promoted piece
+            // so we must clear it and then add back a pawn
+            self.clear_piece(start_square);
+            let pawn = match self.active_color {
+                Color::White => Piece::WhitePawn,
+                Color::Black => Piece::BlackPawn,
+            };
+            self.add_piece(start_square, pawn);
+        }
+
+        self.check_gamestate(ValidityCheck::Move)?;
+
+        Ok(move_)
+    }
+
     pub fn make_move(&mut self, move_: Move) -> Result<(), MakeMoveError> {
         // Save current active_color before we toggle it
         let initial_active_color = self.active_color;
 
-        // TODO: consider tradeoff with calling self.check_gamestate()
         // Check if move_ is valid
         move_.check_move()?;
 
@@ -360,10 +466,8 @@ impl Gamestate {
                     self.clear_piece(square_to_clear)?;
                 }
             }
-        }
-
-        // For castling move move associated Rook
-        if move_.is_castle() {
+        } else if move_.is_castle() {
+            // For castling move move associated Rook
             match end_square {
                 // White Queenside Castle. Move Rook from A1 to D1.
                 // Presumably King has moved from E1 to C1
@@ -378,7 +482,7 @@ impl Gamestate {
                 // Black Queenside Castle. Move Rook from A8 to D8.
                 // Presumably King has moved from E8 to C8
                 Square::C8 => {
-                    self.move_piece(Square::A1, Square::D1);
+                    self.move_piece(Square::A8, Square::D8);
                 }
                 // Black Kingside Castle. Move Rook from H8 to F8.
                 // Presumably King has moved from E8 to G8
@@ -397,7 +501,6 @@ impl Gamestate {
         }
         self.position_key.hash_castle_perm(self.castle_perm);
 
-
         // Update castle_perm
         self.castle_perm.update(start_square, end_square);
         // Update position_key for updated castle_perm (may or may not
@@ -405,14 +508,16 @@ impl Gamestate {
         self.position_key.hash_castle_perm(self.castle_perm);
 
         // Deal with captured pieces and fifty-move rule
-        match move_.get_piece_captured()? {
-            Some(captured_piece) => {
+        if move_.is_capture() {
+            // if en_passant, then the pawn_start that caused the en_passant
+            // will have already been checked to make sure that the end_square
+            // is empty
+            if self.en_passant.is_none() {
                 self.clear_piece(end_square);
-                self.halfmove_clock = 0;
             }
-            None => {
-                self.halfmove_clock += 1;
-            }
+            self.halfmove_clock = 0;
+        } else {
+            self.halfmove_clock += 1;
         }
 
         // Update fullmove_count if this is Black's move
@@ -423,6 +528,7 @@ impl Gamestate {
         // Reset en_passant (they expire after a move)
         self.en_passant = None;
 
+        // TODO: confirm you can just do move_.get_piece_moved()?
         let piece_moved =
             self.board.pieces[start_square as usize].ok_or(MakeMoveError::MovedPieceNotInPieces)?;
 
@@ -455,6 +561,7 @@ impl Gamestate {
 
         // Deal with promotions
         if let Some(promoted_piece) = move_.get_piece_promoted()? {
+            // NOTE: this is after move so you're clearing the Pawn
             self.clear_piece(end_square);
             self.add_piece(end_square, promoted_piece);
         }
@@ -470,9 +577,9 @@ impl Gamestate {
         self.position_key.hash_color();
 
         // TODO: is this necessary?
-        self.check_gamestate(ValidityCheck::Strict)?;
+        self.check_gamestate(ValidityCheck::Move)?;
 
-        // check if move puts active color in check
+        // check if move puts active_color in check
         if (self.is_square_attacked(
             self.active_color,
             self.board.kings_square[initial_active_color as usize]
@@ -1187,13 +1294,6 @@ impl Gamestate {
         validity_check: ValidityCheck,
     ) -> Result<(), GamestateValidityCheckError> {
         if let ValidityCheck::Strict = validity_check {
-            // TODO:
-            // check that the non-active player is not in check
-            // check that the active player is checked less than 3 times
-            // check that if the active player is checked 2 times it can't be:
-            // check if active color can win in one move (not allowed)
-            // check that the castling permissions don't contradict the position of rooks and kings
-
             // check board is valid
             self.board.check_board(validity_check)?;
 
@@ -1238,6 +1338,7 @@ impl Gamestate {
             //====================== EN PASSANT CHECKS ========================
 
             if let Some(en_passant) = self.en_passant {
+                // TODO: this seems wrong, investigate
                 // Take in a Square64 so that you can't be given an invalid square but then cast it to 120 format
                 // so that we can use it as an index properly
                 let en_passant = Square::from(en_passant);
