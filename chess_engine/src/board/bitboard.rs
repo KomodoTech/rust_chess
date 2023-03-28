@@ -1,5 +1,4 @@
 use crate::{
-    error::ChessError as Error,
     file::File,
     rank::Rank,
     square::{Square, Square64},
@@ -26,7 +25,7 @@ pub struct BitBoard(pub u64);
 
 // https://stackoverflow.com/questions/30680559/how-to-find-magic-bitboards
 // TODO: generate own Magic Bitboard and implement
-// const BIT_TABLE: [Square; 64] = [
+// const BIT_TABLE: [Square; NUM_EXTERNAL_BOARD_SQUARES = [
 //     Square::H8, Square::G4, Square::D1, Square::A5, Square::B4, Square::B6, Square::G3, Square::B5,
 //     Square::H2, Square::C7, Square::C6, Square::F2, Square::D2, Square::F7, Square::D3, Square::C5,
 //     Square::F8, Square::F4, Square::C1, Square::D7, Square::F3, Square::D6, Square::F6, Square::C2,
@@ -85,21 +84,21 @@ impl BitBoard {
     // }
 
     /// Check if bit at index is set
-    pub fn check_bit(&self, index: Square64) -> bool {
-        self.0 & (1 << (index as u8)) != 0
+    pub fn check_bit(&self, square: Square64) -> bool {
+        self.0 & (1 << (square as u8)) != 0
     }
 
     /// Sets bit at index
-    pub fn set_bit(&mut self, index: Square64) {
-        self.0 |= 1 << (index as u8);
+    pub fn set_bit(&mut self, square: Square64) {
+        self.0 |= 1 << (square as u8);
     }
 
     /// Sets bit at index to 0
-    fn unset_bit(&mut self, index: Square64) {
+    pub fn unset_bit(&mut self, square: Square64) {
         // XOR will toggle value at index so we should only call it
         // if the bit at index was already set
-        if self.check_bit(index) {
-            self.0 ^= 1 << (index as u8);
+        if self.check_bit(square) {
+            self.0 ^= 1 << (square as u8);
         }
     }
 }

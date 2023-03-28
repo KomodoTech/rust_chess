@@ -19,15 +19,17 @@ use std::{
 use strum::{EnumCount, IntoEnumIterator};
 use strum_macros::{EnumCount as EnumCountMacro, EnumIter};
 
-/// Number of squares for the internal board (12x12)
-pub const NUM_BOARD_SQUARES: usize = 120;
+/// Number of squares for the internal board (10x12)
+pub const NUM_INTERNAL_BOARD_SQUARES: usize = 120;
+/// Number of squares for the external board (8x8)
+pub const NUM_EXTERNAL_BOARD_SQUARES: usize = 64;
 /// Number of columns for the internal board (10x12)
 pub const NUM_BOARD_COLUMNS: usize = 10;
 /// Number of rows for the internal board (10x12)
 pub const NUM_BOARD_ROWS: usize = 12;
 
 #[rustfmt::skip]
-const STARTING_POSITION_PIECES: [Option<Piece>; NUM_BOARD_SQUARES] = [
+const STARTING_POSITION_PIECES: [Option<Piece>; NUM_INTERNAL_BOARD_SQUARES] = [
     None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
     None, None,                   None,                     None,                     None,                    None,                   None,                     None,                     None,                   None,
     None, Some(Piece::WhiteRook), Some(Piece::WhiteKnight), Some(Piece::WhiteBishop), Some(Piece::WhiteQueen), Some(Piece::WhiteKing), Some(Piece::WhiteBishop), Some(Piece::WhiteKnight), Some(Piece::WhiteRook), None,
@@ -45,19 +47,19 @@ const STARTING_POSITION_PIECES: [Option<Piece>; NUM_BOARD_SQUARES] = [
 #[derive(Debug)]
 pub struct BoardBuilder {
     validity_check: ValidityCheck,
-    pieces: [Option<Piece>; NUM_BOARD_SQUARES],
+    pieces: [Option<Piece>; NUM_INTERNAL_BOARD_SQUARES],
 }
 
 impl BoardBuilder {
     pub fn new() -> Self {
         BoardBuilder {
             validity_check: ValidityCheck::Strict,
-            pieces: [None; NUM_BOARD_SQUARES],
+            pieces: [None; NUM_INTERNAL_BOARD_SQUARES],
         }
     }
 
     /// Constructor if you want to pass piece values all at once (you can still overwrite them later)
-    pub fn new_with_pieces(pieces: [Option<Piece>; NUM_BOARD_SQUARES]) -> Self {
+    pub fn new_with_pieces(pieces: [Option<Piece>; NUM_INTERNAL_BOARD_SQUARES]) -> Self {
         BoardBuilder {
             validity_check: ValidityCheck::Strict,
             pieces,
@@ -95,6 +97,7 @@ impl BoardBuilder {
         let mut big_piece_count: [u8; Color::COUNT] = [0; Color::COUNT];
         let mut major_piece_count: [u8; Color::COUNT] = [0; Color::COUNT];
         let mut minor_piece_count: [u8; Color::COUNT] = [0; Color::COUNT];
+        let mut material_score: [u32; Color::COUNT] = [0; Color::COUNT];
         let mut piece_list: [Vec<Square>; Piece::COUNT] = Default::default();
 
         // Note: pieces are being cloned here so that we can create multiple boards.
@@ -109,6 +112,9 @@ impl BoardBuilder {
                 let color = piece.get_color();
 
                 piece_count[piece as usize] += 1;
+
+                // update material_score
+                material_score[piece.get_color() as usize] += piece.get_value();
 
                 match piece {
                     pawn if piece.get_piece_type() == PieceType::Pawn => {
@@ -142,12 +148,13 @@ impl BoardBuilder {
             big_piece_count,
             major_piece_count,
             minor_piece_count,
+            material_score,
             piece_list,
         };
 
         // NOTE: Basic mode doesn't do any extra board checking and that's probably not going to change
         if let ValidityCheck::Strict = self.validity_check {
-            board.check_board(&self.validity_check)?;
+            board.check_board(self.validity_check)?;
         }
         Ok(board)
     }
@@ -155,8 +162,8 @@ impl BoardBuilder {
     /// Generates the pieces array of a Board struct given a board fen
     fn pieces_from_fen(
         board_fen: &str,
-    ) -> Result<[Option<Piece>; NUM_BOARD_SQUARES], BoardFenDeserializeError> {
-        let mut pieces = [None; NUM_BOARD_SQUARES];
+    ) -> Result<[Option<Piece>; NUM_INTERNAL_BOARD_SQUARES], BoardFenDeserializeError> {
+        let mut pieces = [None; NUM_INTERNAL_BOARD_SQUARES];
 
         let ranks: Vec<&str> = board_fen.split('/').collect();
         match ranks.len() {
@@ -282,15 +289,16 @@ impl Default for BoardBuilder {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Board {
     // TODO: Consider making board field private
-    pub pieces: [Option<Piece>; NUM_BOARD_SQUARES],
-    pawns: [BitBoard; Color::COUNT],
-    kings_square: [Option<Square>; Color::COUNT],
-    piece_count: [u8; Piece::COUNT],
-    big_piece_count: [u8; Color::COUNT],
-    major_piece_count: [u8; Color::COUNT],
-    minor_piece_count: [u8; Color::COUNT],
+    pub pieces: [Option<Piece>; NUM_INTERNAL_BOARD_SQUARES],
+    pub pawns: [BitBoard; Color::COUNT],
+    pub kings_square: [Option<Square>; Color::COUNT],
+    pub piece_count: [u8; Piece::COUNT],
+    pub big_piece_count: [u8; Color::COUNT],
+    pub major_piece_count: [u8; Color::COUNT],
+    pub minor_piece_count: [u8; Color::COUNT],
+    pub material_score: [u32; Color::COUNT],
     /// Stores position of each piece to avoid searching through all squares
-    piece_list: [Vec<Square>; Piece::COUNT],
+    pub piece_list: [Vec<Square>; Piece::COUNT],
 }
 
 /// Returns an a Board with the default starting position in regular chess.
@@ -311,116 +319,231 @@ impl TryFrom<&str> for Board {
 }
 
 impl Board {
+    // TODO: get rid of these
+    //======================== GETTERS ========================================
+    pub fn get_piece_count(&self) -> &[u8; Piece::COUNT] {
+        &self.piece_count
+    }
+
+    pub fn get_piece_list(&self) -> &[Vec<Square>; Piece::COUNT] {
+        &self.piece_list
+    }
+    //=========================================================================
+
     /// Checks the board to make sure that it is consistent with the ValidityCheck/mode
     pub fn check_board(
         &self,
-        validity_check: &ValidityCheck,
+        validity_check: ValidityCheck,
     ) -> Result<(), BoardValidityCheckError> {
-        // TODO:
-        // check that there aren't more than 6 pawns in a single file
-        // check minimum number of enemy missing pieces doesn't contradict number of pawns in a single file
-        // check general version of if there are white pawns in A2 and A3, there can't be one in B2
-        // pawn + (pawn || bishop || knight) ||  (knight + knight)
-        // check for non-jumpers in impossible positions
-        // look for bishops trapped behind non-enemy pawns (or behind 3 pawns)
-        // check that bishops are on squares that have the same color as them
-
-        if let ValidityCheck::Strict = validity_check {
-            // TODO: be sure that the piece counts can't go out of sync and don't need to be checked
-            // check that there is exactly one BlackKing and one WhiteKing
-            if !(self.piece_count[Piece::WhiteKing as usize] == 1
-                && self.piece_count[Piece::BlackKing as usize] == 1)
-            {
-                return Err(BoardValidityCheckError::StrictOneBlackKingOneWhiteKing {
-                    num_white_kings: self.piece_count[Piece::WhiteKing as usize],
-                    num_black_kings: self.piece_count[Piece::BlackKing as usize],
-                });
-            }
-
-            // check that kings are separated by at least 1 square
-            let white_king_square = self.kings_square[Color::White as usize]
-                .expect("White king should be on board since we checked piece_counts was 1 for it");
-            let black_king_square = self.kings_square[Color::Black as usize]
-                .expect("Black king should be on board since we checked piece_counts was 1 for it");
-            let kings_distance =
-                Square::get_chebyshev_distance(white_king_square, black_king_square);
-            if kings_distance < 2 {
-                return Err(
-                    BoardValidityCheckError::StrictKingsLessThanTwoSquaresApart {
-                        white_king_square,
-                        black_king_square,
-                        kings_distance,
-                    },
-                );
-            }
-
-            let mut num_excess_big_pieces = [0, 0];
-
-            for (index, piece_count) in self.piece_count.into_iter().enumerate() {
-                // check that the max amount of piece type leq max allowed for that piece
-                let piece = Piece::try_from(index).unwrap(); // index should always be in range 0..12
-                let max_allowed = piece.get_max_num_allowed();
-                if piece_count > max_allowed {
-                    return Err(BoardValidityCheckError::StrictExceedsMaxNumForPieceType {
-                        piece_count,
-                        piece,
-                        max_allowed,
+        match validity_check {
+            ValidityCheck::Strict => {
+                // check that there is exactly one BlackKing and one WhiteKing
+                if !(self.piece_count[Piece::WhiteKing as usize] == 1
+                    && self.piece_count[Piece::BlackKing as usize] == 1)
+                {
+                    return Err(BoardValidityCheckError::StrictOneBlackKingOneWhiteKing {
+                        num_white_kings: self.piece_count[Piece::WhiteKing as usize],
+                        num_black_kings: self.piece_count[Piece::BlackKing as usize],
                     });
                 }
 
-                let num_excess_big = piece_count as i8 - piece.get_starting_num() as i8;
-                if num_excess_big > 0 {
-                    num_excess_big_pieces[piece.get_color() as usize] += num_excess_big as u8;
-                }
-            }
-
-            // NOTE: Needs to be after check that makes sure that you can't have more than 8 pawns
-            // otherwise you can subtract with overflow
-            let num_missing_pawns = [
-                File::COUNT as u8 - self.pawns[0].count_bits(),
-                File::COUNT as u8 - self.pawns[1].count_bits(),
-            ];
-
-            // NOTE: this check is trying to detect obvious promoted pieces in conflict with number of missing pawns
-            // but if you lost a piece and then promoted to the same piece type, that can't be detected from the board
-
-            // check that there aren't more excess big pieces than missing pawns per color
-            if num_excess_big_pieces[Color::White as usize]
-                > num_missing_pawns[Color::White as usize]
-                || num_excess_big_pieces[Color::Black as usize]
-                    > num_missing_pawns[Color::Black as usize]
-            {
-                return Err(
-                    BoardValidityCheckError::StrictMoreExcessBigPiecesThanMissingPawns {
-                        num_excess_big_pieces_white: num_excess_big_pieces[Color::White as usize],
-                        num_missing_pawns_white: num_missing_pawns[Color::White as usize],
-                        num_excess_big_pieces_black: num_excess_big_pieces[Color::Black as usize],
-                        num_missing_pawns_black: num_missing_pawns[Color::Black as usize],
-                    },
+                // check that kings are separated by at least 1 square
+                let white_king_square = self.kings_square[Color::White as usize].expect(
+                    "White king should be on board since we checked piece_counts was 1 for it",
                 );
-            }
+                let black_king_square = self.kings_square[Color::Black as usize].expect(
+                    "Black king should be on board since we checked piece_counts was 1 for it",
+                );
+                let kings_distance =
+                    Square::get_chebyshev_distance(white_king_square, black_king_square);
+                if kings_distance < 2 {
+                    return Err(
+                        BoardValidityCheckError::StrictKingsLessThanTwoSquaresApart {
+                            white_king_square,
+                            black_king_square,
+                            kings_distance,
+                        },
+                    );
+                }
 
-            for (index, piece) in self.pieces.into_iter().enumerate() {
-                if let Some(piece) = piece {
-                    let square = Square::try_from(index).expect("building the board should guarantee that there are no pieces on invalid squares");
-                    match piece {
-                        Piece::WhitePawn => {
-                            // check that there aren't any WhitePawns in first rank
-                            if let Rank::Rank1 = square.get_rank() {
-                                return Err(BoardValidityCheckError::StrictWhitePawnInFirstRank);
+                let mut num_excess_big_pieces = [0, 0];
+
+                for (index, piece_count) in self.piece_count.into_iter().enumerate() {
+                    // all piece_counts are less than or equal to max allowed per piece type
+                    let piece = Piece::try_from(index).unwrap(); // index should always be in range 0..12
+                    let max_allowed = piece.get_max_num_allowed();
+                    if piece_count > max_allowed {
+                        return Err(BoardValidityCheckError::StrictExceedsMaxNumForPieceType {
+                            piece_count,
+                            piece,
+                            max_allowed,
+                        });
+                    }
+
+                    let num_excess_big = piece_count as i8 - piece.get_starting_num() as i8;
+                    if num_excess_big > 0 {
+                        num_excess_big_pieces[piece.get_color() as usize] += num_excess_big as u8;
+                    }
+                }
+
+                // NOTE: Needs to be after check that makes sure that you can't have more than 8 pawns
+                // otherwise you can subtract with overflow
+                let num_missing_pawns = [
+                    File::COUNT as u8 - self.pawns[0].count_bits(),
+                    File::COUNT as u8 - self.pawns[1].count_bits(),
+                ];
+
+                // NOTE: this check is trying to detect obvious promoted pieces in conflict with number of missing pawns
+                // but if you lost a piece and then promoted to the same piece type, that can't be detected from the board
+                // check that there aren't more excess big pieces than missing pawns per color
+                if num_excess_big_pieces[Color::White as usize]
+                    > num_missing_pawns[Color::White as usize]
+                    || num_excess_big_pieces[Color::Black as usize]
+                        > num_missing_pawns[Color::Black as usize]
+                {
+                    return Err(
+                        BoardValidityCheckError::StrictMoreExcessBigPiecesThanMissingPawns {
+                            num_excess_big_pieces_white: num_excess_big_pieces
+                                [Color::White as usize],
+                            num_missing_pawns_white: num_missing_pawns[Color::White as usize],
+                            num_excess_big_pieces_black: num_excess_big_pieces
+                                [Color::Black as usize],
+                            num_missing_pawns_black: num_missing_pawns[Color::Black as usize],
+                        },
+                    );
+                }
+
+                for (index, piece) in self.pieces.into_iter().enumerate() {
+                    if let Some(piece) = piece {
+                        let square = Square::try_from(index)
+                        .expect("building the board should guarantee that there are no pieces on invalid squares");
+                        match piece {
+                            Piece::WhitePawn => {
+                                // check that there aren't any WhitePawns in first rank
+                                if let Rank::Rank1 = square.get_rank() {
+                                    return Err(
+                                        BoardValidityCheckError::StrictWhitePawnInFirstRank,
+                                    );
+                                }
                             }
-                        }
-                        Piece::BlackPawn => {
-                            // check that there aren't any BlackPawns in last rank
-                            if let Rank::Rank8 = square.get_rank() {
-                                return Err(BoardValidityCheckError::StrictBlackPawnInLastRank);
+                            Piece::BlackPawn => {
+                                // check that there aren't any BlackPawns in last rank
+                                if let Rank::Rank8 = square.get_rank() {
+                                    return Err(BoardValidityCheckError::StrictBlackPawnInLastRank);
+                                }
                             }
+                            _ => (),
                         }
-                        _ => (),
                     }
                 }
             }
+
+            // TODO: remove redundant checks
+            ValidityCheck::Move => {
+                // check that there is exactly one BlackKing and one WhiteKing
+                if !(self.piece_count[Piece::WhiteKing as usize] == 1
+                    && self.piece_count[Piece::BlackKing as usize] == 1)
+                {
+                    return Err(BoardValidityCheckError::StrictOneBlackKingOneWhiteKing {
+                        num_white_kings: self.piece_count[Piece::WhiteKing as usize],
+                        num_black_kings: self.piece_count[Piece::BlackKing as usize],
+                    });
+                }
+
+                // check that kings are separated by at least 1 square
+                let white_king_square = self.kings_square[Color::White as usize].expect(
+                    "White king should be on board since we checked piece_counts was 1 for it",
+                );
+                let black_king_square = self.kings_square[Color::Black as usize].expect(
+                    "Black king should be on board since we checked piece_counts was 1 for it",
+                );
+                let kings_distance =
+                    Square::get_chebyshev_distance(white_king_square, black_king_square);
+                if kings_distance < 2 {
+                    return Err(
+                        BoardValidityCheckError::StrictKingsLessThanTwoSquaresApart {
+                            white_king_square,
+                            black_king_square,
+                            kings_distance,
+                        },
+                    );
+                }
+
+                let mut num_excess_big_pieces = [0, 0];
+
+                for (index, piece_count) in self.piece_count.into_iter().enumerate() {
+                    // all piece_counts are less than or equal to max allowed per piece type
+                    let piece = Piece::try_from(index).unwrap(); // index should always be in range 0..12
+                    let max_allowed = piece.get_max_num_allowed();
+                    if piece_count > max_allowed {
+                        return Err(BoardValidityCheckError::StrictExceedsMaxNumForPieceType {
+                            piece_count,
+                            piece,
+                            max_allowed,
+                        });
+                    }
+
+                    let num_excess_big = piece_count as i8 - piece.get_starting_num() as i8;
+                    if num_excess_big > 0 {
+                        num_excess_big_pieces[piece.get_color() as usize] += num_excess_big as u8;
+                    }
+                }
+
+                // NOTE: Needs to be after check that makes sure that you can't have more than 8 pawns
+                // otherwise you can subtract with overflow
+                let num_missing_pawns = [
+                    File::COUNT as u8 - self.pawns[0].count_bits(),
+                    File::COUNT as u8 - self.pawns[1].count_bits(),
+                ];
+
+                // NOTE: this check is trying to detect obvious promoted pieces in conflict with number of missing pawns
+                // but if you lost a piece and then promoted to the same piece type, that can't be detected from the board
+                // check that there aren't more excess big pieces than missing pawns per color
+                if num_excess_big_pieces[Color::White as usize]
+                    > num_missing_pawns[Color::White as usize]
+                    || num_excess_big_pieces[Color::Black as usize]
+                        > num_missing_pawns[Color::Black as usize]
+                {
+                    return Err(
+                        BoardValidityCheckError::StrictMoreExcessBigPiecesThanMissingPawns {
+                            num_excess_big_pieces_white: num_excess_big_pieces
+                                [Color::White as usize],
+                            num_missing_pawns_white: num_missing_pawns[Color::White as usize],
+                            num_excess_big_pieces_black: num_excess_big_pieces
+                                [Color::Black as usize],
+                            num_missing_pawns_black: num_missing_pawns[Color::Black as usize],
+                        },
+                    );
+                }
+
+                for (index, piece) in self.pieces.into_iter().enumerate() {
+                    if let Some(piece) = piece {
+                        let square = Square::try_from(index)
+                        .expect("building the board should guarantee that there are no pieces on invalid squares");
+                        match piece {
+                            Piece::WhitePawn => {
+                                // check that there aren't any WhitePawns in first rank
+                                if let Rank::Rank1 = square.get_rank() {
+                                    return Err(
+                                        BoardValidityCheckError::StrictWhitePawnInFirstRank,
+                                    );
+                                }
+                            }
+                            Piece::BlackPawn => {
+                                // check that there aren't any BlackPawns in last rank
+                                if let Rank::Rank8 = square.get_rank() {
+                                    return Err(BoardValidityCheckError::StrictBlackPawnInLastRank);
+                                }
+                            }
+                            _ => (),
+                        }
+                    }
+                }
+            }
+
+            ValidityCheck::Basic => (),
         }
+
         Ok(())
     }
 
@@ -493,7 +616,7 @@ impl Board {
 
     // /// Clears board
     // pub fn clear_board(&mut self) {
-    //     self.pieces = [None; NUM_BOARD_SQUARES];
+    //     self.pieces = [None; NUM_INTERNAL_BOARD_SQUARES];
     //     self.pawns = [BitBoard(0); Color::COUNT];
     //     self.kings_square = [None; Color::COUNT];
     //     self.big_piece_count = [0; Color::COUNT];
@@ -598,6 +721,7 @@ mod tests {
         big_piece_count: [0, 0],
         major_piece_count: [0, 0],
         minor_piece_count: [0, 0],
+        material_score: [0, 0],
         piece_list: [ vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![], vec![]]
     };
 
@@ -663,6 +787,7 @@ mod tests {
             // NOTE: King considered major piece for us
             major_piece_count: [4, 4],
             minor_piece_count: [4, 4],
+            material_score: [54_200, 54_200],
             piece_list: [
                 // WhitePawns
                 vec![Square::A2, Square::B2, Square::C2, Square::D2, Square::E2, Square::F2, Square::G2, Square::H2],
@@ -865,8 +990,8 @@ mod tests {
                 num_excess_big_pieces_white: 1,
                 num_missing_pawns_white: 0,
                 num_excess_big_pieces_black: 0,
-                num_missing_pawns_black: 8
-            }
+                num_missing_pawns_black: 8,
+            },
         ));
 
         assert_eq!(output, expected);
@@ -930,6 +1055,7 @@ mod tests {
             big_piece_count: [1, 1],
             major_piece_count: [1, 1],
             minor_piece_count: [0, 0],
+            material_score: [50_000, 50_100],
             piece_list: [
                 // WhitePawns
                 vec![],
@@ -1134,6 +1260,7 @@ mod tests {
             big_piece_count: [0, 1],
             major_piece_count: [0, 0],
             minor_piece_count: [0, 1],
+            material_score: [0, 0],
             piece_list: [
                 // WhitePawns
                 vec![],
@@ -1194,6 +1321,7 @@ mod tests {
             big_piece_count: [4, 6],
             major_piece_count: [3, 4],
             minor_piece_count: [1, 2],
+            material_score: [51_425, 52_750],
             piece_list: [
                 // WhitePawns
                 vec![],
@@ -1291,7 +1419,7 @@ mod tests {
             big_piece_count: [8, 8],
             major_piece_count: [4, 4],
             minor_piece_count: [4, 4],
-
+            material_score: [54_200, 54_200],
             piece_list: [
                 // WhitePawns
                 vec![Square::B2, Square::C2, Square::F2, Square::G2, Square::H2, Square::A3, Square::D3, Square::E4],

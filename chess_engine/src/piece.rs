@@ -1,6 +1,7 @@
 use crate::{color::Color, error::PieceConversionError};
 
 use std::fmt::{self, write};
+
 use strum::EnumCount;
 use strum_macros::EnumCount as EnumCountMacro;
 
@@ -9,22 +10,26 @@ const PIECE_BIG: [bool; Piece::COUNT] = [
     //wp     wn    wb    wr    wq    wk    bp     bn    bb    br    bq    bk
     false, true, true, true, true, true, false, true, true, true, true, true,
 ];
+
 // NOTE: in most chess vocabulary King is not a major piece, but here it is considered one
 const PIECE_MAJOR: [bool; Piece::COUNT] = [
     // wp  wn     wb     wr    wq    wk    bp     bn     bb     br    bq    bk
     false, false, false, true, true, true, false, false, false, true, true, true,
 ];
+
 const PIECE_MINOR: [bool; Piece::COUNT] = [
     // wp  wn    wb    wr     wq     wk     bp     bn    bb    br     bq     bk
     false, true, true, false, false, false, false, true, true, false, false, false,
 ];
-const PIECE_SLIDING: [bool; Piece::COUNT] = [
-    // wp  wn     wb    wr    wq    wk     bp     bn     bb    br    bq    bk
-    false, false, true, true, true, false, false, false, true, true, true, false,
-];
+
 const PIECE_VALUE: [u32; Piece::COUNT] = [
     //wp wn   wb   wr   wq     wk      bp   bn   bb   br   bq     bk
     100, 325, 325, 550, 1_000, 50_000, 100, 325, 325, 550, 1_000, 50_000,
+];
+
+const PIECE_SLIDING: [bool; Piece::COUNT] = [
+    // wp  wn     wb    wr    wq    wk     bp     bn     bb    br    bq    bk
+    false, false, true, true, true, false, false, false, true, true, true, false,
 ];
 
 /// Allows us to associate a color with a piece
@@ -109,18 +114,25 @@ const STARTING_NUM_PIECES: [u8; Piece::COUNT] = [
 
 // ATTACKING
 
-/// Given a starting Square (10x12) index, these values are all the offsets where a White Pawn could move
-/// NOTE: for pawns when checking whether or not a square is being attacked, you have to SUBTRACT these values
+// NOTE: PAWN directions have ATTACK in the name to highlight how this does not include
+// moving forward one or two squares ahead. For all other pieces their attack and non-attack
+// directions are the same thing
+
+// TODO: It would be nice to be able to control the order that MoveGen adds to move_list through
+// reordering these directions, but unfortunately, the piece_list is populated when BoardBuilder
+// 's build method is called, and the order is kind of complicated. For now we'll live with the
+// unintuitive movegen order
+
+/// Given a starting Square (10x12) index, these values are all the offsets where a White Pawn could move to
 const WHITE_PAWN_ATTACK_DIRECTIONS: [i8; 2] = [
-    -9,  // Up Right
-    -11, // Up Left
+    9,  // Up Left
+    11, // Up Right
 ];
 
-/// Given a starting Square (10x12) index, these values are all the offsets where a Black Pawn could move
-/// NOTE: for pawns when checking whether or not a square is being attacked, you have to SUBTRACT these values
+/// Given a starting Square (10x12) index, these values are all the offsets where a Black Pawn could move to
 const BLACK_PAWN_ATTACK_DIRECTIONS: [i8; 2] = [
-    9,  // Down Left
-    11, // Down Right
+    -11, // Down Left
+    -9,  // Down Right
 ];
 
 /// Given a starting Square (10x12) index, these values are all the offsets where a Knight could move
@@ -166,6 +178,26 @@ const KING_DIRECTIONS: [i8; 8] = [
     10,  // Down
     11,  // Down Right
 ];
+
+/// List of Pieces a WhitePawn can promote too
+pub const WHITE_PAWN_PROMOTION_TARGETS: [Piece; 4] = [
+    Piece::WhiteKnight,
+    Piece::WhiteBishop,
+    Piece::WhiteRook,
+    Piece::WhiteQueen,
+];
+
+/// List of Pieces a BlackPawn can promote too
+pub const BLACK_PAWN_PROMOTION_TARGETS: [Piece; 4] = [
+    Piece::BlackKnight,
+    Piece::BlackBishop,
+    Piece::BlackRook,
+    Piece::BlackQueen,
+];
+
+//=========================== ADDITIONAL MOVEMENT =============================
+pub const WHITE_PAWN_VERTICAL_DIRECTION: i8 = 10;
+pub const BLACK_PAWN_VERTICAL_DIRECTION: i8 = -10;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum PieceType {
@@ -374,6 +406,7 @@ impl fmt::Display for Piece {
 mod test {
     use super::*;
 
+    //=========================================================================
     #[test]
     fn test_piece_is_big_true() {
         let input = Piece::WhiteBishop;

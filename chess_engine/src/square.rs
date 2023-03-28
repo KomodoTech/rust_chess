@@ -1,5 +1,5 @@
 use crate::{
-    board::{bitboard::BitBoard, NUM_BOARD_SQUARES},
+    board::{bitboard::BitBoard, NUM_EXTERNAL_BOARD_SQUARES, NUM_INTERNAL_BOARD_SQUARES},
     color::Color,
     error::{Square64ConversionError, SquareConversionError},
     file::{File, FILES_BOARD_120, FILES_BOARD_64},
@@ -17,7 +17,7 @@ use strum_macros::{Display, EnumCount as EnumCountMacro, EnumIter, EnumString};
 
 // Conversion Arrays:
 #[rustfmt::skip]
-pub const SQUARE_120_TO_64: [Option<Square64>; NUM_BOARD_SQUARES] = [
+pub const SQUARE_120_TO_64: [Option<Square64>; NUM_INTERNAL_BOARD_SQUARES] = [
     None, None,                None,                None,                None,                None,                None,                None,                None,               None,
     None, None,                None,                None,                None,                None,                None,                None,                None,               None,
     None, Some(Square64::A1),  Some(Square64::B1),  Some(Square64::C1),  Some(Square64::D1),  Some(Square64::E1),  Some(Square64::F1),  Some(Square64::G1),  Some(Square64::H1), None,
@@ -33,7 +33,7 @@ pub const SQUARE_120_TO_64: [Option<Square64>; NUM_BOARD_SQUARES] = [
 ];
 
 #[rustfmt::skip]
-pub const SQUARE_64_TO_120: [Option<Square>; 64] = [
+pub const SQUARE_64_TO_120: [Option<Square>; NUM_EXTERNAL_BOARD_SQUARES] = [
     Some(Square::A1), Some(Square::B1), Some(Square::C1), Some(Square::D1), Some(Square::E1), Some(Square::F1), Some(Square::G1), Some(Square::H1),
     Some(Square::A2), Some(Square::B2), Some(Square::C2), Some(Square::D2), Some(Square::E2), Some(Square::F2), Some(Square::G2), Some(Square::H2),
     Some(Square::A3), Some(Square::B3), Some(Square::C3), Some(Square::D3), Some(Square::E3), Some(Square::F3), Some(Square::G3), Some(Square::H3),
@@ -46,7 +46,7 @@ pub const SQUARE_64_TO_120: [Option<Square>; 64] = [
 
 // TODO: Create Square Trait and Change Square to Square120
 
-#[derive(Display, Debug, Clone, Copy, PartialEq, Eq, EnumIter, EnumString, EnumCountMacro)]
+#[derive(Display, Debug, Clone, Copy, PartialEq, Eq, EnumIter, EnumString, EnumCountMacro, PartialOrd, Ord)]
 #[rustfmt::skip]
 #[strum(use_phf)]
 pub enum Square64 {
@@ -160,7 +160,7 @@ impl Square64 {
     }
 }
 
-#[derive(Display, Debug, Clone, Copy, PartialEq, Eq, EnumIter, EnumString, EnumCountMacro)]
+#[derive(Display, Debug, Clone, Copy, PartialEq, Eq, EnumIter, EnumString, EnumCountMacro, PartialOrd, Ord)]
 #[rustfmt::skip]
 #[strum(use_phf)]
 pub enum Square {

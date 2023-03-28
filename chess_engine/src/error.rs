@@ -15,24 +15,220 @@ use strum::{EnumCount, ParseError as StrumParseError};
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq)]
-pub enum ChessError {
-    #[error("illegal move attempted: {illegal_move}")]
-    IllegalMove { illegal_move: Move },
+pub enum UndoMoveError {
+    #[error(transparent)]
+    GamestateValidity(#[from] GamestateValidityCheckError),
+
+    #[error(transparent)]
+    SquareConversion(#[from] SquareConversionError),
+
+    #[error("Captured Piece is invalid")]
+    PieceConversion(#[from] PieceConversionError),
+
+    #[error(transparent)]
+    MoveDeserialize(#[from] MoveDeserializeError),
+
+    #[error(transparent)]
+    AddPiece(#[from] AddPieceError),
+
+    #[error(transparent)]
+    ClearPiece(#[from] ClearPieceError),
+
+    #[error(
+        "Attempted to undo a Move, but even the initial state dummy Move was not found in history"
+    )]
+    NoInitialState,
+
+    #[error("Attempted to undo a Move, but no Move was found in history")]
+    NoMoveToUndo,
+
+    #[error("Move that was encoded as a castling move ends on {end_square} which is not a valid ending square for a castling move")]
+    CastleEndSquare { end_square: Square },
+}
+
+#[derive(Error, Debug, PartialEq)]
+pub enum MakeMoveError {
+    #[error(transparent)]
+    GamestateValidity(#[from] GamestateValidityCheckError),
+
+    #[error(transparent)]
+    MoveValidity(#[from] MoveValidityError),
+
+    #[error(transparent)]
+    MovePiece(#[from] MovePieceError),
+
+    #[error(transparent)]
+    ClearPiece(#[from] ClearPieceError),
+
+    // TODO: figure out why I have to do this right now?
+    #[error(transparent)]
+    MoveDeserialize(#[from] MoveDeserializeError),
+
+    #[error(transparent)]
+    SquareConversion(#[from] SquareConversionError),
+
+    #[error("Move that was encoded as a castling move ends on {end_square} which is not a valid ending square for a castling move")]
+    CastleEndSquare { end_square: Square },
+
+    #[error("Moved Piece was not found in Board pieces array")]
+    MovedPieceNotInPieces,
+
+    #[error("Cannot move into position that would put the moving side in check")]
+    MoveWouldPutMovingSideInCheck,
+}
+
+#[derive(Error, Debug, PartialEq)]
+pub enum MovePieceError {
+    #[error("Cannot clear square {start_square}, since it is already empty")]
+    NoPieceAtMoveStart { start_square: Square },
+
+    #[error(
+        "Cannot move piece {piece} to {end_square}, since it is already occupied by a {end_piece}"
+    )]
+    MoveEndsOnOccupiedSquare {
+        piece: Piece,
+        end_square: Square,
+        end_piece: Piece,
+    },
+
+    #[error("Cannot find square {missing_square} in piece_list under piece {piece}")]
+    SquareNotFoundInPieceList {
+        missing_square: Square,
+        piece: Piece,
+    },
+}
+
+#[derive(Error, Debug, PartialEq)]
+pub enum AddPieceError {
+    #[error("Cannot add to square {occupied_square}, since it is already occupied by a {piece_at_square}")]
+    AddToOccupiedSquare {
+        occupied_square: Square,
+        piece_at_square: Piece,
+    },
+}
+
+#[derive(Error, Debug, PartialEq)]
+pub enum ClearPieceError {
+    #[error("Cannot clear square {empty_square}, since it is already empty")]
+    NoPieceToClear { empty_square: Square },
+
+    #[error("Cannot find square {missing_square} in piece_list under piece {piece}")]
+    SquareNotFoundInPieceList {
+        missing_square: Square,
+        piece: Piece,
+    },
+}
+
+#[derive(Error, Debug, PartialEq)]
+pub enum MoveBuilderError {
+    #[error(transparent)]
+    MoveValidity(#[from] MoveValidityError),
+}
+
+#[derive(Error, Debug, PartialEq)]
+pub enum MoveValidityError {
+    #[error(transparent)]
+    MoveDeserialize(#[from] MoveDeserializeError),
+
+    #[error(transparent)]
+    SquareConversion(#[from] SquareConversionError),
+
+    #[error("This is a pawn start move, but the move begins with {active_color} at square {start_square}, which is on {start_rank} which is a contradiction.")]
+    RankPawnStartMismatch {
+        active_color: Color,
+        start_square: Square,
+        start_rank: Rank,
+    },
+
+    #[error("Move encodes an attempt to capture a {captured_piece} of the same color as the active color")]
+    CaptureActiveColor { captured_piece: Piece },
+
+    #[error("En passant move has no captured piece")]
+    EnPassantNoCapture,
+
+    #[error("Move is encoded as an en passant move, but ends on square {end_square}, which has the wrong rank. The expected rank is: {expected_rank}")]
+    EnPassantWrongRank {
+        end_square: Square,
+        expected_rank: Rank,
+    },
+
+    #[error("Move is encoded as an en passant move, but the piece that is moved should be a {expected_piece} but is in fact a {piece_moved}")]
+    EnPassantWrongPieceMoved {
+        expected_piece: Piece,
+        piece_moved: Piece,
+    },
+
+    #[error("If Move is encoded as being a pawn start, it cannot be a capture, a promotion, an en passant move, nor a castling move")]
+    PawnStartExclusive,
+
+    #[error("Move is encoded as pawn start but moved piece {piece_moved} is not a pawn")]
+    PawnStartNonPawnMoved { piece_moved: Piece },
+
+    #[error("Move is encoded as pawn start but the pawn is not moving two 'ahead' as it should.\nStart square: {start_square}\nEnd square:{end_square}")]
+    PawnStartNotMovingTwoSpacesAhead {
+        start_square: Square,
+        end_square: Square,
+    },
+
+    #[error(
+        "The square {end_square} is not a valid end square for castling with the {piece_moved}"
+    )]
+    CastleEndSquare {
+        end_square: Square,
+        piece_moved: Piece,
+    },
+
+    #[error(
+        "The square {start_square} is not a valid end square for castling with the {piece_moved}"
+    )]
+    CastleStartSquare {
+        start_square: Square,
+        piece_moved: Piece,
+    },
+
+    #[error("Only kings can initiate castle")]
+    NonKingInitiatedCastle,
+
+    #[error("Cannot promote into a pawn")]
+    PromotionToPawn,
+
+    #[error("Cannot promote to a piece of the non-active color")]
+    PromotedToNonActiveColorPiece,
+
+    #[error("The square {end_square} is not of the valid rank for a promotion for {active_color}")]
+    PromotionEndRank {
+        end_square: Square,
+        active_color: Color,
+    },
+
+    #[error("Move encodes a promotion but the piece moved {piece_moved} is not a pawn")]
+    PromotionNonPawnMoved { piece_moved: Piece },
 }
 
 #[derive(Error, Debug, PartialEq)]
 pub enum MoveDeserializeError {
-    #[error("The start square {start} is invalid for move:\n {_move}")]
-    Start { start: u32, _move: String },
+    // Can't pass in move_ as String because that would cause
+    // stack overflow on Display/to_string() call
+    #[error("The start square {start} is invalid for move:\n {move_}")]
+    Start { start: u32, move_: u32 },
 
-    #[error("The end square {end} is invalid for move:\n {_move}")]
-    End { end: u32, _move: String },
+    #[error("The end square {end} is invalid for move:\n {move_}")]
+    End { end: u32, move_: u32 },
 
-    #[error("The captured piece {piece} is invalid for move:\n {_move}")]
-    Captured { piece: u32, _move: String },
+    #[error("The captured piece {piece} is invalid for move:\n {move_}")]
+    Captured { piece: u32, move_: u32 },
 
-    #[error("The promoted piece {piece} is invalid for move:\n {_move}")]
-    Promoted { piece: u32, _move: String },
+    #[error("The promoted piece {piece} is invalid for move:\n {move_}")]
+    Promoted { piece: u32, move_: u32 },
+
+    #[error("The moved piece {piece} is invalid for move:\n {move_}")]
+    Moved { piece: u32, move_: u32 },
+}
+
+#[derive(Error, Debug, PartialEq)]
+pub enum MoveGenError {
+    #[error("Cannot generate moves for invalid Gamestate")]
+    GamestateValidityCheck(#[from] GamestateValidityCheckError),
 }
 
 #[derive(Error, Debug, PartialEq)]
@@ -145,7 +341,7 @@ impl From<SquareConversionError> for BoardBuildError {
                 invalid_square_index: index,
                 source: err
             },
-            _ => panic!("Board builder check for pieces on invalid square only expects SquareConversionError of variant FromUsize")
+            _ => panic!("Expected SquareConversionError of variant FromUsize (as BoardBuilder only checks for pieces on invalid squares).")
         }
     }
 }
@@ -193,16 +389,16 @@ pub enum GamestateValidityCheckError {
     StrictHalfmoveClockExceedsMax { halfmove_clock: u8 },
 
     #[error(
-        "Fullmove number: {fullmove_number} should be in range 1..={}",
+        "Fullmove count: {fullmove_count} should be in range 1..={}",
         MAX_GAME_MOVES
     )]
-    StrictFullmoveNumberNotInRange { fullmove_number: u32 },
+    StrictFullmoveCountNotInRange { fullmove_count: usize },
 
     #[error(
-        "Given halfmove clock: {halfmove_clock}, fullmove number: {fullmove_number} is too small"
+        "Given halfmove clock: {halfmove_clock}, fullmove count: {fullmove_count} is too small"
     )]
-    StrictFullmoveNumberLessThanHalfmoveClockDividedByTwo {
-        fullmove_number: u32,
+    StrictFullmoveCountLessThanHalfmoveClockDividedByTwo {
+        fullmove_count: usize,
         halfmove_clock: u8,
     },
 
@@ -221,10 +417,10 @@ pub enum GamestateFenDeserializeError {
     #[error("Gamestate failed to deserialize due to en passant section of FEN not representing a valid Square")]
     EnPassant(#[from] StrumParseError),
 
-    #[error("Gamestate failed to deserialize due to full move number section of FEN {fullmove_fen} not representing a valid number")]
-    FullmoveNumber { fullmove_fen: String },
+    #[error("Gamestate failed to deserialize due to full move count section of FEN {fullmove_fen} not representing a valid number")]
+    FullmoveCount { fullmove_fen: String },
 
-    #[error("Gamestate failed to deserialize due to half move number section of FEN {halfmove_fen} not representing a valid number")]
+    #[error("Gamestate failed to deserialize due to half move clock section of FEN {halfmove_fen} not representing a valid number")]
     HalfmoveClock { halfmove_fen: String },
 
     #[error(

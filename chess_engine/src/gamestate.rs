@@ -7,19 +7,24 @@ use strum::EnumCount;
 use strum_macros::{Display as EnumDisplay, EnumCount as EnumCountMacro};
 
 use crate::{
-    board::{Board, BoardBuilder, NUM_BOARD_COLUMNS, NUM_BOARD_ROWS, NUM_BOARD_SQUARES},
-    castle_perm::{self, CastlePerm, NUM_CASTLE_PERM},
+    board::{Board, BoardBuilder, NUM_BOARD_COLUMNS, NUM_BOARD_ROWS, NUM_INTERNAL_BOARD_SQUARES},
+    castle_perm::{self, Castle, CastlePerm, NUM_CASTLE_PERM},
     color::Color,
     error::{
-        BoardFenDeserializeError, GamestateBuildError, GamestateFenDeserializeError,
-        GamestateValidityCheckError, RankFenDeserializeError, SquareConversionError,
+        AddPieceError, BoardFenDeserializeError, ClearPieceError, GamestateBuildError,
+        GamestateFenDeserializeError, GamestateValidityCheckError, MakeMoveError, MoveGenError,
+        MovePieceError, RankFenDeserializeError, SquareConversionError, UndoMoveError,
     },
     file::File,
-    moves::Move,
-    piece::{self, Piece, PieceType},
+    moves::{Move, MoveList},
+    piece::{
+        self, Piece, PieceType, BLACK_PAWN_PROMOTION_TARGETS, BLACK_PAWN_VERTICAL_DIRECTION,
+        WHITE_PAWN_PROMOTION_TARGETS, WHITE_PAWN_VERTICAL_DIRECTION,
+    },
+    position_key::PositionKey,
     rank::Rank,
     square::{Square, Square64},
-    zobrist::Zobrist,
+    zobrist::ZOBRIST,
 };
 
 // CONSTANTS:
@@ -34,32 +39,34 @@ const DEFAULT_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Undo {
     move_: Move,
-    castle_permissions: CastlePerm,
-    en_passant: Option<Square>,
+    castle_perm: CastlePerm,
+    en_passant: Option<Square64>,
     halfmove_clock: u8,
-    position_key: u64,
+    position_key: PositionKey,
 }
 
-// NOTE: There might be more variants in the future like Strict, or Chess960
-// TODO: consider actually using the builder pattern here to construct more flexible group of checks down the road
-// TODO: the invalid square check is not necessary when you create a board from a FEN actually. Potentially
-// rework the modes in order to remove that extra work. If Validity Checks get built with builders this could
-// actually be fairly easy to do. Create a director class to have easy "recipes" for building from FEN for example
-
-/// Mode explanation:
+// NOTE: There might be more variants in the future like Chess960, or editor mode
+/// MODE EXPLANATION:
 ///
-/// For Board:
-/// Basic : If you pass in pieces, the type system will give you basic guarantees. If you pass in a FEN,
-/// then Basic mode will make sure that that FEN has 8 sections, each rank FEN corresponds to the correct number of squares,
-/// and each symbol corresponds to a valid Piece. This mode can be useful for testing purposes.
+/// Strict: Denotes a bunch of checks that will, in isolation, try to make sure that your
+///         Gamestate/Board are valid (as much as posible). This one should be used when
+///         initially building the Gamestate/Board.
 ///
+/// Move: Denotes the tests that are going to be run
+///       each time a move is made. These tests are not sufficient in isolation to
+///       check for validity, but these should be the subset of tests that aren't
+///       redundant given that there are other parts of the code testing things.
+///       We do this for performance. This mode should be used when a move is made.
+///       Making a move can assume that the Gamestate/Board are valid.
 ///
-/// Strict: Strict mode adds additional checks to make sure that the board is valid given the rules of regular chess.
-///
-#[derive(Debug)]
+/// Basic: tests as little as possible. Just enough so that you can get tests up and
+///        running (e.g. FEN is parseable, etc.). Used for testing, and other circumstances
+///        where you don't care about validity.
+#[derive(Debug, Clone, Copy)]
 pub enum ValidityCheck {
-    Basic,
     Strict,
+    Move,
+    Basic,
 }
 
 #[derive(Debug)]
@@ -67,10 +74,10 @@ pub struct GamestateBuilder {
     validity_check: ValidityCheck,
     board: Board,
     active_color: Color,
-    castle_permissions: CastlePerm,
+    castle_perm: CastlePerm,
     en_passant: Option<Square64>,
     halfmove_clock: u8,
-    fullmove_number: u32,
+    fullmove_count: usize,
     history: Vec<Undo>,
 }
 
@@ -83,13 +90,14 @@ impl GamestateBuilder {
         GamestateBuilder {
             validity_check: ValidityCheck::Strict,
             board: BoardBuilder::new()
+                .validity_check(ValidityCheck::Basic)
                 .build()
                 .expect("new() version of board should never fail"),
             active_color: Color::White,
-            castle_permissions: CastlePerm::default(),
+            castle_perm: CastlePerm::new(),
             en_passant: None,
             halfmove_clock: 0,
-            fullmove_number: 1,
+            fullmove_count: 1,
             history: vec![],
         }
     }
@@ -99,10 +107,10 @@ impl GamestateBuilder {
             validity_check: ValidityCheck::Strict,
             board,
             active_color: Color::White,
-            castle_permissions: CastlePerm::default(),
+            castle_perm: CastlePerm::new(),
             en_passant: None,
             halfmove_clock: 0,
-            fullmove_number: 1,
+            fullmove_count: 1,
             history: vec![],
         }
     }
@@ -112,10 +120,10 @@ impl GamestateBuilder {
     pub fn new_with_fen(gamestate_fen: &str) -> Result<Self, GamestateFenDeserializeError> {
         let mut board = None;
         let mut active_color = None;
-        let mut castle_permissions = None;
+        let mut castle_perm = None;
         let mut en_passant = None;
         let mut halfmove_clock = None;
-        let mut fullmove_number = None;
+        let mut fullmove_count = None;
 
         // Allow for extra spaces in between sections but not in the middle of sections
         let fen_sections = gamestate_fen
@@ -152,7 +160,7 @@ impl GamestateBuilder {
                                 }
                             }
                         }
-                        2 => castle_permissions = Some(CastlePerm::try_from(section)?),
+                        2 => castle_perm = Some(CastlePerm::try_from(section)?),
                         3 => {
                             en_passant = match section {
                                 "-" => None,
@@ -167,30 +175,32 @@ impl GamestateBuilder {
                             })?)
                         }
                         5 => {
-                            fullmove_number = Some(section.parse::<u32>().map_err(|_err| {
-                                GamestateFenDeserializeError::FullmoveNumber {
+                            fullmove_count = Some(section.parse::<usize>().map_err(|_err| {
+                                GamestateFenDeserializeError::FullmoveCount {
                                     fullmove_fen: section.to_owned(),
                                 }
                             })?)
                         }
-                        _ => panic!("index should be in range 0..=5"),
+                        _ => panic!(
+                            "Expected index to be in range 0..=5. Found index greater than 5"
+                        ),
                     }
                 }
 
                 let board = board.unwrap();
                 let active_color = active_color.unwrap();
-                let castle_permissions = castle_permissions.unwrap();
+                let castle_perm = castle_perm.unwrap();
                 let halfmove_clock = halfmove_clock.unwrap();
-                let fullmove_number = fullmove_number.unwrap();
+                let fullmove_count = fullmove_count.unwrap();
 
                 Ok(GamestateBuilder {
                     validity_check: ValidityCheck::Strict,
                     board,
                     active_color,
-                    castle_permissions,
+                    castle_perm,
                     en_passant,
                     halfmove_clock,
-                    fullmove_number,
+                    fullmove_count,
                     history: vec![],
                 })
             }
@@ -210,8 +220,8 @@ impl GamestateBuilder {
         self
     }
 
-    pub fn castle_permissions(mut self, castle_permissions: CastlePerm) -> Self {
-        self.castle_permissions = castle_permissions;
+    pub fn castle_perm(mut self, castle_perm: CastlePerm) -> Self {
+        self.castle_perm = castle_perm;
         self
     }
 
@@ -225,8 +235,8 @@ impl GamestateBuilder {
         self
     }
 
-    pub fn fullmove_number(mut self, fullmove_number: u32) -> Self {
-        self.fullmove_number = fullmove_number;
+    pub fn fullmove_count(mut self, fullmove_count: usize) -> Self {
+        self.fullmove_count = fullmove_count;
         self
     }
 
@@ -236,19 +246,34 @@ impl GamestateBuilder {
     }
 
     pub fn build(&self) -> Result<Gamestate, GamestateBuildError> {
-        let gamestate = Gamestate {
+        let mut gamestate = Gamestate {
             board: self.board.clone(),
             active_color: self.active_color,
-            castle_permissions: self.castle_permissions,
+            castle_perm: self.castle_perm,
             en_passant: self.en_passant,
             halfmove_clock: self.halfmove_clock,
-            fullmove_number: self.fullmove_number,
+            fullmove_count: self.fullmove_count,
+            position_key: PositionKey(0),
             history: self.history.clone(),
-            zobrist: Zobrist::default(),
         };
 
+        // Update position_key
+        gamestate.init_position_key();
+
+        // Add dummy Undo to allow undoing back to initial state
+        if gamestate.history.is_empty() {
+            let initial_state = Undo {
+                move_: Move::new_initial_state_dummy(),
+                castle_perm: gamestate.castle_perm,
+                en_passant: gamestate.en_passant,
+                halfmove_clock: gamestate.halfmove_clock,
+                position_key: gamestate.position_key,
+            };
+            gamestate.history.push(initial_state);
+        }
+
         if let ValidityCheck::Strict = self.validity_check {
-            gamestate.check_gamestate(&self.validity_check)?;
+            gamestate.check_gamestate(self.validity_check)?;
         }
 
         Ok(gamestate)
@@ -265,20 +290,21 @@ impl Default for GamestateBuilder {
 pub struct Gamestate {
     board: Board,
     active_color: Color,
-    castle_permissions: CastlePerm,
+    castle_perm: CastlePerm,
     en_passant: Option<Square64>,
     /// number of moves both players have made since last pawn advance of piece capture
     halfmove_clock: u8,
     /// number of completed turns in the game (incremented when black moves)
-    fullmove_number: u32,
+    fullmove_count: usize,
+    position_key: PositionKey,
     history: Vec<Undo>,
-    zobrist: Zobrist,
 }
 
 impl Default for Gamestate {
     fn default() -> Self {
         GamestateBuilder::new_with_board(Board::default())
             .validity_check(ValidityCheck::Basic)
+            .castle_perm(CastlePerm(0b_1111))
             .build()
             .expect("starting gamestate should never fail to build")
     }
@@ -305,49 +331,986 @@ impl fmt::Display for Gamestate {
                 writeln!(f, "None");
             }
         }
-        writeln!(f, "Castle Permissions: {}", self.castle_permissions);
-        writeln!(f, "Position Key: {}", self.gen_position_key())
+        writeln!(f, "Castle Permissions: {}", self.castle_perm);
+        writeln!(f, "Position Key: {}", self.position_key)
     }
 }
 
 impl Gamestate {
-    fn gen_position_key(&self) -> u64 {
+    //================================= MAKING MOVES ==========================
+
+    /// If successful it will return the Move that was undone
+    pub fn undo_move(&mut self) -> Result<Move, UndoMoveError> {
+        self.check_gamestate(ValidityCheck::Move)?;
+
+        // Rewind fullmove_count if you're undoing Black's Move (aka currently White's Move)
+        if self.active_color == Color::White {
+            self.fullmove_count -= 1;
+        }
+
+        // NOTE: Initial state stored in Undo like castle_perm, etc. is stored
+        // in history with a dummy move.
+        match self.history.len() {
+            0 => Err(UndoMoveError::NoInitialState),
+            1 => Err(UndoMoveError::NoMoveToUndo),
+            _ => {
+                // Grab the Move that you want to undo
+                let move_ = self.history.pop().ok_or(UndoMoveError::NoMoveToUndo)?.move_;
+
+                let previous_state = self
+                    .history
+                    .last()
+                    .expect("Expected at least one Undo to be left in history since len > 1");
+
+                let start_square = Square::try_from(move_.get_start_raw())?;
+                let end_square = Square::try_from(move_.get_end_raw())?;
+
+                // Reset current state in position key
+                if let Some(en_passant) = self.en_passant {
+                    self.position_key.hash_en_passant(Square::from(en_passant));
+                }
+                self.position_key.hash_castle_perm(self.castle_perm);
+
+                // Reset to previous state
+                self.castle_perm = previous_state.castle_perm;
+                self.halfmove_clock = previous_state.halfmove_clock;
+                self.en_passant = previous_state.en_passant;
+
+                if let Some(en_passant) = self.en_passant {
+                    self.position_key.hash_en_passant(Square::from(en_passant));
+                }
+                self.position_key.hash_castle_perm(self.castle_perm);
+
+                self.active_color.toggle();
+                self.position_key.hash_color();
+
+                // deal with the previous Move being an en_passant Move
+                if move_.is_en_passant() {
+                    match self.active_color {
+                        // active_color is now who played in the previous Move
+                        Color::White => {
+                            // add the pawn back
+                            let square_to_add = (end_square - (NUM_BOARD_COLUMNS as i8))?;
+                            self.add_piece(square_to_add, Piece::BlackPawn)?;
+                        }
+                        Color::Black => {
+                            let square_to_add = (end_square + (NUM_BOARD_COLUMNS as i8))?;
+                            self.add_piece(square_to_add, Piece::WhitePawn)?;
+                        }
+                    }
+                } else if move_.is_castle() {
+                    // Move rooks back
+                    match end_square {
+                        Square::C1 => {
+                            self.move_piece(Square::D1, Square::A1);
+                        }
+                        Square::G1 => {
+                            self.move_piece(Square::F1, Square::H1);
+                        }
+                        Square::C8 => {
+                            self.move_piece(Square::D8, Square::A8);
+                        }
+                        Square::G8 => {
+                            self.move_piece(Square::F8, Square::H8);
+                        }
+                        _ => {
+                            return Err(UndoMoveError::CastleEndSquare { end_square });
+                        }
+                    }
+                }
+
+                // Move piece that was moved back to previous position
+                self.move_piece(end_square, start_square);
+
+                let piece_moved = move_.get_piece_moved()?;
+
+                // Reset kings_square if needed
+                if piece_moved.is_king() {
+                    self.board.kings_square[self.active_color as usize] = Some(end_square);
+                }
+
+                // Reset any captured pieces
+                if let Some(captured_piece) = move_.get_piece_captured()? {
+                    if self.en_passant.is_none() {
+                        self.add_piece(end_square, captured_piece);
+                    }
+                }
+
+                if move_.is_promotion() {
+                    // when we call move_piece earlier we would have moved the promoted piece
+                    // so we must clear it and then add back a pawn
+                    self.clear_piece(start_square)?;
+                    let pawn = match self.active_color {
+                        Color::White => Piece::WhitePawn,
+                        Color::Black => Piece::BlackPawn,
+                    };
+                    self.add_piece(start_square, pawn);
+                }
+
+                self.check_gamestate(ValidityCheck::Move)?;
+
+                Ok(move_)
+            }
+        }
+    }
+
+    pub fn make_move(&mut self, move_: Move) -> Result<(), MakeMoveError> {
+        // Save current active_color before we toggle it
+        let initial_active_color = self.active_color;
+
+        // Check if move_ is valid
+        move_.check_move()?;
+
+        // Set up ability to Undo this move
+        let undo = Undo {
+            move_,
+            castle_perm: self.castle_perm,
+            en_passant: self.en_passant,
+            halfmove_clock: self.halfmove_clock,
+            position_key: self.position_key,
+        };
+        self.history.push(undo);
+
+        // Use raw versions of functions since validity was checked in check_move call
+        let start_square = Square::try_from(move_.get_start_raw())?;
+        let end_square = Square::try_from(move_.get_end_raw())?;
+
+        // deal with en_passant moves
+        if move_.is_en_passant() {
+            match self.active_color {
+                Color::White => {
+                    // clear the square/piece that is being captured via en_passant
+                    let square_to_clear = (end_square - (NUM_BOARD_COLUMNS as i8))?;
+                    self.clear_piece(square_to_clear)?;
+                }
+                Color::Black => {
+                    let square_to_clear = (end_square + (NUM_BOARD_COLUMNS as i8))?;
+                    self.clear_piece(square_to_clear)?;
+                }
+            }
+        } else if move_.is_castle() {
+            // For castling move move associated Rook
+            match end_square {
+                // White Queenside Castle. Move Rook from A1 to D1.
+                // Presumably King has moved from E1 to C1
+                Square::C1 => {
+                    self.move_piece(Square::A1, Square::D1);
+                }
+                // White Kingside Castle. Move Rook from H1 to F1.
+                // Presumably King has moved from E1 to G1
+                Square::G1 => {
+                    self.move_piece(Square::H1, Square::F1);
+                }
+                // Black Queenside Castle. Move Rook from A8 to D8.
+                // Presumably King has moved from E8 to C8
+                Square::C8 => {
+                    self.move_piece(Square::A8, Square::D8);
+                }
+                // Black Kingside Castle. Move Rook from H8 to F8.
+                // Presumably King has moved from E8 to G8
+                Square::G8 => {
+                    self.move_piece(Square::H8, Square::F8);
+                }
+                _ => {
+                    return Err(MakeMoveError::CastleEndSquare { end_square });
+                }
+            }
+        }
+
+        // Reset position_key
+        if let Some(en_passant) = self.en_passant {
+            self.position_key.hash_en_passant(Square::from(en_passant));
+        }
+        self.position_key.hash_castle_perm(self.castle_perm);
+
+        // Update castle_perm
+        self.castle_perm.update(start_square, end_square);
+        // Update position_key for updated castle_perm (may or may not
+        // have changed)
+        self.position_key.hash_castle_perm(self.castle_perm);
+
+        // Deal with captured pieces and fifty-move rule
+        if move_.is_capture() {
+            // if en_passant, then the pawn_start that caused the en_passant
+            // will have already been checked to make sure that the end_square
+            // is empty
+            if self.en_passant.is_none() {
+                self.clear_piece(end_square);
+            }
+            self.halfmove_clock = 0;
+        } else {
+            self.halfmove_clock += 1;
+        }
+
+        // Update fullmove_count if this is Black's move
+        if self.active_color == Color::Black {
+            self.fullmove_count += 1;
+        }
+
+        // Reset en_passant (they expire after a move)
+        self.en_passant = None;
+
+        // TODO: confirm you can just do move_.get_piece_moved()?
+        let piece_moved =
+            self.board.pieces[start_square as usize].ok_or(MakeMoveError::MovedPieceNotInPieces)?;
+
+        // Check if new en_passant square was created
+        if piece_moved.is_pawn() {
+            // fifty-move rule. reset half moves since last capture or pawn move
+            self.halfmove_clock = 0;
+            // pawn starts (move up 2) create en_passant squares
+            if move_.is_pawn_start() {
+                match self.active_color {
+                    Color::White => {
+                        self.en_passant =
+                            Some(Square64::from((start_square + NUM_BOARD_COLUMNS as i8)?));
+                    }
+                    Color::Black => {
+                        self.en_passant =
+                            Some(Square64::from((start_square - NUM_BOARD_COLUMNS as i8)?));
+                    }
+                }
+                // hash in new en passant square
+                self.position_key
+                    .hash_en_passant(Square::from(self.en_passant.expect(
+                    "Expected en passant to be Some(square) since we generated one right above.",
+                )));
+            }
+        }
+
+        // Actually move our piece
+        self.move_piece(start_square, end_square);
+
+        // Deal with promotions
+        if let Some(promoted_piece) = move_.get_piece_promoted()? {
+            // NOTE: this is after move so you're clearing the Pawn
+            self.clear_piece(end_square);
+            self.add_piece(end_square, promoted_piece);
+        }
+
+        // TODO: check if can be removed.
+        // Update king
+        if piece_moved.is_king() {
+            self.board.kings_square[self.active_color as usize] = Some(end_square);
+        }
+
+        // change active_color and hash it in
+        self.active_color.toggle();
+        self.position_key.hash_color();
+
+        // TODO: is this necessary?
+        self.check_gamestate(ValidityCheck::Move)?;
+
+        // check if move puts active_color in check
+        if (self.is_square_attacked(
+            self.active_color,
+            self.board.kings_square[initial_active_color as usize]
+                .expect("Expected King's square to be stored in kings_square"),
+        )) {
+            self.undo_move();
+            return Err(MakeMoveError::MoveWouldPutMovingSideInCheck);
+        }
+
+        Ok(())
+    }
+
+    /// Moves a piece and updates all appropriate places in the Board as well as
+    /// the position key. Returns an Err if there is no piece on start_square
+    /// or a capture is attempted (or if piece not found in piece_list).
+    fn move_piece(
+        &mut self,
+        start_square: Square,
+        end_square: Square,
+    ) -> Result<(), MovePieceError> {
+        let piece = self.board.pieces[start_square as usize]
+            .ok_or(MovePieceError::NoPieceAtMoveStart { start_square })?;
+
+        let color = piece.get_color();
+        let piece_type = piece.get_piece_type();
+
+        let piece_on_end_square = self.board.pieces[end_square as usize];
+        match piece_on_end_square {
+            Some(end_piece) => {
+                return Err(MovePieceError::MoveEndsOnOccupiedSquare {
+                    piece,
+                    end_square,
+                    end_piece,
+                });
+            }
+            None => {
+                // update pieces
+                self.board.pieces[start_square as usize] = None;
+                self.board.pieces[end_square as usize] = Some(piece);
+
+                // update piece_list
+                let mut found_in_piece_list = false;
+                let squares_for_piece = &mut self.board.piece_list[piece as usize];
+                for (sq_index, &sq) in squares_for_piece.iter().enumerate() {
+                    if sq == start_square {
+                        squares_for_piece[sq_index] = end_square;
+                        found_in_piece_list = true;
+                        break; // non-lexical lifetime
+                    }
+                }
+                // if square was not found in piece_list something went wrong
+                if !found_in_piece_list {
+                    return Err(MovePieceError::SquareNotFoundInPieceList {
+                        missing_square: start_square,
+                        piece,
+                    });
+                }
+
+                // update pawns
+                if piece_type == PieceType::Pawn {
+                    self.board.pawns[color as usize].unset_bit(Square64::from(start_square));
+                    self.board.pawns[color as usize].set_bit(Square64::from(end_square));
+                }
+
+                // update position key (hash piece out and back with changed square)
+                self.position_key.hash_piece(piece, start_square);
+                self.position_key.hash_piece(piece, end_square);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Adds a piece to all the appropriate places in the Board and updates the
+    /// position_key. Returns an Err if you try to add a Piece to an occupied
+    /// square.
+    fn add_piece(&mut self, square: Square, piece: Piece) -> Result<(), AddPieceError> {
+        let piece_on_square = self.board.pieces[square as usize];
+
+        match piece_on_square {
+            Some(occupying_piece) => {
+                return Err(AddPieceError::AddToOccupiedSquare {
+                    occupied_square: square,
+                    piece_at_square: occupying_piece,
+                });
+            }
+            None => {
+                // update pieces
+                self.board.pieces[square as usize] = Some(piece);
+
+                let color = piece.get_color();
+                let piece_type = piece.get_piece_type();
+
+                // update piece_list
+                self.board.piece_list[piece as usize].push(square);
+
+                // update piece counts
+                match piece {
+                    big_piece if piece.is_big() => {
+                        self.board.big_piece_count[color as usize] += 1;
+                        match big_piece {
+                            major_piece if big_piece.is_major() => {
+                                self.board.major_piece_count[color as usize] += 1;
+                            }
+                            minor_piece => {
+                                self.board.minor_piece_count[color as usize] += 1;
+                            }
+                        }
+                    }
+                    // Update pawns (not big, major nor minor)
+                    pawn => {
+                        self.board.pawns[color as usize].set_bit(Square64::from(square));
+                    }
+                }
+                self.board.piece_count[piece as usize] += 1;
+
+                // update position_key (hash it in)
+                self.position_key.hash_piece(piece, square);
+
+                // update material_score
+                self.board.material_score[color as usize] += piece.get_value();
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Removes a piece from all appropriate places in the Board and updates
+    /// the position_key. Returns an Err if you try to clear an empty Square.
+    fn clear_piece(&mut self, square: Square) -> Result<Piece, ClearPieceError> {
+        let piece = self.board.pieces[square as usize].ok_or(ClearPieceError::NoPieceToClear {
+            empty_square: square,
+        })?;
+
+        // update pieces
+        self.board.pieces[square as usize] = None;
+
+        let color = piece.get_color();
+        let piece_type = piece.get_piece_type();
+
+        // update piece_list
+        let mut found_in_piece_list = false;
+        let squares_for_piece = &mut self.board.piece_list[piece as usize];
+        for (sq_index, &sq) in squares_for_piece.iter().enumerate() {
+            if sq == square {
+                // NOTE: swap_remove is O(1) but changes the order of our
+                // piece_list.
+                squares_for_piece.swap_remove(sq_index);
+                found_in_piece_list = true;
+                break; // non-lexical lifetime
+            }
+        }
+        // if square was not found in piece_list something went wrong
+        if !found_in_piece_list {
+            return Err(ClearPieceError::SquareNotFoundInPieceList {
+                missing_square: square,
+                piece,
+            });
+        }
+
+        // update piece counts
+        match piece {
+            big_piece if piece.is_big() => {
+                self.board.big_piece_count[color as usize] -= 1;
+                match big_piece {
+                    major_piece if big_piece.is_major() => {
+                        self.board.major_piece_count[color as usize] -= 1;
+                    }
+                    minor_piece => {
+                        self.board.minor_piece_count[color as usize] -= 1;
+                    }
+                }
+            }
+            // Update pawns (not big, major nor minor)
+            pawn => {
+                self.board.pawns[color as usize].unset_bit(Square64::from(square));
+            }
+        }
+        self.board.piece_count[piece as usize] -= 1;
+
+        // update position_key (hash it out)
+        self.position_key.hash_piece(piece, square);
+
+        // update material_score
+        self.board.material_score[color as usize] -= piece.get_value();
+
+        Ok(piece)
+    }
+
+    //================================= MOVE GENERATION =======================
+
+    // TODO: Splitting up move gen functions is nice but has some
+    // performance cost potentially. Measure
+
+    /// Generates castling moves for given Color
+    fn gen_castling_moves(&self, active_color: Color, move_list: &mut MoveList) {
+        // NOTE: Castling Permission will only be available if King hasn't moved
+        // and Rook hasn't either. We won't be checking that here.
+        match active_color {
+            Color::White => {
+                let non_active_color = Color::Black;
+
+                // Check if White has Kingside Castling Permission
+                if (self.castle_perm.0 & (Castle::WhiteKing as u8)) > 0
+                    // Check that squares between King and Rook are empty
+                    && self.board.pieces[Square::F1 as usize].is_none()
+                    && self.board.pieces[Square::G1 as usize].is_none()
+                    // The King can't start in check and any square the King crosses
+                    // or ends up in can't be attacked.
+                    // NOTE: we won't check the square that the King would land on
+                    // since we will be checking that when actually trying to make the move
+                    // and we don't want to do duplicate work if we can avoid it
+                    && !self.is_square_attacked(non_active_color, Square::E1)
+                    && !self.is_square_attacked(non_active_color, Square::F1)
+                {
+                    move_list.add_move(Move::new(
+                        Square::E1,
+                        Square::G1,
+                        None,
+                        false,
+                        false,
+                        None,
+                        true,
+                        Piece::WhiteKing,
+                    ));
+                }
+
+                // Check if White has Queenside Castling Permission
+                if (self.castle_perm.0 & (Castle::WhiteQueen as u8)) > 0
+                    && self.board.pieces[Square::D1 as usize].is_none()
+                    && self.board.pieces[Square::C1 as usize].is_none()
+                    && self.board.pieces[Square::B1 as usize].is_none()
+                    && !self.is_square_attacked(non_active_color, Square::E1)
+                    && !self.is_square_attacked(non_active_color, Square::D1)
+                {
+                    move_list.add_move(Move::new(
+                        Square::E1,
+                        Square::C1,
+                        None,
+                        false,
+                        false,
+                        None,
+                        true,
+                        Piece::WhiteKing,
+                    ));
+                }
+            }
+            Color::Black => {
+                let non_active_color = Color::White;
+
+                // Check if Black has Kingside Castling Permission
+                if (self.castle_perm.0 & (Castle::BlackKing as u8)) > 0
+                    && self.board.pieces[Square::F8 as usize].is_none()
+                    && self.board.pieces[Square::G8 as usize].is_none()
+                    && !self.is_square_attacked(non_active_color, Square::E8)
+                    && !self.is_square_attacked(non_active_color, Square::F8)
+                {
+                    move_list.add_move(Move::new(
+                        Square::E8,
+                        Square::G8,
+                        None,
+                        false,
+                        false,
+                        None,
+                        true,
+                        Piece::BlackKing,
+                    ));
+                }
+
+                // Check if Black has Queenside Castling Permission
+                if (self.castle_perm.0 & (Castle::BlackQueen as u8)) > 0
+                    && self.board.pieces[Square::D8 as usize].is_none()
+                    && self.board.pieces[Square::C8 as usize].is_none()
+                    && self.board.pieces[Square::B8 as usize].is_none()
+                    && !self.is_square_attacked(non_active_color, Square::E8)
+                    && !self.is_square_attacked(non_active_color, Square::D8)
+                {
+                    move_list.add_move(Move::new(
+                        Square::E8,
+                        Square::C8,
+                        None,
+                        false,
+                        false,
+                        None,
+                        true,
+                        Piece::BlackKing,
+                    ));
+                }
+            }
+        }
+    }
+
+    /// Generates quite moves and captures for non pawn Pieces of specified active Color
+    fn gen_non_pawn_moves(&self, active_color: Color, move_list: &mut MoveList) {
+        let non_sliding_pieces = gen_non_sliding_pieces!(active_color);
+        let sliding_pieces = gen_sliding_pieces!(active_color);
+
+        let non_active_color = match active_color {
+            Color::White => Color::Black,
+            Color::Black => Color::White,
+        };
+
+        for piece in non_sliding_pieces {
+            let piece_count = self.board.get_piece_count()[piece as usize];
+            for piece_index in 0_usize..piece_count as usize {
+                // get square that the current piece we are looking at is on
+                let start_square = self.board.get_piece_list()[piece as usize][piece_index];
+                // get all directions to check move validity
+                let directions = piece.get_attack_directions();
+
+                // check if piece can move to square in each direction
+                for direction in directions {
+                    let end_square = start_square + direction;
+                    if let Ok(end_square) = end_square {
+                        // If the square current piece is trying to move to is empty
+                        // then that move is valid so add it to the move_list
+                        // otherwise it's only a valid move if the occupying piece
+                        // is of the non-active color
+                        match self.board.pieces[end_square as usize] {
+                            // NOTE: you cannot capture while castling
+                            Some(end_piece) => {
+                                // valid capture
+                                if end_piece.get_color() == non_active_color {
+                                    move_list.add_move(Move::new(
+                                        start_square,
+                                        end_square,
+                                        Some(end_piece),
+                                        false,
+                                        false,
+                                        None,
+                                        false,
+                                        piece,
+                                    ));
+                                }
+                            }
+                            None => {
+                                move_list.add_move(Move::new(
+                                    start_square,
+                                    end_square,
+                                    None,
+                                    false,
+                                    false,
+                                    None,
+                                    false,
+                                    piece,
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for piece in sliding_pieces {
+            let piece_count = self.board.get_piece_count()[piece as usize];
+
+            for piece_index in 0_usize..piece_count as usize {
+                let start_square = self.board.get_piece_list()[piece as usize][piece_index];
+                let directions = piece.get_attack_directions();
+
+                for direction in directions {
+                    // deal with sliding
+                    let mut next_square = start_square;
+                    while let Ok(end_square) = next_square + direction {
+                        match self.board.pieces[end_square as usize] {
+                            // capture (can't be castling)
+                            Some(end_piece) => {
+                                // valid capture
+                                if end_piece.get_color() == non_active_color {
+                                    move_list.add_move(Move::new(
+                                        start_square,
+                                        end_square,
+                                        Some(end_piece),
+                                        false,
+                                        false,
+                                        None,
+                                        false,
+                                        piece,
+                                    ));
+                                }
+                                // if you hit a piece you can't keep sliding
+                                break;
+                            }
+                            // No capture
+                            None => {
+                                move_list.add_move(Move::new(
+                                    start_square,
+                                    end_square,
+                                    None,
+                                    false,
+                                    false,
+                                    None,
+                                    false,
+                                    piece,
+                                ));
+                            }
+                        }
+                        // set up for next slide check
+                        next_square = end_square;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Generates quiet moves (including starting double move forward), captures (including en passant)
+    /// and all promotions for Pawn of specified active Color
+    fn gen_pawn_moves(&self, active_color: Color, move_list: &mut MoveList) {
+        // Setup all color-dependent values to make the rest of the logic color independent
+        let (
+            pawn,
+            vertical_direction,
+            start_rank,
+            promotion_rank,
+            promotion_targets,
+            attack_directions,
+            non_active_color,
+            non_active_pawn,
+        ) = match active_color {
+            Color::White => {
+                let pawn = Piece::WhitePawn;
+                let pawn_vertical_direction = WHITE_PAWN_VERTICAL_DIRECTION;
+                let pawn_start_rank = Rank::Rank2;
+                let pawn_promotion_rank = Rank::Rank7; // Rank right before promotion occurs
+                let pawn_promotion_targets = WHITE_PAWN_PROMOTION_TARGETS;
+                let pawn_attack_directions = pawn.get_attack_directions();
+                let non_active_color = Color::Black;
+                let non_active_pawn = Piece::BlackPawn;
+                (
+                    pawn,
+                    pawn_vertical_direction,
+                    pawn_start_rank,
+                    pawn_promotion_rank,
+                    pawn_promotion_targets,
+                    pawn_attack_directions,
+                    non_active_color,
+                    non_active_pawn,
+                )
+            }
+            Color::Black => {
+                let pawn = Piece::BlackPawn;
+                let pawn_vertical_direction = BLACK_PAWN_VERTICAL_DIRECTION;
+                let pawn_start_rank = Rank::Rank7;
+                let pawn_promotion_rank = Rank::Rank2; // Rank right before promotion occurs
+                let pawn_promotion_targets = BLACK_PAWN_PROMOTION_TARGETS;
+                let pawn_attack_directions = pawn.get_attack_directions();
+                let non_active_color = Color::White;
+                let non_active_pawn = Piece::WhitePawn;
+                (
+                    pawn,
+                    pawn_vertical_direction,
+                    pawn_start_rank,
+                    pawn_promotion_rank,
+                    pawn_promotion_targets,
+                    pawn_attack_directions,
+                    non_active_color,
+                    non_active_pawn,
+                )
+            }
+        };
+
+        let pawn_count = self.board.get_piece_count()[pawn as usize] as usize;
+
+        for pawn_index in 0_usize..pawn_count {
+            let start_square = self.board.get_piece_list()[pawn as usize][pawn_index];
+
+            // Check Pawn forward moves
+            let square_ahead = (start_square + vertical_direction);
+            if let Ok(square_ahead) = square_ahead {
+                let rank = start_square.get_rank();
+
+                let mut is_promotion = false;
+
+                // Add move to move_list if square ahead is empty (possibly two ahead as well)
+                if self.board.pieces[square_ahead as usize].is_none() {
+                    match rank {
+                        pawn_start_rank if (pawn_start_rank == start_rank) => {
+                            // Add move two ahead if square vacant. Set as "pawn_start"
+                            let square_two_ahead = (start_square + (vertical_direction * 2));
+                            if let Ok(square_two_ahead) = square_two_ahead {
+                                if self.board.pieces[square_two_ahead as usize].is_none() {
+                                    let _move = Move::new(
+                                        start_square,
+                                        square_two_ahead,
+                                        None,
+                                        false,
+                                        true,
+                                        None,
+                                        false,
+                                        pawn,
+                                    );
+
+                                    move_list.add_move(_move);
+                                }
+                            }
+
+                            // Add pawn moves one ahead. Not a "pawn_start".
+                            let _move = Move::new(
+                                start_square,
+                                square_ahead,
+                                None,
+                                false,
+                                false,
+                                None,
+                                false,
+                                pawn,
+                            );
+
+                            move_list.add_move(_move);
+                        }
+                        // Check if promotion (one ahead)
+                        pawn_promotion_rank if (pawn_promotion_rank == promotion_rank) => {
+                            is_promotion = true; // NOTE: promotion is mandatory
+
+                            for promotion in promotion_targets {
+                                let _move = Move::new(
+                                    start_square,
+                                    square_ahead,
+                                    None,
+                                    false,
+                                    false,
+                                    Some(promotion),
+                                    false,
+                                    pawn,
+                                );
+
+                                move_list.add_move(_move);
+                            }
+                        }
+                        _ => {
+                            // Add pawn moves one ahead
+                            let _move = Move::new(
+                                start_square,
+                                square_ahead,
+                                None,
+                                false,
+                                false,
+                                None,
+                                false,
+                                pawn,
+                            );
+
+                            move_list.add_move(_move);
+                        }
+                    }
+                }
+
+                // Generate Capture Moves
+                for &direction in attack_directions.iter() {
+                    // Check if there is a valid square in that direction occupied by a non-active color Piece
+                    // or if the square is an En Passant square. And deal with promotions
+                    let attacked_square = start_square + direction;
+                    // square in direction valid
+                    if let Ok(attacked_square) = attacked_square {
+                        let piece_captured = self.board.pieces[attacked_square as usize];
+                        match piece_captured {
+                            Some(piece_captured) => {
+                                // square in direction occupied by takeable piece
+                                if piece_captured.get_color() == non_active_color {
+                                    match is_promotion {
+                                        // taking piece would result in promotion
+                                        true => {
+                                            for promotion in promotion_targets {
+                                                let _move = Move::new(
+                                                    start_square,
+                                                    attacked_square,
+                                                    Some(piece_captured),
+                                                    false,
+                                                    false,
+                                                    Some(promotion),
+                                                    false,
+                                                    pawn,
+                                                );
+
+                                                move_list.add_move(_move);
+                                            }
+                                        }
+
+                                        false => {
+                                            let _move = Move::new(
+                                                start_square,
+                                                attacked_square,
+                                                Some(piece_captured),
+                                                false,
+                                                false,
+                                                None,
+                                                false,
+                                                pawn,
+                                            );
+
+                                            move_list.add_move(_move);
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Could be an En Passant Capture (won't result in promotion)
+                            None => {
+                                if self.en_passant == Some(Square64::from(attacked_square)) {
+                                    // if somehow there is an en_passant square but the square in front
+                                    // of it is invalid, something went very wrong
+                                    let capture_square = (attacked_square - vertical_direction)
+                                        .expect(
+                                            "Square ahead of En Passant Square should be valid",
+                                        );
+
+                                    // get piece that is being captured via en passant
+                                    // if there isn't a non-active color Pawn in front of the en passant square
+                                    // we're in trouble
+                                    let piece_captured = self.board.pieces[capture_square as usize]
+                                    .expect("Square in front of En Passant Square needs to be occupied");
+
+                                    assert_eq!(piece_captured,
+                                        non_active_pawn,
+                                        "Square in front of En Passant Square needs to be occupied by Pawn of non-active color");
+
+                                    let _move = Move::new(
+                                        start_square,
+                                        attacked_square,
+                                        Some(piece_captured), // better be a Pawn of non-active color
+                                        true,
+                                        false, // can't take en passant from a pawn start
+                                        None,  // can't be a promotion
+                                        false,
+                                        pawn,
+                                    );
+
+                                    move_list.add_move(_move);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Generate all possible moves for the current Gamestate
+    pub fn gen_move_list(&self) -> Result<MoveList, MoveGenError> {
+        // TODO: might be useful to turn strict off
+        self.check_gamestate(ValidityCheck::Strict)?;
+
+        let mut move_list = MoveList::new();
+
+        self.gen_pawn_moves(self.active_color, &mut move_list);
+        self.gen_non_pawn_moves(self.active_color, &mut move_list);
+        self.gen_castling_moves(self.active_color, &mut move_list);
+
+        Ok(move_list)
+    }
+
+    //=========================== BUILDING ==============================
+
+    /// Generate a hash that represents the current position via Zobrist Hashing
+    fn init_position_key(&mut self) {
         let mut position_key: u64 = 0;
+
+        // Color (which player's turn) component
+        if self.active_color == Color::White {
+            let color_key = ZOBRIST
+                .lock()
+                .expect("Mutex holding ZOBRIST should not be poisoned")
+                .color_key;
+
+            // Note Color::Black is encoded via absence
+            position_key ^= color_key;
+        };
 
         // Piece location component
         for (square_index, piece_at_square) in self.board.pieces.iter().enumerate() {
             if let Some(piece) = *piece_at_square {
-                position_key ^= self.zobrist.piece_keys[piece as usize][square_index];
+                let piece_keys = ZOBRIST
+                    .lock()
+                    .expect("Mutex holding ZOBRIST should not be poisoned")
+                    .piece_keys;
+
+                // for each piece present on the board find its randomly generated value in the Zobrist
+                // struct's piece_keys array and XOR with the current Gamestate's position_key
+                position_key ^= piece_keys[piece as usize][idx_120_to_64!(square_index)];
             }
         }
-        // Color (which player's turn) component
-        if self.active_color == Color::White {
-            position_key ^= self.zobrist.color_key
-        };
+
         // En Passant component
         if let Some(square) = self.en_passant {
-            position_key ^= self.zobrist.en_passant_keys[square as usize];
-        }
-        // Castle Permissions component
-        let castle_permissions: u8 = self.castle_permissions.into();
-        position_key ^= self.zobrist.castle_keys[castle_permissions as usize];
+            let en_passant_keys = ZOBRIST
+                .lock()
+                .expect("Mutex holding ZOBRIST should not be poisoned")
+                .en_passant_keys;
 
-        position_key
+            position_key ^= en_passant_keys[square.get_file() as usize];
+        }
+
+        // Castle Permissions component
+        let castle_keys = ZOBRIST
+            .lock()
+            .expect("Mutex holding ZOBRIST should not be poisoned")
+            .castle_keys;
+
+        position_key ^= castle_keys[self.castle_perm.0 as usize];
+
+        self.position_key = PositionKey(position_key);
     }
 
     /// Check that the gamestate is valid for the given a validity check mode
-    fn check_gamestate(
+    pub fn check_gamestate(
         &self,
-        validity_check: &ValidityCheck,
+        validity_check: ValidityCheck,
     ) -> Result<(), GamestateValidityCheckError> {
         if let ValidityCheck::Strict = validity_check {
-            // TODO:
-            // check that the non-active player is not in check
-            // check that the active player is checked less than 3 times
-            // check that if the active player is checked 2 times it can't be:
-            // check if active color can win in one move (not allowed)
-            // check that the castling permissions don't contradict the position of rooks and kings
-
             // check board is valid
             self.board.check_board(validity_check)?;
 
@@ -358,17 +1321,15 @@ impl Gamestate {
                 });
             }
 
-            // check that fullmove number is in valid range 1..=MAX_GAME_MOVES
-            if !(1..=MAX_GAME_MOVES).contains(&(self.fullmove_number as usize)) {
-                return Err(
-                    GamestateValidityCheckError::StrictFullmoveNumberNotInRange {
-                        fullmove_number: self.fullmove_number,
-                    },
-                );
+            // check that fullmove count is in valid range 1..=MAX_GAME_MOVES
+            if !(1..=MAX_GAME_MOVES).contains(&self.fullmove_count) {
+                return Err(GamestateValidityCheckError::StrictFullmoveCountNotInRange {
+                    fullmove_count: self.fullmove_count,
+                });
             }
 
-            // check that fullmove number and halfmove clock are plausible
-            // NOTE: fullmove_number starts at 1 and increments every time black moves
+            // check that fullmove count and halfmove clock are plausible
+            // NOTE: fullmove_count starts at 1 and increments every time black moves
             // halfmove_clock starts at 0 and increases everytime a player makes a move that does not
             // move a pawn or capture a piece.
             // Initial setup is active color: white, fullmove: 1, halfmove: 0
@@ -381,12 +1342,12 @@ impl Gamestate {
             // but let's say that we get back color: white, fullmove: 1, halfmove: 2
             // in order to get halfmove: 2, white had to play a knight, then black had to play a knight
             // as well which should have incremented fullmove. That's what's being caught here
-            if (2 * (self.fullmove_number - 1) + self.active_color as u32)
-                < self.halfmove_clock as u32
+            if (2 * (self.fullmove_count - 1) + self.active_color as usize)
+                < self.halfmove_clock as usize
             {
                 return Err(
-                GamestateValidityCheckError::StrictFullmoveNumberLessThanHalfmoveClockDividedByTwo {
-                    fullmove_number: self.fullmove_number,
+                GamestateValidityCheckError::StrictFullmoveCountLessThanHalfmoveClockDividedByTwo {
+                    fullmove_count: self.fullmove_count,
                     halfmove_clock: self.halfmove_clock,
                 });
             }
@@ -394,6 +1355,7 @@ impl Gamestate {
             //====================== EN PASSANT CHECKS ========================
 
             if let Some(en_passant) = self.en_passant {
+                // TODO: this seems wrong, investigate
                 // Take in a Square64 so that you can't be given an invalid square but then cast it to 120 format
                 // so that we can use it as an index properly
                 let en_passant = Square::from(en_passant);
@@ -547,8 +1509,8 @@ impl Gamestate {
         fen.push(self.active_color.into());
         fen.push(' ');
 
-        // castle_permissions
-        fen.push_str(self.castle_permissions.to_string().as_str());
+        // castle_perm
+        fen.push_str(self.castle_perm.to_string().as_str());
         fen.push(' ');
 
         // en_passant
@@ -566,8 +1528,8 @@ impl Gamestate {
         fen.push_str(self.halfmove_clock.to_string().as_str());
         fen.push(' ');
 
-        // fullmove_number
-        fen.push_str(self.fullmove_number.to_string().as_str());
+        // fullmove_count
+        fen.push_str(self.fullmove_count.to_string().as_str());
 
         fen
     }
@@ -603,7 +1565,19 @@ impl Gamestate {
         // check each square an attacker could be occupying and see if there is in fact
         // the corresponding piece on that attacking square
         for piece in pieces_to_check {
-            let directions = piece.get_attack_directions();
+            // TODO: this is technically doing extra work, but it's clearer and
+            // easy for now (could also be nice if we add fantasy pieces with
+            // non-symmetric movements).
+
+            // Reverse directions since we're trying to find where attacks could be
+            // initiated from and not where a piece could move to. Only matters for
+            // pawns
+            let directions = piece
+                .get_attack_directions()
+                .into_iter()
+                .map(|direction| -direction)
+                .collect::<Vec<_>>();
+
             match piece {
                 // To check sliding pieces we need to check squares offset by multiples
                 // of the direction offset, and early out of a direction when we hit a blocking piece
@@ -660,18 +1634,1931 @@ mod tests {
         board::bitboard::BitBoard,
         error::{BoardBuildError, BoardValidityCheckError, PieceConversionError},
         file::File,
-        gamestate,
+        gamestate, position_key,
     };
+
+    fn assert_fuzzy_eq(output: &Gamestate, expected: &Gamestate) {
+        // board.pieces
+        assert_eq!(output.board.pieces, expected.board.pieces);
+        // board.pawns
+        assert_eq!(output.board.pawns, expected.board.pawns);
+        // board.kings_square
+        assert_eq!(output.board.kings_square, expected.board.kings_square);
+        // board.piece_count
+        assert_eq!(output.board.piece_count, expected.board.piece_count);
+        // board.big_piece_count
+        assert_eq!(output.board.big_piece_count, expected.board.big_piece_count);
+        // board.major_piece_count
+        assert_eq!(
+            output.board.major_piece_count,
+            expected.board.major_piece_count
+        );
+        // board.minor_piece_count
+        assert_eq!(
+            output.board.minor_piece_count,
+            expected.board.minor_piece_count
+        );
+        // board.material_score
+        assert_eq!(output.board.material_score, expected.board.material_score);
+
+        // board.piece_list order doesn't matter
+        let mut output_piece_list_sorted = [
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+        ];
+        for (index, _squares) in output.board.piece_list.iter().enumerate() {
+            output_piece_list_sorted[index] = _squares.clone();
+            output_piece_list_sorted[index].sort();
+        }
+        let mut expected_piece_list_sorted = [
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+        ];
+        for (index, _squares) in expected.board.piece_list.iter().enumerate() {
+            expected_piece_list_sorted[index] = _squares.clone();
+            expected_piece_list_sorted[index].sort();
+        }
+        assert_eq!(output_piece_list_sorted, expected_piece_list_sorted);
+
+        // active_color
+        assert_eq!(output.active_color, expected.active_color);
+        // castle_perm
+        assert_eq!(output.castle_perm, expected.castle_perm);
+        // en_passant
+        assert_eq!(output.en_passant, expected.en_passant);
+        // halfmove_clock
+        assert_eq!(output.halfmove_clock, expected.halfmove_clock);
+        // fullmove_count
+        assert_eq!(output.fullmove_count, expected.fullmove_count);
+        // history
+        assert_eq!(output.history, expected.history);
+        // position_key
+        assert_eq!(output.position_key, expected.position_key);
+    }
+
+    //======================== MAKE MOVES =====================================
+    // MAKE/UNDO MOVES VISUAL ONLY
+    #[test]
+    fn test_gamestate_make_undo_moves_visual() {
+        // let fen = DEFAULT_FEN;
+        let fen = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
+
+        let mut gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let move_list = gamestate.gen_move_list().unwrap().moves;
+
+        let mut move_errors = vec![];
+        let mut undo_errors = vec![];
+
+        let mut move_count: usize = 0;
+
+        println!("{}", gamestate);
+        for move_ in move_list.into_iter().flatten() {
+            match gamestate.make_move(move_) {
+                Ok(()) => {
+                    println!("Make Move Success:\n{}", move_);
+                    println!("{}", gamestate);
+
+                    move_count += 1;
+
+                    match gamestate.undo_move() {
+                        Ok(undo_move) => {
+                            println!("Undo Move Success:\n{}", undo_move);
+                            println!("{}", gamestate);
+                        }
+                        Err(e) => {
+                            println!("UNDO ERROR: {}", e);
+                            undo_errors.push(e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("MOVE ERROR: {}", e);
+                    move_errors.push(e);
+                }
+            }
+        }
+
+        println!("NUMBER OF MOVES: {}", move_count);
+        println!("MOVE Errors: {}\n{:#?}", move_errors.len(), move_errors);
+        println!("MOVE Errors: {}\n{:#?}", undo_errors.len(), move_errors);
+    }
+
+    // MOVE PIECE
+    #[test]
+    fn test_gamestate_move_piece_valid() {
+        let fen = DEFAULT_FEN;
+        let mut output = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let initial_position_key = output.position_key;
+
+        // move WhiteKnight from B1 to C3 which is empty
+        output.move_piece(Square::B1, Square::C3);
+
+        let history = vec![Undo {
+            move_: Move::new_initial_state_dummy(),
+            castle_perm: CastlePerm::default(),
+            en_passant: None,
+            halfmove_clock: 0,
+            position_key: initial_position_key,
+        }];
+
+        let fen_after_add = "rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR w KQkq - 0 1";
+        let expected = GamestateBuilder::new_with_fen(fen_after_add)
+            .unwrap()
+            .history(history)
+            .build()
+            .unwrap();
+
+        assert_fuzzy_eq(&output, &expected);
+    }
+
+    #[test]
+    fn test_gamestate_move_piece_invalid_no_piece_on_start_square() {
+        let fen = DEFAULT_FEN;
+        let mut input = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // try to move B3 which is empty
+        let output = input.move_piece(Square::B3, Square::B4);
+        let expected = Err(MovePieceError::NoPieceAtMoveStart {
+            start_square: Square::B3,
+        });
+
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_move_piece_invalid_attempted_capture() {
+        let fen = "rnbqkbnr/ppp1pppp/8/3p4/8/2N5/PPPPPPPP/R1BQKBNR w KQkq - 0 1";
+        let mut input = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // try to move WhiteKnight on C3 to D5 which is occupied by BlackPawn
+        let output = input.move_piece(Square::C3, Square::D5);
+        let expected = Err(MovePieceError::MoveEndsOnOccupiedSquare {
+            piece: Piece::WhiteKnight,
+            end_square: Square::D5,
+            end_piece: Piece::BlackPawn,
+        });
+        assert_eq!(output, expected);
+    }
+
+    // ADD PIECE
+    #[test]
+    fn test_gamestate_add_piece_valid() {
+        let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/R1BQKBNR w KQkq - 0 1";
+        let mut output = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // add WhiteKnight to C3
+        output.add_piece(Square::C3, Piece::WhiteKnight);
+
+        let fen_after_add = "rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR w KQkq - 0 1";
+        let expected = GamestateBuilder::new_with_fen(fen_after_add)
+            .unwrap()
+            .build()
+            .unwrap();
+    }
+
+    #[test]
+    fn test_gamestate_add_piece_invalid_square_occupied() {
+        let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/R1BQKBNR w KQkq - 0 1";
+        let mut input = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // add WhiteKnight to D2 which is occupied by WhitePawn
+        let output = input.add_piece(Square::D2, Piece::WhiteKnight);
+
+        let expected = Err(AddPieceError::AddToOccupiedSquare {
+            occupied_square: Square::D2,
+            piece_at_square: Piece::WhitePawn,
+        });
+
+        assert_eq!(output, expected);
+    }
+
+    // CLEAR PIECE
+    #[test]
+    fn test_gamestate_clear_piece_valid() {
+        let fen = "8/8/8/8/8/8/3P4/8 w - - 0 1";
+        let mut output = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
+
+        let initial_position_key = output.position_key;
+
+        output.clear_piece(Square::D2);
+
+        let history = vec![Undo {
+            move_: Move::new_initial_state_dummy(),
+            castle_perm: CastlePerm(0),
+            en_passant: None,
+            halfmove_clock: 0,
+            position_key: initial_position_key,
+        }];
+
+        let expected = GamestateBuilder::new()
+            .validity_check(ValidityCheck::Basic)
+            .history(history)
+            .build()
+            .unwrap();
+
+        assert_eq!(output, expected);
+    }
+
+    // NOTE: it's important to test a non white pawn move/add/clear since you can easily mix up Piece and PieceType values
+    // and for a white pawn both convert to usize 0
+    #[test]
+    fn test_gamestate_clear_piece_non_white_pawn_valid() {
+        // Black Knight's Piece usize value is 7 but PieceType is 1
+        // output.board.piece_list[piece_type as usize] is the vec for WhiteKnight
+        // so this fen should doubly cause an issue if we mess this up
+        let fen = "N7/8/8/8/8/8/3n4/8 w - - 0 1";
+        let mut output = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
+
+        let initial_position_key = output.position_key;
+
+        output.clear_piece(Square::D2);
+
+        // Initial State's held in history would be different
+        let history = vec![Undo {
+            move_: Move::new_initial_state_dummy(),
+            castle_perm: CastlePerm(0),
+            en_passant: None,
+            halfmove_clock: 0,
+            position_key: initial_position_key,
+        }];
+
+        let expected = GamestateBuilder::new_with_board(
+            BoardBuilder::new()
+                .validity_check(ValidityCheck::Basic)
+                .piece(Piece::WhiteKnight, Square64::A8)
+                .build()
+                .unwrap(),
+        )
+        .validity_check(ValidityCheck::Basic)
+        .history(history)
+        .build()
+        .unwrap();
+
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_clear_piece_start_valid() {
+        let fen = DEFAULT_FEN;
+        let mut output = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
+
+        let initial_position_key = output.position_key;
+
+        output.clear_piece(Square::D2);
+
+        let history = vec![Undo {
+            move_: Move::new_initial_state_dummy(),
+            castle_perm: CastlePerm::default(),
+            en_passant: None,
+            halfmove_clock: 0,
+            position_key: initial_position_key,
+        }];
+
+        let fen_after_clear = "rnbqkbnr/pppppppp/8/8/8/8/PPP1PPPP/RNBQKBNR w KQkq - 0 1";
+        let mut expected = GamestateBuilder::new_with_fen(fen_after_clear)
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .history(history)
+            .build()
+            .unwrap();
+
+        assert_fuzzy_eq(&output, &expected);
+    }
+
+    #[test]
+    fn test_gamestate_clear_piece_invalid() {
+        let fen = "8/8/8/8/8/8/3P4/8 w - - 0 1";
+        let mut input = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
+
+        let output = input.clear_piece(Square::D1);
+
+        let expected = Err(ClearPieceError::NoPieceToClear {
+            empty_square: Square::D1,
+        });
+
+        assert_eq!(output, expected);
+    }
+
+    //======================== POSITION KEY ===================================
+
+    #[test]
+    fn test_gamestate_init_position_key_one_white_pawn() {
+        let fen = "8/8/8/8/8/8/3P4/8 w - - 0 1";
+        let gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
+
+        let output = gamestate.position_key;
+
+        let mut position_key_value = 0;
+        let zobrist = ZOBRIST.lock().unwrap();
+        let color_key_component = zobrist.color_key;
+        let piece_keys_component =
+            zobrist.piece_keys[Piece::WhitePawn as usize][Square64::D2 as usize];
+        let castle_keys_component = zobrist.castle_keys[0];
+
+        position_key_value ^= color_key_component;
+        position_key_value ^= piece_keys_component;
+        position_key_value ^= castle_keys_component;
+
+        let expected = PositionKey(position_key_value);
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_init_position_key_starting_position() {
+        let fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+        let gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let output = gamestate.position_key;
+
+        let mut position_key_value = 0;
+        let zobrist = ZOBRIST.lock().unwrap();
+        let color_key_component = zobrist.color_key;
+
+        let mut piece_keys_component = 0;
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhiteRook as usize][Square64::A1 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhiteKnight as usize][Square64::B1 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhiteBishop as usize][Square64::C1 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhiteQueen as usize][Square64::D1 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhiteKing as usize][Square64::E1 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhiteBishop as usize][Square64::F1 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhiteKnight as usize][Square64::G1 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhiteRook as usize][Square64::H1 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhitePawn as usize][Square64::A2 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhitePawn as usize][Square64::B2 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhitePawn as usize][Square64::C2 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhitePawn as usize][Square64::D2 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhitePawn as usize][Square64::E2 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhitePawn as usize][Square64::F2 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhitePawn as usize][Square64::G2 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::WhitePawn as usize][Square64::H2 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackPawn as usize][Square64::A7 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackPawn as usize][Square64::B7 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackPawn as usize][Square64::C7 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackPawn as usize][Square64::D7 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackPawn as usize][Square64::E7 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackPawn as usize][Square64::F7 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackPawn as usize][Square64::G7 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackPawn as usize][Square64::H7 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackRook as usize][Square64::A8 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackKnight as usize][Square64::B8 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackBishop as usize][Square64::C8 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackQueen as usize][Square64::D8 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackKing as usize][Square64::E8 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackBishop as usize][Square64::F8 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackKnight as usize][Square64::G8 as usize];
+        piece_keys_component ^=
+            zobrist.piece_keys[Piece::BlackRook as usize][Square64::H8 as usize];
+
+        let castle_keys_component = zobrist.castle_keys[15];
+
+        position_key_value ^= color_key_component;
+        position_key_value ^= piece_keys_component;
+        position_key_value ^= castle_keys_component;
+
+        let expected = PositionKey(position_key_value);
+        assert_eq!(output, expected);
+    }
+
+    //========================= MOVE GEN ======================================
+
+    #[test]
+    fn test_gamestate_move_gen_all_moves_tricky_visual() {
+        let fen = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
+        let gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let output = gamestate.gen_move_list().unwrap();
+
+        println!("{}", output);
+        assert_eq!(output.count, 48);
+    }
+
+    #[test]
+    fn test_gamestate_move_gen_castling_moves_basic_black() {
+        let fen = "r3k2r/8/8/8/8/8/8/R3K2R b KQkq - 0 1";
+        let gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let mut output = MoveList::new();
+        gamestate.gen_castling_moves(Color::Black, &mut output);
+
+        let mut expected = MoveList::new();
+
+        // Black Kingside Castle
+        expected.add_move(Move::new(
+            Square::E8,
+            Square::G8,
+            None,
+            false,
+            false,
+            None,
+            true,
+            Piece::BlackKing,
+        ));
+
+        //Black Queenside Castle
+        expected.add_move(Move::new(
+            Square::E8,
+            Square::C8,
+            None,
+            false,
+            false,
+            None,
+            true,
+            Piece::BlackKing,
+        ));
+
+        println!("Output:\n{}", output);
+        println!("Expected:\n{}", expected);
+
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_move_gen_castling_moves_basic_white() {
+        let fen = "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1";
+        let gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let mut output = MoveList::new();
+        gamestate.gen_castling_moves(Color::White, &mut output);
+
+        let mut expected = MoveList::new();
+
+        // White Kingside Castle
+        expected.add_move(Move::new(
+            Square::E1,
+            Square::G1,
+            None,
+            false,
+            false,
+            None,
+            true,
+            Piece::WhiteKing,
+        ));
+
+        // White Queenside Castle
+        expected.add_move(Move::new(
+            Square::E1,
+            Square::C1,
+            None,
+            false,
+            false,
+            None,
+            true,
+            Piece::WhiteKing,
+        ));
+
+        println!("Output:\n{}", output);
+        println!("Expected:\n{}", expected);
+
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_move_gen_castling_moves_under_attack() {
+        let fen = "r3k2r/8/8/8/8/8/6p1/R3K2R w KQk - 0 1";
+        let gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
+
+        let mut output = MoveList::new();
+        gamestate.gen_castling_moves(Color::White, &mut output);
+
+        let mut expected = MoveList::new();
+
+        // White Kingside Castle blocked by Black Pawn on G2
+        // White Queenside Castle is valid
+        expected.add_move(Move::new(
+            Square::E1,
+            Square::C1,
+            None,
+            false,
+            false,
+            None,
+            true,
+            Piece::WhiteKing,
+        ));
+
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_move_gen_sliding_rooks() {
+        let fen = "8/8/2p5/8/1pR1P3/8/8/8 w - - 0 1";
+        let gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
+
+        let mut output = MoveList::new();
+        gamestate.gen_non_pawn_moves(Color::White, &mut output);
+
+        let mut expected = MoveList::new();
+
+        //==================== WHITE ROOK C4 ==================================
+        // WR C4 to C3 (1 Down)
+        expected.add_move(Move::new(
+            Square::C4,
+            Square::C3,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteRook,
+        ));
+
+        // WR C4 to C2 (2 Down)
+        expected.add_move(Move::new(
+            Square::C4,
+            Square::C2,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteRook,
+        ));
+
+        // WR C4 to C1 (3 Down)
+        expected.add_move(Move::new(
+            Square::C4,
+            Square::C1,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteRook,
+        ));
+
+        // WR C4 captures BP on B4 (1 Left)
+        expected.add_move(Move::new(
+            Square::C4,
+            Square::B4,
+            Some(Piece::BlackPawn),
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteRook,
+        ));
+
+        // Further moves in that direction blocked
+
+        // WR C4 to D4 (1 Right)
+        expected.add_move(Move::new(
+            Square::C4,
+            Square::D4,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteRook,
+        ));
+
+        // Further moves in that direction blocked
+
+        // WR C4 to C5 (1 Up)
+        expected.add_move(Move::new(
+            Square::C4,
+            Square::C5,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteRook,
+        ));
+
+        // WR C4 captured BP on C6 (2 Up)
+        expected.add_move(Move::new(
+            Square::C4,
+            Square::C6,
+            Some(Piece::BlackPawn),
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteRook,
+        ));
+
+        let output_count = output.count;
+        let expected_count = expected.count;
+
+        println!("OUTPUT:\n{}", output);
+        println!("\n\n\nEXPECTED:\n{}", expected);
+
+        assert_eq!(output_count, expected_count);
+
+        let mut output = output.moves.into_iter().flatten().collect::<Vec<Move>>(); // get rid of Nones
+        let mut expected = expected.moves.into_iter().flatten().collect::<Vec<Move>>();
+        output.sort();
+        expected.sort();
+
+        assert_eq!(expected_count, output.len());
+
+        assert_eq!(output, expected);
+    }
+
+    // TODO:
+    // Queens
+    // let fen = "6k1/8/4nq2/8/1nQ5/5N2/1N6/6K1 w - - 0 1";
+    // Bishops
+    // let fen = "6k1/1b6/4n3/8/1n4B1/1B3N2/1N6/2b3K1 b - - 0 1";
+
+    #[test]
+    fn test_gamestate_move_gen_knights_kings() {
+        let fen = "5k2/1n6/4n3/6N1/8/3N4/8/5K2 w - - 0 1";
+        let gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
+
+        let mut output = MoveList::new();
+        gamestate.gen_non_pawn_moves(Color::White, &mut output);
+        gamestate.gen_non_pawn_moves(Color::Black, &mut output);
+
+        let mut expected = MoveList::new();
+
+        //==================== WHITE KING ====================
+        // WK F1 to E1 (Left)
+        expected.add_move(Move::new(
+            Square::F1,
+            Square::E1,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKing,
+        ));
+
+        // WK F1 to G1 (Right)
+        expected.add_move(Move::new(
+            Square::F1,
+            Square::G1,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKing,
+        ));
+
+        // WK F1 to E2 (Up Left)
+        expected.add_move(Move::new(
+            Square::F1,
+            Square::E2,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKing,
+        ));
+
+        // WK F1 to F2 (Up)
+        expected.add_move(Move::new(
+            Square::F1,
+            Square::F2,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKing,
+        ));
+
+        // WK F1 to G2 (Up Right)
+        expected.add_move(Move::new(
+            Square::F1,
+            Square::G2,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKing,
+        ));
+
+        //============== WHITE KNIGHT D3 =====================
+
+        // WN D3 to C1 (Down 2 Left 1)
+        expected.add_move(Move::new(
+            Square::D3,
+            Square::C1,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN D3 to E1 (Down 2 Right 1)
+        expected.add_move(Move::new(
+            Square::D3,
+            Square::E1,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN D3 to B2 (Down 1 Left 2)
+        expected.add_move(Move::new(
+            Square::D3,
+            Square::B2,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN D3 to F2 (Down 1 Right 2)
+        expected.add_move(Move::new(
+            Square::D3,
+            Square::F2,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN D3 to B4 (Up 1 Left 2)
+        expected.add_move(Move::new(
+            Square::D3,
+            Square::B4,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN D3 to F4 (Up 1 Right 2)
+        expected.add_move(Move::new(
+            Square::D3,
+            Square::F4,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN D3 to C5 (Up 2 Left 1)
+        expected.add_move(Move::new(
+            Square::D3,
+            Square::C5,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN D3 to E5 (Up 2 Right 1)
+        expected.add_move(Move::new(
+            Square::D3,
+            Square::E5,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        //============== WHITE KNIGHT G5 =====================
+
+        // WN G5 to F3 (Down 2 Left 1)
+        expected.add_move(Move::new(
+            Square::G5,
+            Square::F3,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN G5 to H3 (Down 2 Right 1)
+        expected.add_move(Move::new(
+            Square::G5,
+            Square::H3,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN G5 to E4 (Down 1 Left 2)
+        expected.add_move(Move::new(
+            Square::G5,
+            Square::E4,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN G5 (Down 1 Right 2) is offboard
+
+        // WN G5 Captures BN on E6 (Up 1 Left 2)
+        expected.add_move(Move::new(
+            Square::G5,
+            Square::E6,
+            Some(Piece::BlackKnight),
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN G5 (Up 1 Right 2) is offboard
+
+        // WN G5 to F7 (Up 2 Left 1)
+        expected.add_move(Move::new(
+            Square::G5,
+            Square::F7,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        // WN G5 to H7 (Up 2 Right 1)
+        expected.add_move(Move::new(
+            Square::G5,
+            Square::H7,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::WhiteKnight,
+        ));
+
+        //================== BLACK KNIGHT E6 ==============
+
+        // BN E6 to D4 (Down 2 Left 1)
+        expected.add_move(Move::new(
+            Square::E6,
+            Square::D4,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKnight,
+        ));
+
+        // BK E6 to F4 (Down 2 Right 1)
+        expected.add_move(Move::new(
+            Square::E6,
+            Square::F4,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKnight,
+        ));
+
+        // BK E6 to C5 (Down 1 Left 2)
+        expected.add_move(Move::new(
+            Square::E6,
+            Square::C5,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKnight,
+        ));
+
+        // BK F8 capture WN on G5 (Down 1 Right 2)
+        expected.add_move(Move::new(
+            Square::E6,
+            Square::G5,
+            Some(Piece::WhiteKnight),
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKnight,
+        ));
+
+        // BK E6 to C7 (Up 1 Left 2)
+        expected.add_move(Move::new(
+            Square::E6,
+            Square::C7,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKnight,
+        ));
+
+        // BK E6 to G7 (Up 1 Right 2)
+        expected.add_move(Move::new(
+            Square::E6,
+            Square::G7,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKnight,
+        ));
+
+        // BK E6 to D8 (Up 2 Left 1)
+        expected.add_move(Move::new(
+            Square::E6,
+            Square::D8,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKnight,
+        ));
+
+        // BK E6 to F8 blocked by BK
+
+        //================== BLACK KNIGHT B7 ==============
+
+        // BK B7 to A5 (Down 2 Left 1)
+        expected.add_move(Move::new(
+            Square::B7,
+            Square::A5,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKnight,
+        ));
+
+        // BK B7 to C5 (Down 2 Right 1)
+        expected.add_move(Move::new(
+            Square::B7,
+            Square::C5,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKnight,
+        ));
+
+        // BK B7 (1 Down 2 Left) offboard
+
+        // BK B7 to D6 (1 Down 2 Right)
+        expected.add_move(Move::new(
+            Square::B7,
+            Square::D6,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKnight,
+        ));
+
+        // BK B7 (1 Up 2 Left) offboard
+
+        // BK B7 to D8 (1 Up 2 Right)
+        expected.add_move(Move::new(
+            Square::B7,
+            Square::D8,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKnight,
+        ));
+
+        // BK B7 (2 Up 1 Left) offboard
+        // BK B7 (2 Up 1 Right) offboard
+
+        //================== BLACK KING ===================
+        // BK F8 to E7 (Down Left)
+        expected.add_move(Move::new(
+            Square::F8,
+            Square::E7,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKing,
+        ));
+
+        // BK F8 to F7 (Down)
+        expected.add_move(Move::new(
+            Square::F8,
+            Square::F7,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKing,
+        ));
+
+        // BK F8 to G7 (Down Right)
+        expected.add_move(Move::new(
+            Square::F8,
+            Square::G7,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKing,
+        ));
+
+        // BK F8 to E8 (Left)
+        expected.add_move(Move::new(
+            Square::F8,
+            Square::E8,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKing,
+        ));
+
+        // BK F8 to G8 (Right)
+        expected.add_move(Move::new(
+            Square::F8,
+            Square::G8,
+            None,
+            false,
+            false,
+            None,
+            false,
+            Piece::BlackKing,
+        ));
+
+        let output_count = output.count;
+        let expected_count = expected.count;
+
+        println!("OUTPUT:\n{}", output);
+        println!("\n\n\nEXPECTED:\n{}", expected);
+
+        assert_eq!(output_count, expected_count);
+
+        let mut output = output.moves.into_iter().flatten().collect::<Vec<Move>>(); // get rid of Nones
+        let mut expected = expected.moves.into_iter().flatten().collect::<Vec<Move>>();
+        output.sort();
+        expected.sort();
+
+        assert_eq!(expected_count, output.len());
+
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_move_gen_black_pawn() {
+        let fen = "rnbqkbnr/p1p1p3/3p3p/1p1p4/2P1Pp2/8/PP1P1PpP/RNBQKB1R b - e3 0 1";
+        let gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
+
+        let mut output = MoveList::new();
+        gamestate.gen_pawn_moves(Color::Black, &mut output);
+
+        let piece_moved = Piece::BlackPawn;
+
+        let mut expected = MoveList::new();
+
+        // BP A7 move ahead one
+        expected.add_move(Move::new(
+            Square::A7,
+            Square::A6,
+            None,
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // BP A7 move ahead two
+        expected.add_move(Move::new(
+            Square::A7,
+            Square::A5,
+            None,
+            false,
+            true,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // BP B5 move ahead one
+        expected.add_move(Move::new(
+            Square::B5,
+            Square::B4,
+            None,
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // BP B5 move capture WP on C4
+        expected.add_move(Move::new(
+            Square::B5,
+            Square::C4,
+            Some(Piece::WhitePawn),
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // BP C7 move ahead one
+        expected.add_move(Move::new(
+            Square::C7,
+            Square::C6,
+            None,
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // BP C7 move ahead two
+        expected.add_move(Move::new(
+            Square::C7,
+            Square::C5,
+            None,
+            false,
+            true,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // BP D6 is blocked by BP D5
+
+        // BP D5 move ahead one
+        expected.add_move(Move::new(
+            Square::D5,
+            Square::D4,
+            None,
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // BP D5 move capture WP on C4
+        expected.add_move(Move::new(
+            Square::D5,
+            Square::C4,
+            Some(Piece::WhitePawn),
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+        // BP D5 move capture WP on E4
+        expected.add_move(Move::new(
+            Square::D5,
+            Square::E4,
+            Some(Piece::WhitePawn),
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // BP E7 move ahead one
+        expected.add_move(Move::new(
+            Square::E7,
+            Square::E6,
+            None,
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // BP E7 move ahead two
+        expected.add_move(Move::new(
+            Square::E7,
+            Square::E5,
+            None,
+            false,
+            true,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // BP F4 move ahead one
+        expected.add_move(Move::new(
+            Square::F4,
+            Square::F3,
+            None,
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // BP F4 move capture WP on E3 via En Passant
+        expected.add_move(Move::new(
+            Square::F4,
+            Square::E3,
+            Some(Piece::WhitePawn),
+            true,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // BP G2 move ahead one promote BlackKnight
+        expected.add_move(Move::new(
+            Square::G2,
+            Square::G1,
+            None,
+            false,
+            false,
+            Some(Piece::BlackKnight),
+            false,
+            piece_moved,
+        ));
+
+        // BP G2 move ahead one promote BlackBishop
+        expected.add_move(Move::new(
+            Square::G2,
+            Square::G1,
+            None,
+            false,
+            false,
+            Some(Piece::BlackBishop),
+            false,
+            piece_moved,
+        ));
+
+        // BP G2 move ahead one promote BlackRook
+        expected.add_move(Move::new(
+            Square::G2,
+            Square::G1,
+            None,
+            false,
+            false,
+            Some(Piece::BlackRook),
+            false,
+            piece_moved,
+        ));
+
+        // BP G2 move ahead one promote BlackQueen
+        expected.add_move(Move::new(
+            Square::G2,
+            Square::G1,
+            None,
+            false,
+            false,
+            Some(Piece::BlackQueen),
+            false,
+            piece_moved,
+        ));
+
+        // BP G2 move capture WB on F1 promote BlackKnight
+        expected.add_move(Move::new(
+            Square::G2,
+            Square::F1,
+            Some(Piece::WhiteBishop),
+            false,
+            false,
+            Some(Piece::BlackKnight),
+            false,
+            piece_moved,
+        ));
+
+        // BP G2 move capture WB on F1 promote BlackBishop
+        expected.add_move(Move::new(
+            Square::G2,
+            Square::F1,
+            Some(Piece::WhiteBishop),
+            false,
+            false,
+            Some(Piece::BlackBishop),
+            false,
+            piece_moved,
+        ));
+
+        // BP G2 move capture WB on F1 promote BlackRook
+        expected.add_move(Move::new(
+            Square::G2,
+            Square::F1,
+            Some(Piece::WhiteBishop),
+            false,
+            false,
+            Some(Piece::BlackRook),
+            false,
+            piece_moved,
+        ));
+
+        // BP G2 move capture WB on F1 promote BlackQueen
+        expected.add_move(Move::new(
+            Square::G2,
+            Square::F1,
+            Some(Piece::WhiteBishop),
+            false,
+            false,
+            Some(Piece::BlackQueen),
+            false,
+            piece_moved,
+        ));
+
+        // BP G2 move capture WR on H1 promote BlackKnight
+        expected.add_move(Move::new(
+            Square::G2,
+            Square::H1,
+            Some(Piece::WhiteRook),
+            false,
+            false,
+            Some(Piece::BlackKnight),
+            false,
+            piece_moved,
+        ));
+
+        // BP G2 move capture WR on H1 promote BlackBishop
+        expected.add_move(Move::new(
+            Square::G2,
+            Square::H1,
+            Some(Piece::WhiteRook),
+            false,
+            false,
+            Some(Piece::BlackBishop),
+            false,
+            piece_moved,
+        ));
+
+        // BP G2 move capture WR on H1 promote BlackRook
+        expected.add_move(Move::new(
+            Square::G2,
+            Square::H1,
+            Some(Piece::WhiteRook),
+            false,
+            false,
+            Some(Piece::BlackRook),
+            false,
+            piece_moved,
+        ));
+
+        // BP G2 move capture WR on H1 promote BlackQueen
+        expected.add_move(Move::new(
+            Square::G2,
+            Square::H1,
+            Some(Piece::WhiteRook),
+            false,
+            false,
+            Some(Piece::BlackQueen),
+            false,
+            piece_moved,
+        ));
+
+        // BP H6 move ahead one to H5
+        expected.add_move(Move::new(
+            Square::H6,
+            Square::H5,
+            None,
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        let output_count = output.count;
+        let expected_count = expected.count;
+
+        println!("OUTPUT:\n{}", output);
+        println!("\n\n\nEXPECTED:\n{}", expected);
+
+        assert_eq!(output_count, expected_count);
+
+        // Order doesn't need to match exactly right now since the order is
+        // tricky to make intuitive
+        let mut output = output.moves.into_iter().flatten().collect::<Vec<Move>>(); // get rid of Nones
+        let mut expected = expected.moves.into_iter().flatten().collect::<Vec<Move>>();
+        output.sort();
+        expected.sort();
+
+        assert_eq!(expected_count, output.len());
+
+        assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn test_gamestate_move_gen_white_pawn() {
+        let fen = "rnbqkb1r/pp1p1pPp/8/2p1pP2/1P1P4/3P3P/P1P1P3/RNBQKBNR w KQkq e6 0 1";
+        let gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .validity_check(ValidityCheck::Basic)
+            .build()
+            .unwrap();
+
+        let mut output = MoveList::new();
+        gamestate.gen_pawn_moves(Color::White, &mut output);
+
+        let piece_moved = Piece::WhitePawn;
+
+        let mut expected = MoveList::new();
+        // WP A2 move ahead one
+        expected.add_move(Move::new(
+            Square::A2,
+            Square::A3,
+            None,
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP A2 move ahead two
+        expected.add_move(Move::new(
+            Square::A2,
+            Square::A4,
+            None,
+            false,
+            true,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP B4 move ahead one
+        expected.add_move(Move::new(
+            Square::B4,
+            Square::B5,
+            None,
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP B4 move capture BP on C5
+        //           31-29   28-25 24   23-20 19 18 17-14 13-7     6-0
+        //           unused  pm    cstl prom  ps ep capt  end      start
+        // 33677236:    000  0001  0    0000  0  0  0111  011_1111 011_0100
+        expected.add_move(Move::new(
+            Square::B4,
+            Square::C5,
+            Some(Piece::BlackPawn),
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP C2 move ahead one
+        expected.add_move(Move::new(
+            Square::C2,
+            Square::C3,
+            None,
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP C2 move ahead two
+        expected.add_move(Move::new(
+            Square::C2,
+            Square::C4,
+            None,
+            false,
+            true,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP D3 is blocked by WP D4
+
+        // WP D4 move ahead one
+        expected.add_move(Move::new(
+            Square::D4,
+            Square::D5,
+            None,
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP D4 move capture BP on C5
+        expected.add_move(Move::new(
+            Square::D4,
+            Square::C5,
+            Some(Piece::BlackPawn),
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+        // WP D4 move capture BP on E5
+        expected.add_move(Move::new(
+            Square::D4,
+            Square::E5,
+            Some(Piece::BlackPawn),
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP E2 move ahead one
+        expected.add_move(Move::new(
+            Square::E2,
+            Square::E3,
+            None,
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP E2 move ahead two
+        expected.add_move(Move::new(
+            Square::E2,
+            Square::E4,
+            None,
+            false,
+            true,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP F5 move ahead one
+        expected.add_move(Move::new(
+            Square::F5,
+            Square::F6,
+            None,
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP F5 move capture BP on E5 via En Passant E6
+        expected.add_move(Move::new(
+            Square::F5,
+            Square::E6,
+            Some(Piece::BlackPawn),
+            true,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        // WP G7 move ahead one promote WhiteKnight
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::G8,
+            None,
+            false,
+            false,
+            Some(Piece::WhiteKnight),
+            false,
+            piece_moved,
+        ));
+
+        // WP G7 move ahead one promote WhiteBishop
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::G8,
+            None,
+            false,
+            false,
+            Some(Piece::WhiteBishop),
+            false,
+            piece_moved,
+        ));
+
+        // WP G7 move ahead one promote WhiteRook
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::G8,
+            None,
+            false,
+            false,
+            Some(Piece::WhiteRook),
+            false,
+            piece_moved,
+        ));
+
+        // WP G7 move ahead one promote WhiteQueen
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::G8,
+            None,
+            false,
+            false,
+            Some(Piece::WhiteQueen),
+            false,
+            piece_moved,
+        ));
+
+        // WP G7 move capture BB on F8 promote WhiteKnight
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::F8,
+            Some(Piece::BlackBishop),
+            false,
+            false,
+            Some(Piece::WhiteKnight),
+            false,
+            piece_moved,
+        ));
+
+        // WP G7 move capture BB on F8 promote WhiteBishop
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::F8,
+            Some(Piece::BlackBishop),
+            false,
+            false,
+            Some(Piece::WhiteBishop),
+            false,
+            piece_moved,
+        ));
+
+        // WP G7 move capture BB on F8 promote WhiteRook
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::F8,
+            Some(Piece::BlackBishop),
+            false,
+            false,
+            Some(Piece::WhiteRook),
+            false,
+            piece_moved,
+        ));
+
+        // WP G7 move capture BB on F8 promote WhiteQueen
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::F8,
+            Some(Piece::BlackBishop),
+            false,
+            false,
+            Some(Piece::WhiteQueen),
+            false,
+            piece_moved,
+        ));
+
+        // WP G7 move capture BR on H8 promote WhiteKnight
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::H8,
+            Some(Piece::BlackRook),
+            false,
+            false,
+            Some(Piece::WhiteKnight),
+            false,
+            piece_moved,
+        ));
+
+        // WP G7 move capture BR on H8 promote WhiteBishop
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::H8,
+            Some(Piece::BlackRook),
+            false,
+            false,
+            Some(Piece::WhiteBishop),
+            false,
+            piece_moved,
+        ));
+
+        // 10 0100 0010 1011 0001 0101 0111
+        // 37,925,207
+        // WP G7 move capture BR on H8 promote WhiteRook
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::H8,
+            Some(Piece::BlackRook),
+            false,
+            false,
+            Some(Piece::WhiteRook),
+            false,
+            piece_moved,
+        ));
+
+        // WP G7 move capture BR on H8 promote WhiteQueen
+        expected.add_move(Move::new(
+            Square::G7,
+            Square::H8,
+            Some(Piece::BlackRook),
+            false,
+            false,
+            Some(Piece::WhiteQueen),
+            false,
+            piece_moved,
+        ));
+
+        // WP H3 move ahead one to H4
+        expected.add_move(Move::new(
+            Square::H3,
+            Square::H4,
+            None,
+            false,
+            false,
+            None,
+            false,
+            piece_moved,
+        ));
+
+        let output_count = output.count;
+        let expected_count = expected.count;
+
+        println!("OUTPUT:\n{}", output);
+        println!("\n\n\nEXPECTED:\n{}", expected);
+
+        assert_eq!(output_count, expected_count);
+
+        // Order doesn't need to match exactly right now since the order is
+        // tricky to make intuitive
+        let mut output = output.moves.into_iter().flatten().collect::<Vec<Move>>(); // get rid of Nones
+        let mut expected = expected.moves.into_iter().flatten().collect::<Vec<Move>>();
+        output.sort();
+        expected.sort();
+
+        assert_eq!(expected_count, output.len());
+
+        assert_eq!(output, expected);
+    }
 
     //========================= REUSABLE BUILDER ==============================
     #[test]
     fn test_gamestate_builder_is_reusable() {
         let mut gamestate_builder = GamestateBuilder::new_with_board(
             BoardBuilder::new()
-            .validity_check(ValidityCheck::Basic)
-            .piece(Piece::BlackBishop, Square64::A1)
-            .build()
-            .unwrap()
+                .validity_check(ValidityCheck::Basic)
+                .piece(Piece::BlackBishop, Square64::A1)
+                .build()
+                .unwrap(),
         )
         .validity_check(ValidityCheck::Basic);
 
@@ -680,7 +3567,6 @@ mod tests {
 
         assert_eq!(gamestate_0, gamestate_1);
     }
-
 
     //=========================== FEN parsing tests ===========================
     // Full FEN parsing
@@ -759,22 +3645,30 @@ mod tests {
         // };
 
         let active_color = Color::White;
-        let castle_permissions = CastlePerm::default();
+        let castle_perm = CastlePerm::default();
         let en_passant = None;
         let halfmove_clock = 0;
-        let fullmove_number = 1;
-        let history = Vec::new();
-        let zobrist = Zobrist::default();
+        let fullmove_count = 1;
+        let position_key = PositionKey(6527259550795953174);
+        let history = vec![
+            Undo {
+                move_: Move::new_initial_state_dummy(),
+                castle_perm,
+                en_passant,
+                halfmove_clock,
+                position_key
+            }
+        ];
 
         let expected = Ok(Gamestate {
             board,
             active_color,
-            castle_permissions,
+            castle_perm,
             en_passant,
             halfmove_clock,
-            fullmove_number,
+            fullmove_count,
             history,
-            zobrist,
+            position_key,
         });
 
         // board
@@ -787,10 +3681,10 @@ mod tests {
             output.as_ref().unwrap().active_color,
             expected.as_ref().unwrap().active_color
         );
-        // castle_permissions
+        // castle_perm
         assert_eq!(
-            output.as_ref().unwrap().castle_permissions,
-            expected.as_ref().unwrap().castle_permissions
+            output.as_ref().unwrap().castle_perm,
+            expected.as_ref().unwrap().castle_perm
         );
         // en_passant
         assert_eq!(
@@ -802,22 +3696,21 @@ mod tests {
             output.as_ref().unwrap().halfmove_clock,
             expected.as_ref().unwrap().halfmove_clock
         );
-        // fullmove_number
+        // fullmove_count
         assert_eq!(
-            output.as_ref().unwrap().fullmove_number,
-            expected.as_ref().unwrap().fullmove_number
+            output.as_ref().unwrap().fullmove_count,
+            expected.as_ref().unwrap().fullmove_count
         );
         // history
         assert_eq!(
             output.as_ref().unwrap().history,
             expected.as_ref().unwrap().history
         );
-        // zobrist
+        // position_key
         assert_eq!(
-            output.as_ref().unwrap().zobrist,
-            expected.as_ref().unwrap().zobrist
+            output.as_ref().unwrap().position_key,
+            expected.as_ref().unwrap().position_key
         );
-        // println!("output zobrist:{:?}\nexpected zobrist:{:?}", output.as_ref().unwrap().zobrist, output.as_ref().unwrap().zobrist);
         assert_eq!(output, expected);
         assert_eq!(default, expected.unwrap());
     }
@@ -885,29 +3778,33 @@ mod tests {
         // };
 
         let active_color = Color::White;
-        let castle_permissions = CastlePerm::try_from(0).unwrap();
+        let castle_perm = CastlePerm::try_from(0).unwrap();
         let en_passant = None;
         let halfmove_clock = 0;
-        let fullmove_number = 2;
+        let fullmove_count = 2;
         let history = Vec::new();
-        let zobrist = Zobrist::default();
+
+        // NOTE: this is why you shouldn't initialize Gamestate like this
+        // The builder is taking care of initiallizing the position key
+        let position_key = PositionKey(0);
 
         let gamestate = Gamestate {
             board,
             active_color,
-            castle_permissions,
+            castle_perm,
             en_passant,
             halfmove_clock,
-            fullmove_number,
+            fullmove_count,
             history,
-            zobrist,
+            position_key,
         };
 
         let mut output = [[false; File::COUNT]; Rank::COUNT];
         for rank in Rank::iter() {
             for file in File::iter() {
                 let square = Square::from_file_and_rank(file, rank);
-                output[rank as usize][file as usize] = gamestate.is_square_attacked(active_color, square);
+                output[rank as usize][file as usize] =
+                    gamestate.is_square_attacked(active_color, square);
             }
         }
 
@@ -991,29 +3888,32 @@ mod tests {
         println!("{}", board);
 
         let active_color = Color::White;
-        let castle_permissions = CastlePerm::try_from(0).unwrap();
+        let castle_perm = CastlePerm::try_from(0).unwrap();
         let en_passant = None;
         let halfmove_clock = 0;
-        let fullmove_number = 2;
+        let fullmove_count = 2;
         let history = Vec::new();
-        let zobrist = Zobrist::default();
+
+        // NOTE: should use builder
+        let position_key = PositionKey(0);
 
         let gamestate = Gamestate {
             board,
             active_color,
-            castle_permissions,
+            castle_perm,
             en_passant,
             halfmove_clock,
-            fullmove_number,
+            fullmove_count,
             history,
-            zobrist,
+            position_key,
         };
 
         let mut output = [[false; File::COUNT]; Rank::COUNT];
         for rank in Rank::iter() {
             for file in File::iter() {
                 let square = Square::from_file_and_rank(file, rank);
-                output[rank as usize][file as usize] = gamestate.is_square_attacked(active_color, square);
+                output[rank as usize][file as usize] =
+                    gamestate.is_square_attacked(active_color, square);
             }
         }
 
@@ -1093,29 +3993,32 @@ mod tests {
         //     ]
         // };
         let active_color = Color::White;
-        let castle_permissions = CastlePerm::try_from(0).unwrap();
+        let castle_perm = CastlePerm::try_from(0).unwrap();
         let en_passant = None;
         let halfmove_clock = 0;
-        let fullmove_number = 1;
+        let fullmove_count = 1;
         let history = Vec::new();
-        let zobrist = Zobrist::default();
+
+        // NOTE: should use the builder
+        let position_key = PositionKey(0);
 
         let gamestate = Gamestate {
             board,
             active_color,
-            castle_permissions,
+            castle_perm,
             en_passant,
             halfmove_clock,
-            fullmove_number,
+            fullmove_count,
             history,
-            zobrist,
+            position_key,
         };
 
         let mut output = [[false; File::COUNT]; Rank::COUNT];
         for rank in Rank::iter() {
             for file in File::iter() {
                 let square = Square::from_file_and_rank(file, rank);
-                output[rank as usize][file as usize] = gamestate.is_square_attacked(active_color, square);
+                output[rank as usize][file as usize] =
+                    gamestate.is_square_attacked(active_color, square);
             }
         }
 
@@ -1197,17 +4100,17 @@ mod tests {
                         );
         let expected_active_color_start = "White";
         let expected_en_passant_start = "None";
-        let expected_castle_permissions_start = "KQkq";
-        let expected_position_key_start = gs_start.gen_position_key();
+        let expected_castle_perm_start = "KQkq";
+        let expected_position_key_start = gs_start.position_key;
         let expected_start = format!(
                                             "{}\nActive Color: {}\nEn Passant: {}\nCastle Permissions: {}\nPosition Key: {}\n", 
                                             expected_board_start,
                                             expected_active_color_start,
                                             expected_en_passant_start,
-                                            expected_castle_permissions_start,
+                                            expected_castle_perm_start,
                                             expected_position_key_start
                                         );
-        
+
 
         let expected_board_wpe4 = format!("{}{}{}{}{}{}{}{}{}",
                             "8\t♜\t♞\t♝\t♛\t♚\t♝\t♞\t♜\n",
@@ -1222,14 +4125,14 @@ mod tests {
                         );
         let expected_active_color_wpe4 = "Black";
         let expected_en_passant_wpe4 = "E3"; 
-        let expected_castle_permissions_wpe4 = "KQkq";
-        let expected_position_key_wpe4 = gs_wpe4.gen_position_key();
+        let expected_castle_perm_wpe4 = "KQkq";
+        let expected_position_key_wpe4 = gs_wpe4.position_key;
         let expected_wpe4 = format!(
                                             "{}\nActive Color: {}\nEn Passant: {}\nCastle Permissions: {}\nPosition Key: {}\n", 
                                             expected_board_wpe4,
                                             expected_active_color_wpe4,
                                             expected_en_passant_wpe4,
-                                            expected_castle_permissions_wpe4,
+                                            expected_castle_perm_wpe4,
                                             expected_position_key_wpe4
                                         );
 
@@ -1246,14 +4149,14 @@ mod tests {
                         );
         let expected_active_color_bpc5 = "White";
         let expected_en_passant_bpc5 = "C6"; 
-        let expected_castle_permissions_bpc5 = "KQkq";
-        let expected_position_key_bpc5 = gs_bpc5.gen_position_key();
+        let expected_castle_perm_bpc5 = "KQkq";
+        let expected_position_key_bpc5 = gs_bpc5.position_key;
         let expected_bpc5 = format!(
                                             "{}\nActive Color: {}\nEn Passant: {}\nCastle Permissions: {}\nPosition Key: {}\n", 
                                             expected_board_bpc5,
                                             expected_active_color_bpc5,
                                             expected_en_passant_bpc5,
-                                            expected_castle_permissions_bpc5,
+                                            expected_castle_perm_bpc5,
                                             expected_position_key_bpc5
                                         );
 
@@ -1270,14 +4173,14 @@ mod tests {
                         );
         let expected_active_color_wnf3 = "Black";
         let expected_en_passant_wnf3 = "None";
-        let expected_castle_permissions_wnf3 = "KQkq";
-        let expected_position_key_wnf3 = gs_wnf3.gen_position_key();
+        let expected_castle_perm_wnf3 = "KQkq";
+        let expected_position_key_wnf3 = gs_wnf3.position_key;
         let expected_wnf3 = format!(
                                             "{}\nActive Color: {}\nEn Passant: {}\nCastle Permissions: {}\nPosition Key: {}\n", 
                                             expected_board_wnf3,
                                             expected_active_color_wnf3,
                                             expected_en_passant_wnf3,
-                                            expected_castle_permissions_wnf3,
+                                            expected_castle_perm_wnf3,
                                             expected_position_key_wnf3
                                         );
 
@@ -1418,10 +4321,10 @@ mod tests {
             BoardBuilder::new_with_pieces(pieces).build().unwrap(),
         )
         .active_color(Color::White)
-        .castle_permissions(CastlePerm::default())
+        .castle_perm(CastlePerm::default())
         .en_passant(Some(Square64::E6))
         .halfmove_clock(0)
-        .fullmove_number(3)
+        .fullmove_count(3)
         .build();
         assert_eq!(output, expected);
     }
@@ -1507,12 +4410,12 @@ mod tests {
 
     #[test]
     fn test_gamestate_try_from_invalid_fullmove_exceeds_max() {
-        let fullmove: u32 = 1025;
+        let fullmove: usize = 1025;
         let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq - 0 1025";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateBuildError::GamestateValidityCheck(
-            GamestateValidityCheckError::StrictFullmoveNumberNotInRange {
-                fullmove_number: fullmove,
+            GamestateValidityCheckError::StrictFullmoveCountNotInRange {
+                fullmove_count: fullmove,
             },
         ));
         assert_eq!(output, expected);
@@ -1520,12 +4423,12 @@ mod tests {
 
     #[test]
     fn test_gamestate_try_from_invalid_fullmove_zero() {
-        let fullmove: u32 = 0;
+        let fullmove: usize = 0;
         let input = "rnbqkbnr/pppp1pp1/7p/3Pp3/8/8/PPP1PPPP/RNBQKBNR w KQkq - 0 0";
         let output = Gamestate::try_from(input);
         let expected = Err(GamestateBuildError::GamestateValidityCheck(
-            GamestateValidityCheckError::StrictFullmoveNumberNotInRange {
-                fullmove_number: fullmove,
+            GamestateValidityCheckError::StrictFullmoveCountNotInRange {
+                fullmove_count: fullmove,
             },
         ));
         assert_eq!(output, expected);
