@@ -15,6 +15,38 @@ use strum::{EnumCount, ParseError as StrumParseError};
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq)]
+pub enum UndoMoveError {
+    #[error(transparent)]
+    GamestateValidity(#[from] GamestateValidityCheckError),
+
+    #[error(transparent)]
+    SquareConversion(#[from] SquareConversionError),
+
+    #[error("Captured Piece is invalid")]
+    PieceConversion(#[from] PieceConversionError),
+
+    #[error(transparent)]
+    MoveDeserialize(#[from] MoveDeserializeError),
+
+    #[error(transparent)]
+    AddPiece(#[from] AddPieceError),
+
+    #[error(transparent)]
+    ClearPiece(#[from] ClearPieceError),
+
+    #[error(
+        "Attempted to undo a Move, but even the initial state dummy Move was not found in history"
+    )]
+    NoInitialState,
+
+    #[error("Attempted to undo a Move, but no Move was found in history")]
+    NoMoveToUndo,
+
+    #[error("Move that was encoded as a castling move ends on {end_square} which is not a valid ending square for a castling move")]
+    CastleEndSquare { end_square: Square },
+}
+
+#[derive(Error, Debug, PartialEq)]
 pub enum MakeMoveError {
     #[error(transparent)]
     GamestateValidity(#[from] GamestateValidityCheckError),
@@ -22,34 +54,31 @@ pub enum MakeMoveError {
     #[error(transparent)]
     MoveValidity(#[from] MoveValidityError),
 
+    #[error(transparent)]
+    MovePiece(#[from] MovePieceError),
+
+    #[error(transparent)]
+    ClearPiece(#[from] ClearPieceError),
+
     // TODO: figure out why I have to do this right now?
     #[error(transparent)]
     MoveDeserialize(#[from] MoveDeserializeError),
 
-    #[error("Square in front of (aka holding the piece that should be captured) en_passant square is not a valid Square")]
+    #[error(transparent)]
     SquareConversion(#[from] SquareConversionError),
-
-    #[error("Captured Piece is invalid")]
-    PieceConversion(#[from] PieceConversionError),
 
     #[error("Move that was encoded as a castling move ends on {end_square} which is not a valid ending square for a castling move")]
     CastleEndSquare { end_square: Square },
 
-    #[error("Cannot clear square {empty_square}, since it is already empty")]
-    NoPieceToClear { empty_square: Square },
+    #[error("Moved Piece was not found in Board pieces array")]
+    MovedPieceNotInPieces,
 
-    #[error("Cannot find square {missing_square} in piece_list under piece {piece}")]
-    SquareNotFoundInPieceList {
-        missing_square: Square,
-        piece: Piece,
-    },
+    #[error("Cannot move into position that would put the moving side in check")]
+    MoveWouldPutMovingSideInCheck,
+}
 
-    #[error("Cannot add to square {occupied_square}, since it is already occupied by a {piece_at_square}")]
-    AddToOccupiedSquare {
-        occupied_square: Square,
-        piece_at_square: Piece,
-    },
-
+#[derive(Error, Debug, PartialEq)]
+pub enum MovePieceError {
     #[error("Cannot clear square {start_square}, since it is already empty")]
     NoPieceAtMoveStart { start_square: Square },
 
@@ -62,11 +91,32 @@ pub enum MakeMoveError {
         end_piece: Piece,
     },
 
-    #[error("Moved Piece was not found in Board pieces array")]
-    MovedPieceNotInPieces,
+    #[error("Cannot find square {missing_square} in piece_list under piece {piece}")]
+    SquareNotFoundInPieceList {
+        missing_square: Square,
+        piece: Piece,
+    },
+}
 
-    #[error("Cannot move into position that would put the moving side in check")]
-    MoveWouldPutMovingSideInCheck,
+#[derive(Error, Debug, PartialEq)]
+pub enum AddPieceError {
+    #[error("Cannot add to square {occupied_square}, since it is already occupied by a {piece_at_square}")]
+    AddToOccupiedSquare {
+        occupied_square: Square,
+        piece_at_square: Piece,
+    },
+}
+
+#[derive(Error, Debug, PartialEq)]
+pub enum ClearPieceError {
+    #[error("Cannot clear square {empty_square}, since it is already empty")]
+    NoPieceToClear { empty_square: Square },
+
+    #[error("Cannot find square {missing_square} in piece_list under piece {piece}")]
+    SquareNotFoundInPieceList {
+        missing_square: Square,
+        piece: Piece,
+    },
 }
 
 #[derive(Error, Debug, PartialEq)]

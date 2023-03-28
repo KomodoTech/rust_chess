@@ -15,6 +15,10 @@ use crate::{
 // moves can be made from that position
 pub const MAX_GAME_POSITIONS: usize = 256;
 
+/// This is a "dummy" value of Move that denotes that this isn't a real Move
+/// Will be used when storing the initial state of the game in the gamestate's history
+const INITIAL_STATE_DUMMY_MOVE: u32 = u32::MAX;
+
 // any bit representation of a 120 square will occupy at most 7 bits
 const MOVE_SQUARE_MASK: u32 = 0x7F;
 // any bit representation of a piece will occupy at most 4 bits
@@ -175,7 +179,11 @@ impl MoveBuilder {
 /// 0000 0001 0000 0000 0000 0000 0000 0000 CASTLE:         0x1000000  bit 24 represents whether or not a move was a castling move
 /// 0001 1110 0000 0000 0000 0000 0000 0000 PIECE_MOVED:    >> 25 0x7F bits 25-28 represent which piece was initially moved
 ///
-/// bits 29-31 will be unused
+/// bits 29-31 will be unused, except in the case where you create a "dummy"
+/// Move for the purposes of storing an Undo struct that is used to store
+/// the state of the initial board. That dummy Move will be all 1s aka u32::MAX
+///
+///
 /// IMPORTANT: 000 0000 indicates Square 0 in theory (in practice we should avoid this with the type system) and not absence
 ///            0000 indicates absence for Pieces. 0001 indicated White Pawn
 /// NOTE: The number of pieces can fit in 4 bits while the number of 120 squares can fit in 7 bits
@@ -212,6 +220,13 @@ impl Move {
             | (((piece_moved as u32) + 1) << MOVE_PIECE_MOVED_SHIFT);
 
         Move { move_, score: 0 }
+    }
+
+    pub fn new_initial_state_dummy() -> Self {
+        Move {
+            move_: INITIAL_STATE_DUMMY_MOVE,
+            score: 0,
+        }
     }
 
     // TODO: revisit when performance tuning. Effectively, doing this many checks every move might
@@ -678,7 +693,7 @@ impl Move {
         }
     }
 
-    fn get_piecemove_d_raw(&self) -> u32 {
+    pub fn get_piece_moved_raw(&self) -> u32 {
         (self.move_ >> MOVE_PIECE_MOVED_SHIFT) & MOVE_PIECE_MASK
     }
 
@@ -688,6 +703,10 @@ impl Move {
 
     pub fn is_promotion(&self) -> bool {
         (self.move_ & MOVE_IS_PROMOTED_MASK) != 0
+    }
+
+    pub fn is_initial_state_dummy(&self) -> bool {
+        self.move_ == INITIAL_STATE_DUMMY_MOVE
     }
 
     pub fn get_score(&self) -> u16 {
@@ -770,7 +789,7 @@ impl fmt::Display for Move {
             f,
             "Piece Moved: {} {:04b}",
             piecemove_d,
-            self.get_piecemove_d_raw()
+            self.get_piece_moved_raw()
         )
     }
 }

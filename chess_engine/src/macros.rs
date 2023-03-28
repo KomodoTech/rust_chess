@@ -9,11 +9,20 @@ use strum_macros::EnumCount as EnumCountMacro;
 
 //=============================== FULLMOVE TO PLY =============================
 /// Ply is the number of total halfmoves played during the game.
+/// NOTE: fullmove_count starts at 1, so ply should be:
+/// ((fullmove_count - 1) * 2) + (active_color as usize)
+///  
+///  (fullmove_count, ply, active_color)
+///  Move 0: (1, 0, W)  ply = ((1 - 1) * 2) + 0 = 0
+///  Move 1: (1, 1, B)  ply = ((1 - 1) * 2) + 1 = 1
+///  Move 2: (2, 2, W)  ply = ((2 - 1) * 2) + 0 = 2
+///  Move 3: (2, 3, B)  ply = ((2 - 1) * 2) + 1 = 3
+///  Move 4: (3, 4, W)  ply = ((3 - 1) * 2) + 0 = 4, etc.
 macro_rules! to_ply_count {
     ($fullmove_count: expr, $active_color: expr) => {{
         let fullmove_count: usize = $fullmove_count;
         let active_color: Color = $active_color;
-        (fullmove_count * 2) + (active_color as usize)
+        ((fullmove_count - 1) * 2) + (active_color as usize)
     }};
 }
 
@@ -166,8 +175,7 @@ macro_rules! idx_64_to_120 {
             61, 62, 63, 64, 65, 66, 67, 68,
             71, 72, 73, 74, 75, 76, 77, 78,
             81, 82, 83, 84, 85, 86, 87, 88,
-            91, 92, 93, 94, 95, 96, 97, 98,
-                                                                                        ];
+                        91, 92, 93, 94, 95, 96, 97, 98,];
 
         SQUARE_64_TO_120_INDEX[$idx_64]
     }};
@@ -180,21 +188,22 @@ mod test {
     //======================== FULLMOVE_COUNT TO PLY =========================
     #[test]
     fn test_to_ply_macro_valid_white() {
+        ///  Move 5: (3, 5, B)  ply = ((3 - 1) * 2) + 1 = 5
+        ///  Move 6: (4, 6, W)  ply = ((4 - 1) * 2) + 0 = 6
         let active_color = Color::White;
-        // Black just moved so 8 plys are expected
         let fullmove_count = 4;
         let output = to_ply_count!(fullmove_count, active_color);
-        let expected = 8;
+        let expected = 6;
         assert_eq!(output, expected);
     }
 
     #[test]
     fn test_to_ply_macro_valid_black() {
+        ///  Move 7: (4, 7, B)  ply = ((4 - 1) * 2) + 1 = 7
         let active_color = Color::Black;
-        // White just moved so 9 plys are expected
         let fullmove_count = 4;
         let output = to_ply_count!(fullmove_count, active_color);
-        let expected = 9;
+        let expected = 7;
         assert_eq!(output, expected);
     }
 

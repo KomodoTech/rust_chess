@@ -11,9 +11,9 @@ use crate::{
     castle_perm::{self, Castle, CastlePerm, NUM_CASTLE_PERM},
     color::Color,
     error::{
-        BoardFenDeserializeError, GamestateBuildError, GamestateFenDeserializeError,
-        GamestateValidityCheckError, MakeMoveError, MoveGenError, RankFenDeserializeError,
-        SquareConversionError,
+        AddPieceError, BoardFenDeserializeError, ClearPieceError, GamestateBuildError,
+        GamestateFenDeserializeError, GamestateValidityCheckError, MakeMoveError, MoveGenError,
+        MovePieceError, RankFenDeserializeError, SquareConversionError, UndoMoveError,
     },
     file::File,
     moves::{Move, MoveList},
@@ -260,6 +260,18 @@ impl GamestateBuilder {
         // Update position_key
         gamestate.init_position_key();
 
+        // Add dummy Undo to allow undoing back to initial state
+        if gamestate.history.is_empty() {
+            let initial_state = Undo {
+                move_: Move::new_initial_state_dummy(),
+                castle_perm: gamestate.castle_perm,
+                en_passant: gamestate.en_passant,
+                halfmove_clock: gamestate.halfmove_clock,
+                position_key: gamestate.position_key,
+            };
+            gamestate.history.push(initial_state);
+        }
+
         if let ValidityCheck::Strict = self.validity_check {
             gamestate.check_gamestate(self.validity_check)?;
         }
@@ -328,108 +340,118 @@ impl Gamestate {
     //================================= MAKING MOVES ==========================
 
     /// If successful it will return the Move that was undone
-    pub fn undo_move(&mut self) -> Result<Move, MakeMoveError> {
-        self.check_gamestate(ValidityCheck::Move);
+    pub fn undo_move(&mut self) -> Result<Move, UndoMoveError> {
+        self.check_gamestate(ValidityCheck::Move)?;
 
         // Rewind fullmove_count if you're undoing Black's Move (aka currently White's Move)
         if self.active_color == Color::White {
             self.fullmove_count -= 1;
         }
 
-        let history_ply = to_ply_count!(self.fullmove_count, self.active_color);
+        // NOTE: Initial state stored in Undo like castle_perm, etc. is stored
+        // in history with a dummy move.
+        match self.history.len() {
+            0 => Err(UndoMoveError::NoInitialState),
+            1 => Err(UndoMoveError::NoMoveToUndo),
+            _ => {
+                // Grab the Move that you want to undo
+                let move_ = self.history.pop().ok_or(UndoMoveError::NoMoveToUndo)?.move_;
 
-        // Grab the Move that you want to undo
-        let move_ = self.history[history_ply].move_;
+                let previous_state = self
+                    .history
+                    .last()
+                    .expect("Expected at least one Undo to be left in history since len > 1");
 
-        // Move we are trying to undo can be assumed to have been properly encoded
-        let start_square = Square::try_from(move_.get_start_raw())?;
-        let end_square = Square::try_from(move_.get_end_raw())?;
+                let start_square = Square::try_from(move_.get_start_raw())?;
+                let end_square = Square::try_from(move_.get_end_raw())?;
 
-        // Reset current state in position key
-        if let Some(en_passant) = self.en_passant {
-            self.position_key.hash_en_passant(Square::from(en_passant));
-        }
-        self.position_key.hash_castle_perm(self.castle_perm);
-
-        // Reset to previous state
-        self.castle_perm = self.history[history_ply].castle_perm;
-        self.halfmove_clock = self.history[history_ply].halfmove_clock;
-        self.en_passant = self.history[history_ply].en_passant;
-
-        if let Some(en_passant) = self.en_passant {
-            self.position_key.hash_en_passant(Square::from(en_passant));
-        }
-        self.position_key.hash_castle_perm(self.castle_perm);
-
-        self.active_color.toggle();
-        self.position_key.hash_color();
-
-        // deal with the previous Move being an en_passant Move
-        if move_.is_en_passant() {
-            match self.active_color {
-                // active_color is now who played in the previous Move
-                Color::White => {
-                    // add the pawn back
-                    let square_to_add = (end_square - (NUM_BOARD_COLUMNS as i8))?;
-                    self.add_piece(square_to_add, Piece::BlackPawn)?;
+                // Reset current state in position key
+                if let Some(en_passant) = self.en_passant {
+                    self.position_key.hash_en_passant(Square::from(en_passant));
                 }
-                Color::Black => {
-                    let square_to_add = (end_square + (NUM_BOARD_COLUMNS as i8))?;
-                    self.add_piece(square_to_add, Piece::WhitePawn)?;
+                self.position_key.hash_castle_perm(self.castle_perm);
+
+                // Reset to previous state
+                self.castle_perm = previous_state.castle_perm;
+                self.halfmove_clock = previous_state.halfmove_clock;
+                self.en_passant = previous_state.en_passant;
+
+                if let Some(en_passant) = self.en_passant {
+                    self.position_key.hash_en_passant(Square::from(en_passant));
                 }
+                self.position_key.hash_castle_perm(self.castle_perm);
+
+                self.active_color.toggle();
+                self.position_key.hash_color();
+
+                // deal with the previous Move being an en_passant Move
+                if move_.is_en_passant() {
+                    match self.active_color {
+                        // active_color is now who played in the previous Move
+                        Color::White => {
+                            // add the pawn back
+                            let square_to_add = (end_square - (NUM_BOARD_COLUMNS as i8))?;
+                            self.add_piece(square_to_add, Piece::BlackPawn)?;
+                        }
+                        Color::Black => {
+                            let square_to_add = (end_square + (NUM_BOARD_COLUMNS as i8))?;
+                            self.add_piece(square_to_add, Piece::WhitePawn)?;
+                        }
+                    }
+                } else if move_.is_castle() {
+                    // Move rooks back
+                    match end_square {
+                        Square::C1 => {
+                            self.move_piece(Square::D1, Square::A1);
+                        }
+                        Square::G1 => {
+                            self.move_piece(Square::F1, Square::H1);
+                        }
+                        Square::C8 => {
+                            self.move_piece(Square::D8, Square::A8);
+                        }
+                        Square::G8 => {
+                            self.move_piece(Square::F8, Square::H8);
+                        }
+                        _ => {
+                            return Err(UndoMoveError::CastleEndSquare { end_square });
+                        }
+                    }
+                }
+
+                // Move piece that was moved back to previous position
+                self.move_piece(end_square, start_square);
+
+                let piece_moved = move_.get_piece_moved()?;
+
+                // Reset kings_square if needed
+                if piece_moved.is_king() {
+                    self.board.kings_square[self.active_color as usize] = Some(end_square);
+                }
+
+                // Reset any captured pieces
+                if let Some(captured_piece) = move_.get_piece_captured()? {
+                    if self.en_passant.is_none() {
+                        self.add_piece(end_square, captured_piece);
+                    }
+                }
+
+                if move_.is_promotion() {
+                    // when we call move_piece earlier we would have moved the promoted piece
+                    // so we must clear it and then add back a pawn
+                    self.clear_piece(start_square)?;
+                    let pawn = match self.active_color {
+                        Color::White => Piece::WhitePawn,
+                        Color::Black => Piece::BlackPawn,
+                    };
+                    self.add_piece(start_square, pawn);
+                }
+
+                self.check_gamestate(ValidityCheck::Move)?;
+
+                Ok(move_)
             }
-        } else if move_.is_castle() {
-            // Move rooks back
-            match end_square {
-                Square::C1 => {
-                    self.move_piece(Square::D1, Square::A1);
-                }
-                Square::G1 => {
-                    self.move_piece(Square::F1, Square::H1);
-                }
-                Square::C8 => {
-                    self.move_piece(Square::D8, Square::A8);
-                }
-                Square::G8 => {
-                    self.move_piece(Square::F8, Square::H8);
-                }
-                _ => {
-                    return Err(MakeMoveError::CastleEndSquare { end_square });
-                }
-            }
         }
-
-        // Move piece that was moved back to previous position
-        self.move_piece(end_square, start_square);
-
-        let piece_moved = move_.get_piece_moved()?;
-
-        // Reset kings_square if needed
-        if piece_moved.is_king() {
-            self.board.kings_square[self.active_color as usize] = Some(end_square);
-        }
-
-        // Reset any captured pieces
-        if let Some(captured_piece) = move_.get_piece_captured()? {
-            if self.en_passant.is_none() {
-                self.add_piece(end_square, captured_piece);
-            }
-        }
-
-        if move_.is_promotion() {
-            // when we call move_piece earlier we would have moved the promoted piece
-            // so we must clear it and then add back a pawn
-            self.clear_piece(start_square);
-            let pawn = match self.active_color {
-                Color::White => Piece::WhitePawn,
-                Color::Black => Piece::BlackPawn,
-            };
-            self.add_piece(start_square, pawn);
-        }
-
-        self.check_gamestate(ValidityCheck::Move)?;
-
-        Ok(move_)
     }
 
     pub fn make_move(&mut self, move_: Move) -> Result<(), MakeMoveError> {
@@ -585,7 +607,7 @@ impl Gamestate {
             self.board.kings_square[initial_active_color as usize]
                 .expect("Expected King's square to be stored in kings_square"),
         )) {
-            // TODO: Call self.undo_move()
+            self.undo_move();
             return Err(MakeMoveError::MoveWouldPutMovingSideInCheck);
         }
 
@@ -599,9 +621,9 @@ impl Gamestate {
         &mut self,
         start_square: Square,
         end_square: Square,
-    ) -> Result<(), MakeMoveError> {
+    ) -> Result<(), MovePieceError> {
         let piece = self.board.pieces[start_square as usize]
-            .ok_or(MakeMoveError::NoPieceAtMoveStart { start_square })?;
+            .ok_or(MovePieceError::NoPieceAtMoveStart { start_square })?;
 
         let color = piece.get_color();
         let piece_type = piece.get_piece_type();
@@ -609,7 +631,7 @@ impl Gamestate {
         let piece_on_end_square = self.board.pieces[end_square as usize];
         match piece_on_end_square {
             Some(end_piece) => {
-                return Err(MakeMoveError::MoveEndsOnOccupiedSquare {
+                return Err(MovePieceError::MoveEndsOnOccupiedSquare {
                     piece,
                     end_square,
                     end_piece,
@@ -632,7 +654,7 @@ impl Gamestate {
                 }
                 // if square was not found in piece_list something went wrong
                 if !found_in_piece_list {
-                    return Err(MakeMoveError::SquareNotFoundInPieceList {
+                    return Err(MovePieceError::SquareNotFoundInPieceList {
                         missing_square: start_square,
                         piece,
                     });
@@ -656,12 +678,12 @@ impl Gamestate {
     /// Adds a piece to all the appropriate places in the Board and updates the
     /// position_key. Returns an Err if you try to add a Piece to an occupied
     /// square.
-    fn add_piece(&mut self, square: Square, piece: Piece) -> Result<(), MakeMoveError> {
+    fn add_piece(&mut self, square: Square, piece: Piece) -> Result<(), AddPieceError> {
         let piece_on_square = self.board.pieces[square as usize];
 
         match piece_on_square {
             Some(occupying_piece) => {
-                return Err(MakeMoveError::AddToOccupiedSquare {
+                return Err(AddPieceError::AddToOccupiedSquare {
                     occupied_square: square,
                     piece_at_square: occupying_piece,
                 });
@@ -709,8 +731,8 @@ impl Gamestate {
 
     /// Removes a piece from all appropriate places in the Board and updates
     /// the position_key. Returns an Err if you try to clear an empty Square.
-    fn clear_piece(&mut self, square: Square) -> Result<Piece, MakeMoveError> {
-        let piece = self.board.pieces[square as usize].ok_or(MakeMoveError::NoPieceToClear {
+    fn clear_piece(&mut self, square: Square) -> Result<Piece, ClearPieceError> {
+        let piece = self.board.pieces[square as usize].ok_or(ClearPieceError::NoPieceToClear {
             empty_square: square,
         })?;
 
@@ -734,7 +756,7 @@ impl Gamestate {
         }
         // if square was not found in piece_list something went wrong
         if !found_in_piece_list {
-            return Err(MakeMoveError::SquareNotFoundInPieceList {
+            return Err(ClearPieceError::SquareNotFoundInPieceList {
                 missing_square: square,
                 piece,
             });
@@ -1051,31 +1073,13 @@ impl Gamestate {
             if let Ok(square_ahead) = square_ahead {
                 let rank = start_square.get_rank();
 
-                let mut is_pawn_start = false;
                 let mut is_promotion = false;
 
                 // Add move to move_list if square ahead is empty (possibly two ahead as well)
                 if self.board.pieces[square_ahead as usize].is_none() {
                     match rank {
-                        // Check if pawn start
                         pawn_start_rank if (pawn_start_rank == start_rank) => {
-                            is_pawn_start = true;
-
-                            // Add pawn moves one ahead
-                            let _move = Move::new(
-                                start_square,
-                                square_ahead,
-                                None,
-                                false,
-                                is_pawn_start,
-                                None,
-                                false,
-                                pawn,
-                            );
-
-                            move_list.add_move(_move);
-
-                            // Add move two ahead if square vacant
+                            // Add move two ahead if square vacant. Set as "pawn_start"
                             let square_two_ahead = (start_square + (vertical_direction * 2));
                             if let Ok(square_two_ahead) = square_two_ahead {
                                 if self.board.pieces[square_two_ahead as usize].is_none() {
@@ -1084,7 +1088,7 @@ impl Gamestate {
                                         square_two_ahead,
                                         None,
                                         false,
-                                        is_pawn_start,
+                                        true,
                                         None,
                                         false,
                                         pawn,
@@ -1093,8 +1097,21 @@ impl Gamestate {
                                     move_list.add_move(_move);
                                 }
                             }
-                        }
 
+                            // Add pawn moves one ahead. Not a "pawn_start".
+                            let _move = Move::new(
+                                start_square,
+                                square_ahead,
+                                None,
+                                false,
+                                false,
+                                None,
+                                false,
+                                pawn,
+                            );
+
+                            move_list.add_move(_move);
+                        }
                         // Check if promotion (one ahead)
                         pawn_promotion_rank if (pawn_promotion_rank == promotion_rank) => {
                             is_promotion = true; // NOTE: promotion is mandatory
@@ -1105,7 +1122,7 @@ impl Gamestate {
                                     square_ahead,
                                     None,
                                     false,
-                                    is_pawn_start,
+                                    false,
                                     Some(promotion),
                                     false,
                                     pawn,
@@ -1121,7 +1138,7 @@ impl Gamestate {
                                 square_ahead,
                                 None,
                                 false,
-                                is_pawn_start,
+                                false,
                                 None,
                                 false,
                                 pawn,
@@ -1153,7 +1170,7 @@ impl Gamestate {
                                                     attacked_square,
                                                     Some(piece_captured),
                                                     false,
-                                                    is_pawn_start,
+                                                    false,
                                                     Some(promotion),
                                                     false,
                                                     pawn,
@@ -1169,7 +1186,7 @@ impl Gamestate {
                                                 attacked_square,
                                                 Some(piece_captured),
                                                 false,
-                                                is_pawn_start,
+                                                false,
                                                 None,
                                                 false,
                                                 pawn,
@@ -1700,6 +1717,53 @@ mod tests {
     }
 
     //======================== MAKE MOVES =====================================
+    // MAKE/UNDO MOVES VISUAL ONLY
+    #[test]
+    fn test_gamestate_make_undo_moves_visual() {
+        let fen = DEFAULT_FEN;
+        let mut gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let move_list = gamestate.gen_move_list().unwrap().moves;
+
+        let mut move_errors = vec![];
+        let mut undo_errors = vec![];
+
+        let mut move_count: usize = 0;
+
+        println!("{}", gamestate);
+        for move_ in move_list.into_iter().flatten() {
+            match gamestate.make_move(move_) {
+                Ok(()) => {
+                    println!("Make Move Success:\n{}", move_);
+                    println!("{}", gamestate);
+
+                    move_count += 1;
+
+                    match gamestate.undo_move() {
+                        Ok(undo_move) => {
+                            println!("Undo Move Success:\n{}", undo_move);
+                            println!("{}", gamestate);
+                        }
+                        Err(e) => {
+                            println!("UNDO ERROR: {}", e);
+                            undo_errors.push(e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("MOVE ERROR: {}", e);
+                    move_errors.push(e);
+                }
+            }
+        }
+
+        println!("{} NUMBER OF MOVES: ", move_count);
+        println!("{} MOVE Errors:\n{:#?}", move_errors.len(), move_errors);
+        println!("{} MOVE Errors:\n{:#?}", undo_errors.len(), move_errors);
+    }
 
     // MOVE PIECE
     #[test]
@@ -1710,12 +1774,23 @@ mod tests {
             .build()
             .unwrap();
 
+        let initial_position_key = output.position_key;
+
         // move WhiteKnight from B1 to C3 which is empty
         output.move_piece(Square::B1, Square::C3);
+
+        let history = vec![Undo {
+            move_: Move::new_initial_state_dummy(),
+            castle_perm: CastlePerm::default(),
+            en_passant: None,
+            halfmove_clock: 0,
+            position_key: initial_position_key,
+        }];
 
         let fen_after_add = "rnbqkbnr/pppppppp/8/8/8/2N5/PPPPPPPP/R1BQKBNR w KQkq - 0 1";
         let expected = GamestateBuilder::new_with_fen(fen_after_add)
             .unwrap()
+            .history(history)
             .build()
             .unwrap();
 
@@ -1732,7 +1807,7 @@ mod tests {
 
         // try to move B3 which is empty
         let output = input.move_piece(Square::B3, Square::B4);
-        let expected = Err(MakeMoveError::NoPieceAtMoveStart {
+        let expected = Err(MovePieceError::NoPieceAtMoveStart {
             start_square: Square::B3,
         });
 
@@ -1749,7 +1824,7 @@ mod tests {
 
         // try to move WhiteKnight on C3 to D5 which is occupied by BlackPawn
         let output = input.move_piece(Square::C3, Square::D5);
-        let expected = Err(MakeMoveError::MoveEndsOnOccupiedSquare {
+        let expected = Err(MovePieceError::MoveEndsOnOccupiedSquare {
             piece: Piece::WhiteKnight,
             end_square: Square::D5,
             end_piece: Piece::BlackPawn,
@@ -1787,7 +1862,7 @@ mod tests {
         // add WhiteKnight to D2 which is occupied by WhitePawn
         let output = input.add_piece(Square::D2, Piece::WhiteKnight);
 
-        let expected = Err(MakeMoveError::AddToOccupiedSquare {
+        let expected = Err(AddPieceError::AddToOccupiedSquare {
             occupied_square: Square::D2,
             piece_at_square: Piece::WhitePawn,
         });
@@ -1805,10 +1880,21 @@ mod tests {
             .build()
             .unwrap();
 
+        let initial_position_key = output.position_key;
+
         output.clear_piece(Square::D2);
+
+        let history = vec![Undo {
+            move_: Move::new_initial_state_dummy(),
+            castle_perm: CastlePerm(0),
+            en_passant: None,
+            halfmove_clock: 0,
+            position_key: initial_position_key,
+        }];
 
         let expected = GamestateBuilder::new()
             .validity_check(ValidityCheck::Basic)
+            .history(history)
             .build()
             .unwrap();
 
@@ -1829,7 +1915,18 @@ mod tests {
             .build()
             .unwrap();
 
+        let initial_position_key = output.position_key;
+
         output.clear_piece(Square::D2);
+
+        // Initial State's held in history would be different
+        let history = vec![Undo {
+            move_: Move::new_initial_state_dummy(),
+            castle_perm: CastlePerm(0),
+            en_passant: None,
+            halfmove_clock: 0,
+            position_key: initial_position_key,
+        }];
 
         let expected = GamestateBuilder::new_with_board(
             BoardBuilder::new()
@@ -1839,6 +1936,7 @@ mod tests {
                 .unwrap(),
         )
         .validity_check(ValidityCheck::Basic)
+        .history(history)
         .build()
         .unwrap();
 
@@ -1854,12 +1952,23 @@ mod tests {
             .build()
             .unwrap();
 
+        let initial_position_key = output.position_key;
+
         output.clear_piece(Square::D2);
+
+        let history = vec![Undo {
+            move_: Move::new_initial_state_dummy(),
+            castle_perm: CastlePerm::default(),
+            en_passant: None,
+            halfmove_clock: 0,
+            position_key: initial_position_key,
+        }];
 
         let fen_after_clear = "rnbqkbnr/pppppppp/8/8/8/8/PPP1PPPP/RNBQKBNR w KQkq - 0 1";
         let mut expected = GamestateBuilder::new_with_fen(fen_after_clear)
             .unwrap()
             .validity_check(ValidityCheck::Basic)
+            .history(history)
             .build()
             .unwrap();
 
@@ -1877,7 +1986,7 @@ mod tests {
 
         let output = input.clear_piece(Square::D1);
 
-        let expected = Err(MakeMoveError::NoPieceToClear {
+        let expected = Err(ClearPieceError::NoPieceToClear {
             empty_square: Square::D1,
         });
 
@@ -2759,7 +2868,7 @@ mod tests {
             Square::A6,
             None,
             false,
-            true,
+            false,
             None,
             false,
             piece_moved,
@@ -2807,7 +2916,7 @@ mod tests {
             Square::C6,
             None,
             false,
-            true,
+            false,
             None,
             false,
             piece_moved,
@@ -2868,7 +2977,7 @@ mod tests {
             Square::E6,
             None,
             false,
-            true,
+            false,
             None,
             false,
             piece_moved,
@@ -3107,7 +3216,7 @@ mod tests {
             Square::A3,
             None,
             false,
-            true,
+            false,
             None,
             false,
             piece_moved,
@@ -3158,7 +3267,7 @@ mod tests {
             Square::C3,
             None,
             false,
-            true,
+            false,
             None,
             false,
             piece_moved,
@@ -3219,7 +3328,7 @@ mod tests {
             Square::E3,
             None,
             false,
-            true,
+            false,
             None,
             false,
             piece_moved,
@@ -3538,8 +3647,14 @@ mod tests {
         let en_passant = None;
         let halfmove_clock = 0;
         let fullmove_count = 1;
-        let history = Vec::new();
         let position_key = PositionKey(6527259550795953174);
+        let history = vec![Undo {
+            move_: Move::new_initial_state_dummy(),
+            castle_perm,
+            en_passant,
+            halfmove_clock,
+            position_key,
+        }];
 
         let expected = Ok(Gamestate {
             board,
