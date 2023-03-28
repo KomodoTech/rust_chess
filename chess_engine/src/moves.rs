@@ -183,7 +183,7 @@ impl MoveBuilder {
 /// Move for the purposes of storing an Undo struct that is used to store
 /// the state of the initial board. That dummy Move will be all 1s aka u32::MAX
 ///
-///
+/// 
 /// IMPORTANT: 000 0000 indicates Square 0 in theory (in practice we should avoid this with the type system) and not absence
 ///            0000 indicates absence for Pieces. 0001 indicated White Pawn
 /// NOTE: The number of pieces can fit in 4 bits while the number of 120 squares can fit in 7 bits
@@ -223,10 +223,7 @@ impl Move {
     }
 
     pub fn new_initial_state_dummy() -> Self {
-        Move {
-            move_: INITIAL_STATE_DUMMY_MOVE,
-            score: 0,
-        }
+        Move{ move_: INITIAL_STATE_DUMMY_MOVE, score: 0 }
     }
 
     // TODO: revisit when performance tuning. Effectively, doing this many checks every move might
@@ -401,6 +398,8 @@ impl Move {
                 _ => return Err(MoveValidityError::PromotionNonPawnMoved { piece_moved }),
             }
 
+            // TODO: move generation gets PAWN_PROMOTION_TARGETS which doesn't include
+            // pawns or kings
             // Can't promote to pawn
             if piece.is_pawn() {
                 return Err(MoveValidityError::PromotionToPawn);

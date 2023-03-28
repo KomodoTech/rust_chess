@@ -1720,7 +1720,9 @@ mod tests {
     // MAKE/UNDO MOVES VISUAL ONLY
     #[test]
     fn test_gamestate_make_undo_moves_visual() {
-        let fen = DEFAULT_FEN;
+        // let fen = DEFAULT_FEN;
+        let fen = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
+
         let mut gamestate = GamestateBuilder::new_with_fen(fen)
             .unwrap()
             .build()
@@ -1760,9 +1762,9 @@ mod tests {
             }
         }
 
-        println!("{} NUMBER OF MOVES: ", move_count);
-        println!("{} MOVE Errors:\n{:#?}", move_errors.len(), move_errors);
-        println!("{} MOVE Errors:\n{:#?}", undo_errors.len(), move_errors);
+        println!("NUMBER OF MOVES: {}", move_count);
+        println!("MOVE Errors: {}\n{:#?}", move_errors.len(), move_errors);
+        println!("MOVE Errors: {}\n{:#?}", undo_errors.len(), move_errors);
     }
 
     // MOVE PIECE
@@ -3648,13 +3650,15 @@ mod tests {
         let halfmove_clock = 0;
         let fullmove_count = 1;
         let position_key = PositionKey(6527259550795953174);
-        let history = vec![Undo {
-            move_: Move::new_initial_state_dummy(),
-            castle_perm,
-            en_passant,
-            halfmove_clock,
-            position_key,
-        }];
+        let history = vec![
+            Undo {
+                move_: Move::new_initial_state_dummy(),
+                castle_perm,
+                en_passant,
+                halfmove_clock,
+                position_key
+            }
+        ];
 
         let expected = Ok(Gamestate {
             board,
