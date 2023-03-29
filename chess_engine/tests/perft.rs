@@ -5,6 +5,7 @@ use chess_engine::{
 use num::Zero;
 
 use std::{
+    env,
     error::Error,
     fs::File,
     io::{self, BufRead},
@@ -12,6 +13,7 @@ use std::{
     path::Path,
 };
 
+const PARENT_DIR: &str = "chess_engine";
 const PERFT_EXPECTED_PATH: &str = "tests/perft_expected.txt";
 const PERFT_FEN_COUNT: usize = 126;
 
@@ -84,27 +86,23 @@ fn perft(gamestate: &mut Gamestate, depth: usize, leaf_count: &mut u64) -> Resul
     Ok(*leaf_count)
 }
 
-fn divided_perft(
-    gamestate: &mut Gamestate,
-    depth: usize,
-    leaf_count: &mut u64,
-) -> Result<u64, PerftError> {
+fn divided_perft(gamestate: &mut Gamestate, depth: usize) -> Result<u64, PerftError> {
     gamestate.check_gamestate(ValidityCheck::Move)?;
 
     println!("{}", gamestate);
     println!("PERFT TO DEPTH {}", depth);
 
-    *leaf_count = 0;
+    let mut leaf_count = 0;
 
     let move_list = gamestate.gen_move_list()?;
     for (move_idx, move_) in move_list.moves.into_iter().flatten().enumerate() {
         if gamestate.make_move(move_).is_ok() {
-            let mut total_count = *leaf_count;
+            let total_count = leaf_count;
 
-            perft(gamestate, depth - 1, leaf_count)?;
+            perft(gamestate, depth - 1, &mut leaf_count)?;
             gamestate.undo_move()?;
 
-            let prev_delta_count = *leaf_count - total_count;
+            let prev_delta_count = leaf_count - total_count;
             println!(
                 "Move {}: {}{} : {}",
                 move_idx,
@@ -114,10 +112,10 @@ fn divided_perft(
             );
         }
 
-        println!("TOTAL NODES VISITED: {}", *leaf_count);
+        println!("TOTAL NODES VISITED: {}", leaf_count);
     }
 
-    Ok(*leaf_count)
+    Ok(leaf_count)
 }
 
 fn read_lines<P>(path: P) -> io::Result<io::Lines<io::BufReader<File>>>
@@ -168,19 +166,31 @@ where
 
 #[test]
 fn test_perft() {
-    let perft_expected_path = Path::new(PERFT_EXPECTED_PATH);
+    // NOTE: the Current Working Directory is set to ${workspaceRoot} when
+    // testing, but ${workspaceRoot}/metadata for debugging
+    // https://github.com/rust-lang/rust-analyzer/issues/4705
+    // https://github.com/rust-lang/cargo/issues/3946
+    let curr_dir = std::env::current_dir().unwrap();
+    let curr_dir_last = curr_dir.iter().last().unwrap().to_str().unwrap();
+
+    let perf_expected_path = match curr_dir_last {
+        _normal_path if curr_dir_last == PARENT_DIR => PERFT_EXPECTED_PATH.to_owned(),
+        // Reset curr_dir for debug mode
+        _debug_path => {
+            format!("{}/{}", PARENT_DIR, PERFT_EXPECTED_PATH)
+        }
+    };
+
+    let perft_expected_path = Path::new(perf_expected_path.as_str());
     let expected = init_expected(perft_expected_path).unwrap();
 
-    // println!("{:#?}\n Testing {} FENs", expected, expected.len());
+    // let mut gamestate = GamestateBuilder::new_with_fen(
+    //     "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+    // )
+    // .unwrap()
+    // .build()
+    // .unwrap();
 
-    let mut gamestate = GamestateBuilder::new_with_fen(
-        "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
-    )
-    .unwrap()
-    .build()
-    .unwrap();
-
-    let mut leaf_count: u64 = 0;
-    let node_count = divided_perft(&mut gamestate, 2, &mut leaf_count).unwrap();
-    println!("node_count: {}", node_count);
+    // let node_count = divided_perft(&mut gamestate, 2).unwrap();
+    // println!("node_count: {}", node_count);
 }

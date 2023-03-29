@@ -357,6 +357,9 @@ impl Gamestate {
                 // Grab the Move that you want to undo
                 let move_ = self.history.pop().ok_or(UndoMoveError::NoMoveToUndo)?.move_;
 
+                // TODO: confirm that these checks aren't needed at this point
+                // move_.check_move_strict()?;
+
                 let previous_state = self
                     .history
                     .last()

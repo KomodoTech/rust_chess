@@ -16,6 +16,8 @@ use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq)]
 pub enum UndoMoveError {
+    // #[error(transparent)]
+    // MoveValidity(#[from] MoveValidityError),
     #[error(transparent)]
     GamestateValidity(#[from] GamestateValidityCheckError),
 
