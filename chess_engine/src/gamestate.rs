@@ -3650,15 +3650,13 @@ mod tests {
         let halfmove_clock = 0;
         let fullmove_count = 1;
         let position_key = PositionKey(6527259550795953174);
-        let history = vec![
-            Undo {
-                move_: Move::new_initial_state_dummy(),
-                castle_perm,
-                en_passant,
-                halfmove_clock,
-                position_key
-            }
-        ];
+        let history = vec![Undo {
+            move_: Move::new_initial_state_dummy(),
+            castle_perm,
+            en_passant,
+            halfmove_clock,
+            position_key,
+        }];
 
         let expected = Ok(Gamestate {
             board,
