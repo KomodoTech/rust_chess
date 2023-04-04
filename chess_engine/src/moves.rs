@@ -114,8 +114,8 @@ impl MoveBuilder {
         self
     }
 
-    pub fn piece_captured(&mut self, piece_captured: Option<Piece>) -> &mut Self {
-        self.piece_captured = piece_captured;
+    pub fn piece_captured(&mut self, piece_captured: Piece) -> &mut Self {
+        self.piece_captured = Some(piece_captured);
         self
     }
 
@@ -130,8 +130,8 @@ impl MoveBuilder {
         self
     }
 
-    pub fn piece_promoted(&mut self, piece_promoted: Option<Piece>) -> &mut Self {
-        self.piece_promoted = piece_promoted;
+    pub fn piece_promoted(&mut self, piece_promoted: Piece) -> &mut Self {
+        self.piece_promoted = Some(piece_promoted);
         self
     }
 
@@ -193,6 +193,8 @@ pub struct Move {
     score: u16,
 }
 
+// TODO: Revisit choice to make Piece_Moved also start with 1 for White Pawn even though it
+// isn't Optional...
 // TODO: remove direct constructor if performance allows
 impl Move {
     /// IMPORTANT: Keep in mind that Piece 0 is a White Pawn but inside move 0

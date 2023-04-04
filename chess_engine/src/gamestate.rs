@@ -39,6 +39,7 @@ const DEFAULT_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct Undo {
     move_: Move,
+    /// These pertain to the state BEFORE move_ is made:
     castle_perm: CastlePerm,
     en_passant: Option<Square64>,
     halfmove_clock: u8,
@@ -348,22 +349,18 @@ impl Gamestate {
             self.fullmove_count -= 1;
         }
 
+        // TODO: this is unecessary, remove the initial history dummy move
         // NOTE: Initial state stored in Undo like castle_perm, etc. is stored
         // in history with a dummy move.
         match self.history.len() {
             0 => Err(UndoMoveError::NoInitialState),
             1 => Err(UndoMoveError::NoMoveToUndo),
             _ => {
+                // Grab the last Undo in history which has the move that was made as
+                // well as game state from BEFORE the move was made
+                let previous_state = self.history.pop().ok_or(UndoMoveError::NoMoveToUndo)?;
                 // Grab the Move that you want to undo
-                let move_ = self.history.pop().ok_or(UndoMoveError::NoMoveToUndo)?.move_;
-
-                // TODO: confirm that these checks aren't needed at this point
-                // move_.check_move_strict()?;
-
-                let previous_state = self
-                    .history
-                    .last()
-                    .expect("Expected at least one Undo to be left in history since len > 1");
+                let move_ = previous_state.move_;
 
                 let start_square = Square::try_from(move_.get_start_raw())?;
                 let end_square = Square::try_from(move_.get_end_raw())?;
@@ -387,7 +384,6 @@ impl Gamestate {
                 self.active_color.toggle();
                 self.position_key.hash_color();
 
-                // deal with the previous Move being an en_passant Move
                 if move_.is_en_passant() {
                     match self.active_color {
                         // active_color is now who played in the previous Move
@@ -429,12 +425,12 @@ impl Gamestate {
 
                 // Reset kings_square if needed
                 if piece_moved.is_king() {
-                    self.board.kings_square[self.active_color as usize] = Some(end_square);
+                    self.board.kings_square[self.active_color as usize] = Some(start_square);
                 }
 
                 // Reset any captured pieces
                 if let Some(captured_piece) = move_.get_piece_captured()? {
-                    if self.en_passant.is_none() {
+                    if !move_.is_en_passant() {
                         self.add_piece(end_square, captured_piece);
                     }
                 }
@@ -537,7 +533,7 @@ impl Gamestate {
             // if en_passant, then the pawn_start that caused the en_passant
             // will have already been checked to make sure that the end_square
             // is empty
-            if self.en_passant.is_none() {
+            if !move_.is_en_passant() {
                 self.clear_piece(end_square);
             }
             self.halfmove_clock = 0;
@@ -553,7 +549,7 @@ impl Gamestate {
         // Reset en_passant (they expire after a move)
         self.en_passant = None;
 
-        // TODO: confirm you can just do move_.get_piece_moved()?
+        // TODO: confirm you can just do move_.get_piece_moved()
         let piece_moved =
             self.board.pieces[start_square as usize].ok_or(MakeMoveError::MovedPieceNotInPieces)?;
 
@@ -1072,16 +1068,17 @@ impl Gamestate {
             let start_square = self.board.get_piece_list()[pawn as usize][pawn_index];
 
             // Check Pawn forward moves
+            // TODO: consider just checking the rank here
             let square_ahead = (start_square + vertical_direction);
             if let Ok(square_ahead) = square_ahead {
                 let rank = start_square.get_rank();
 
-                let mut is_promotion = false;
+                let mut is_promotion = (rank == promotion_rank);
 
                 // Add move to move_list if square ahead is empty (possibly two ahead as well)
                 if self.board.pieces[square_ahead as usize].is_none() {
                     match rank {
-                        pawn_start_rank if (pawn_start_rank == start_rank) => {
+                        pawn_start_rank if (rank == start_rank) => {
                             // Add move two ahead if square vacant. Set as "pawn_start"
                             let square_two_ahead = (start_square + (vertical_direction * 2));
                             if let Ok(square_two_ahead) = square_two_ahead {
@@ -1116,9 +1113,7 @@ impl Gamestate {
                             move_list.add_move(_move);
                         }
                         // Check if promotion (one ahead)
-                        pawn_promotion_rank if (pawn_promotion_rank == promotion_rank) => {
-                            is_promotion = true; // NOTE: promotion is mandatory
-
+                        pawn_promotion_rank if is_promotion => {
                             for promotion in promotion_targets {
                                 let _move = Move::new(
                                     start_square,
@@ -1164,39 +1159,35 @@ impl Gamestate {
                             Some(piece_captured) => {
                                 // square in direction occupied by takeable piece
                                 if piece_captured.get_color() == non_active_color {
-                                    match is_promotion {
+                                    if is_promotion {
                                         // taking piece would result in promotion
-                                        true => {
-                                            for promotion in promotion_targets {
-                                                let _move = Move::new(
-                                                    start_square,
-                                                    attacked_square,
-                                                    Some(piece_captured),
-                                                    false,
-                                                    false,
-                                                    Some(promotion),
-                                                    false,
-                                                    pawn,
-                                                );
-
-                                                move_list.add_move(_move);
-                                            }
-                                        }
-
-                                        false => {
+                                        for promotion in promotion_targets {
                                             let _move = Move::new(
                                                 start_square,
                                                 attacked_square,
                                                 Some(piece_captured),
                                                 false,
                                                 false,
-                                                None,
+                                                Some(promotion),
                                                 false,
                                                 pawn,
                                             );
 
                                             move_list.add_move(_move);
                                         }
+                                    } else {
+                                        let _move = Move::new(
+                                            start_square,
+                                            attacked_square,
+                                            Some(piece_captured),
+                                            false,
+                                            false,
+                                            None,
+                                            false,
+                                            pawn,
+                                        );
+
+                                        move_list.add_move(_move);
                                     }
                                 }
                             }
@@ -1586,10 +1577,13 @@ impl Gamestate {
                 // of the direction offset, and early out of a direction when we hit a blocking piece
                 // and early out entirely if we find an attacking piece
                 sliding if piece.is_sliding() => {
+
+                    // TODO: consider moving this check in strict validity check on gamestate
                     // Optimization: bishops can never attack a square that is a different color than they are
-                    if (sliding.is_bishop() && (square.get_color() != sliding.get_color())) {
-                        continue;
-                    }
+                    // NOTE: turned this off for now since useful perft positions disregard this rule
+                    // if (sliding.is_bishop() && (square.get_color() != sliding.get_color())) {
+                    //     continue;
+                    // }
 
                     for direction in directions {
                         let mut offset = direction;
@@ -1630,6 +1624,8 @@ impl Gamestate {
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Borrow;
+
     use strum::IntoEnumIterator;
 
     use super::*;
@@ -1637,7 +1633,9 @@ mod tests {
         board::bitboard::BitBoard,
         error::{BoardBuildError, BoardValidityCheckError, PieceConversionError},
         file::File,
-        gamestate, position_key,
+        gamestate,
+        moves::MoveBuilder,
+        position_key,
     };
 
     fn assert_fuzzy_eq(output: &Gamestate, expected: &Gamestate) {
@@ -1720,7 +1718,265 @@ mod tests {
     }
 
     //======================== MAKE MOVES =====================================
-    // MAKE/UNDO MOVES VISUAL ONLY
+
+    #[test]
+    fn test_gamestate_make_undo_moves_depth_2_wp_a2_a3_kiwipete() {
+        let fen = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
+
+        let mut gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let move_wp_a2_a3 = MoveBuilder::new(Square::A2, Square::A3, Piece::WhitePawn)
+            .build()
+            .unwrap();
+
+        // kiwipete after wp A2 to A3:
+        // r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/P1N2Q1p/1PPBBPPP/R3K2R w KQkq - 0 1
+        gamestate.make_move(move_wp_a2_a3);
+
+        let move_list = gamestate.gen_move_list().unwrap().moves;
+
+        let mut move_errors = vec![];
+        let mut undo_errors = vec![];
+
+        let mut move_count: usize = 0;
+
+        println!("{}", gamestate);
+        for move_ in move_list.into_iter().flatten() {
+            match gamestate.make_move(move_) {
+                Ok(()) => {
+                    println!("Make Move Success:\n{}", move_);
+                    println!("{}", gamestate);
+
+                    move_count += 1;
+
+                    match gamestate.undo_move() {
+                        Ok(undo_move) => {
+                            println!("Undo Move Success:\n{}", undo_move);
+                            println!("{}", gamestate);
+                        }
+                        Err(e) => {
+                            println!("UNDO ERROR: {}", e);
+                            undo_errors.push(e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("MOVE ERROR: {}", e);
+                    move_errors.push(e);
+                }
+            }
+        }
+
+        println!("NUMBER OF MOVES: {}", move_count);
+        println!("MOVE Errors: {}\n{:#?}", move_errors.len(), move_errors);
+        println!("MOVE Errors: {}\n{:#?}", undo_errors.len(), move_errors);
+
+        let expected_move_count = 44;
+
+        assert_eq!(move_count, expected_move_count);
+    }
+
+    #[test]
+    fn test_gamestate_make_undo_moves_depth_2_wp_a2_a4_kiwipete() {
+        let fen = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
+
+        let mut gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let move_wp_a2_a4 = MoveBuilder::new(Square::A2, Square::A4, Piece::WhitePawn)
+            .pawn_start()
+            .build()
+            .unwrap();
+
+        // kiwipete after wp A2 to A4:
+        // r3k2r/p1ppqpb1/bn2pnp1/3PN3/Pp2P3/2N2Q1p/1PPBBPPP/R3K2R b KQkq a3 0 1
+        gamestate.make_move(move_wp_a2_a4);
+
+        let move_list = gamestate.gen_move_list().unwrap().moves;
+
+        let mut move_errors = vec![];
+        let mut undo_errors = vec![];
+
+        let mut move_count: usize = 0;
+
+        println!("{}", gamestate);
+        for move_ in move_list.into_iter().flatten() {
+            match gamestate.make_move(move_) {
+                Ok(()) => {
+                    println!("Make Move Success:\n{}", move_);
+                    println!("{}", gamestate);
+
+                    move_count += 1;
+
+                    match gamestate.undo_move() {
+                        Ok(undo_move) => {
+                            println!("Undo Move Success:\n{}", undo_move);
+                            println!("{}", gamestate);
+                        }
+                        Err(e) => {
+                            println!("UNDO ERROR: {}", e);
+                            undo_errors.push(e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("MOVE ERROR: {}", e);
+                    move_errors.push(e);
+                }
+            }
+        }
+
+        println!("NUMBER OF MOVES: {}", move_count);
+        println!("MOVE Errors: {}\n{:#?}", move_errors.len(), move_errors);
+        println!("MOVE Errors: {}\n{:#?}", undo_errors.len(), move_errors);
+
+        let expected_move_count = 44;
+
+        assert_eq!(move_count, expected_move_count);
+    }
+
+    //======================= UNDO MOVE =======================================
+    // TODO: make this more general. Currently using this test to confirm that
+    // en_passant isn't being moved back two states per undo
+    #[test]
+    fn test_gamestate_undo_move_t2_check_en_passant() {
+        let fen_t0 = DEFAULT_FEN;
+        // Move WP B2 to B4
+        let fen_t1 = "rnbqkbnr/pppppppp/8/8/1P6/8/P1PPPPPP/RNBQKBNR b KQkq b3 0 1";
+        // Move BN B8 to C6
+        let fen_t2 = "r1bqkbnr/pppppppp/2n5/8/1P6/8/P1PPPPPP/RNBQKBNR w KQkq - 1 2";
+
+        let mut gamestate_t0 = GamestateBuilder::new_with_fen(fen_t0)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let mut expected_gamestate_t1 = GamestateBuilder::new_with_fen(fen_t1)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let mut expected_gamestate_t2 = GamestateBuilder::new_with_fen(fen_t2)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // Move WP B2 to B4
+        let move_0 = MoveBuilder::new(Square::B2, Square::B4, Piece::WhitePawn)
+            .pawn_start()
+            .build()
+            .unwrap();
+        // Move BN B8 to C6
+        let move_1 = MoveBuilder::new(Square::B8, Square::C6, Piece::BlackKnight)
+            .build()
+            .unwrap();
+
+        // Make move_0
+        if gamestate_t0.make_move(move_0).is_err() {
+            panic!("move_0 failed")
+        }
+        // save ep at t1 to compare it to t1'
+        let expected_en_passant_t1 = gamestate_t0.en_passant;
+
+        // Make move_1
+        if gamestate_t0.make_move(move_1).is_err() {
+            panic!("move_1 failed")
+        }
+
+        assert_eq!(
+            gamestate_t0.active_color,
+            expected_gamestate_t2.active_color
+        );
+        assert_eq!(gamestate_t0.en_passant, expected_gamestate_t2.en_passant);
+        assert_eq!(gamestate_t0.castle_perm, expected_gamestate_t2.castle_perm);
+        assert_eq!(
+            gamestate_t0.fullmove_count,
+            expected_gamestate_t2.fullmove_count
+        );
+        assert_eq!(
+            gamestate_t0.halfmove_clock,
+            expected_gamestate_t2.halfmove_clock
+        );
+        assert_eq!(
+            gamestate_t0.position_key,
+            expected_gamestate_t2.position_key
+        );
+        // BOARD
+        assert_eq!(
+            gamestate_t0.board.pieces,
+            expected_gamestate_t2.board.pieces
+        );
+        assert_eq!(
+            gamestate_t0.board.big_piece_count,
+            expected_gamestate_t2.board.big_piece_count
+        );
+        assert_eq!(
+            gamestate_t0.board.kings_square,
+            expected_gamestate_t2.board.kings_square
+        );
+        assert_eq!(
+            gamestate_t0.board.major_piece_count,
+            expected_gamestate_t2.board.major_piece_count
+        );
+        assert_eq!(
+            gamestate_t0.board.minor_piece_count,
+            expected_gamestate_t2.board.minor_piece_count
+        );
+        assert_eq!(
+            gamestate_t0.board.material_score,
+            expected_gamestate_t2.board.material_score
+        );
+        assert_eq!(gamestate_t0.board.pawns, expected_gamestate_t2.board.pawns);
+
+        // PIECE_LIST
+        // println!("gamestate_t0 piece_list:\n{:#?}\nexpected_gamestate_t2 piece_list:\n{:#?}",
+        //  gamestate_t0.board.piece_list,
+        //  expected_gamestate_t2.board.piece_list);
+
+        println!("GAMESTATE AT T2:\n{}", gamestate_t0);
+
+        // NOW UNDO
+        if gamestate_t0.undo_move().is_err() {
+            panic!("undo failed")
+        }
+        // CHECK IF EN_PASSANT SQUARE SURVIVED
+        assert_eq!(gamestate_t0.en_passant, expected_en_passant_t1);
+
+        println!("GAMESTATE AT T2:\n{}", gamestate_t0);
+
+        if gamestate_t0.undo_move().is_err() {
+            panic!("undo failed")
+        }
+        println!("GAMESTATE AT T2:\n{}", gamestate_t0);
+    }
+
+    //======================= MAKE MOVE =======================================
+    // Check that moves that would put the king in check aren't allowed
+    #[test]
+    fn test_gamestate_make_move_in_check() {
+        let fen = "k7/B7/1B6/1B6/8/8/8/K6b b - - 0 1";
+        let mut gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // BK at A8 can't take WB at A7
+        let move_1 = MoveBuilder::new(Square::A8, Square::A7, Piece::BlackKing)
+            .piece_captured(Piece::WhiteBishop)
+            .build()
+            .unwrap();
+
+        let output = gamestate.make_move(move_1);
+        let expected = Err(MakeMoveError::MoveWouldPutMovingSideInCheck);
+        assert_eq!(output, expected);
+    }
+
+    //======================= MAKE/UNDO MOVES VISUAL ONLY =====================
     #[test]
     fn test_gamestate_make_undo_moves_visual() {
         // let fen = DEFAULT_FEN;
@@ -2117,6 +2373,180 @@ mod tests {
     }
 
     //========================= MOVE GEN ======================================
+
+    #[test]
+    fn test_gamestate_move_gen_promotion() {
+        // Movegen was missing moves in perft
+        // n1n5/1Pk5/8/8/8/8/5Kp1/5N1N b - - 0 1:
+        // C7 B8 should return 20 moves
+        let fen = "nkn5/1P6/8/8/8/8/5Kp1/5N1N w - - 1 2";
+        let gamestate = GamestateBuilder::new_with_fen(fen)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let mut output = gamestate.gen_move_list().unwrap();
+        let mut expected = MoveList::new();
+
+        // Promotion on C8
+        expected.moves[0] = Some(
+            MoveBuilder::new(Square::B7, Square::C8, Piece::WhitePawn)
+                .piece_captured(Piece::BlackKnight)
+                .piece_promoted(Piece::WhiteKnight)
+                .build()
+                .unwrap(),
+        );
+
+        expected.moves[1] = Some(
+            MoveBuilder::new(Square::B7, Square::C8, Piece::WhitePawn)
+                .piece_captured(Piece::BlackKnight)
+                .piece_promoted(Piece::WhiteBishop)
+                .build()
+                .unwrap(),
+        );
+
+        expected.moves[3] = Some(
+            MoveBuilder::new(Square::B7, Square::C8, Piece::WhitePawn)
+                .piece_captured(Piece::BlackKnight)
+                .piece_promoted(Piece::WhiteRook)
+                .build()
+                .unwrap(),
+        );
+
+        expected.moves[4] = Some(
+            MoveBuilder::new(Square::B7, Square::C8, Piece::WhitePawn)
+                .piece_captured(Piece::BlackKnight)
+                .piece_promoted(Piece::WhiteQueen)
+                .build()
+                .unwrap(),
+        );
+
+        // Promotion on A8
+        expected.moves[5] = Some(
+            MoveBuilder::new(Square::B7, Square::A8, Piece::WhitePawn)
+                .piece_captured(Piece::BlackKnight)
+                .piece_promoted(Piece::WhiteKnight)
+                .build()
+                .unwrap(),
+        );
+
+        expected.moves[6] = Some(
+            MoveBuilder::new(Square::B7, Square::A8, Piece::WhitePawn)
+                .piece_captured(Piece::BlackKnight)
+                .piece_promoted(Piece::WhiteBishop)
+                .build()
+                .unwrap(),
+        );
+
+        expected.moves[7] = Some(
+            MoveBuilder::new(Square::B7, Square::A8, Piece::WhitePawn)
+                .piece_captured(Piece::BlackKnight)
+                .piece_promoted(Piece::WhiteRook)
+                .build()
+                .unwrap(),
+        );
+
+        expected.moves[8] = Some(
+            MoveBuilder::new(Square::B7, Square::A8, Piece::WhitePawn)
+                .piece_captured(Piece::BlackKnight)
+                .piece_promoted(Piece::WhiteQueen)
+                .build()
+                .unwrap(),
+        );
+
+        // Knight Moves
+        expected.moves[9] = Some(
+            MoveBuilder::new(Square::F1, Square::D2, Piece::WhiteKnight)
+                .build()
+                .unwrap(),
+        );
+
+        expected.moves[10] = Some(
+            MoveBuilder::new(Square::F1, Square::H2, Piece::WhiteKnight)
+                .build()
+                .unwrap(),
+        );
+
+        expected.moves[11] = Some(
+            MoveBuilder::new(Square::F1, Square::E3, Piece::WhiteKnight)
+                .build()
+                .unwrap(),
+        );
+
+        expected.moves[12] = Some(
+            MoveBuilder::new(Square::F1, Square::G3, Piece::WhiteKnight)
+                .build()
+                .unwrap(),
+        );
+
+        expected.moves[13] = Some(
+            MoveBuilder::new(Square::H1, Square::G3, Piece::WhiteKnight)
+                .build()
+                .unwrap(),
+        );
+
+        // King moves
+        expected.moves[14] = Some(
+            MoveBuilder::new(Square::F2, Square::E1, Piece::WhiteKing)
+                .build()
+                .unwrap(),
+        );
+
+        expected.moves[15] = Some(
+            MoveBuilder::new(Square::F2, Square::G1, Piece::WhiteKing)
+                .build()
+                .unwrap(),
+        );
+
+        expected.moves[16] = Some(
+            MoveBuilder::new(Square::F2, Square::E2, Piece::WhiteKing)
+                .build()
+                .unwrap(),
+        );
+
+        expected.moves[17] = Some(
+            MoveBuilder::new(Square::F2, Square::G2, Piece::WhiteKing)
+                .piece_captured(Piece::BlackPawn)
+                .build()
+                .unwrap(),
+        );
+
+        expected.moves[18] = Some(
+            MoveBuilder::new(Square::F2, Square::E3, Piece::WhiteKing)
+                .build()
+                .unwrap(),
+        );
+
+        expected.moves[19] = Some(
+            MoveBuilder::new(Square::F2, Square::F3, Piece::WhiteKing)
+                .build()
+                .unwrap(),
+        );
+
+        expected.moves[20] = Some(
+            MoveBuilder::new(Square::F2, Square::G3, Piece::WhiteKing)
+                .build()
+                .unwrap(),
+        );
+
+        expected.count = 20;
+
+        // SORT TO COMPARE
+        output.moves.sort();
+        expected.moves.sort();
+
+        println!("OUTPUT:");
+        for (index, move_) in output.moves.iter().flatten().enumerate() {
+            println!("{}: {}", index, move_);
+        }
+
+        println!("EXPECTED:");
+        for (index, move_) in expected.moves.iter().flatten().enumerate() {
+            println!("{}: {}", index, move_);
+        }
+
+        assert_eq!(output, expected);
+    }
 
     #[test]
     fn test_gamestate_move_gen_all_moves_tricky_visual() {
@@ -3933,7 +4363,9 @@ mod tests {
         assert_eq!(output, expected);
     }
 
+    // TODO: test skipped because we are allowing bishops on opposite color square. Revisit
     #[test]
+    #[ignore]
     fn test_square_attacked_white_bishop_on_black_square() {
         // const FEN: &str = "8/8/8/8/8/2B4K/8/k7 w - - 0 1";
         let board = BoardBuilder::new()
